@@ -1,0 +1,12 @@
+# SMS connection details for warning/alarm distribution (over email). The recipients have to be defined in the database.  Don't use string signs (' '). Lines starting with # are not read by the program.
+#The mail will be sent to identification.phonenumber@server
+#
+# server: sms server site (e.g. server = sms.smscreator.de). Without @ sign.
+server = sms.smscreator.de 
+#
+# identification: identification pattern for the server. (e.g. identification = serialnumber.password).
+identification = mySerialnumber.myPassword
+#
+# contactaddr: address/phone/person given as contact for questions and further information. If no contactaddres given write: - (e.g. contactaddr = Max, maxmuster@lhep.unibe.ch)
+contactaddr = myName, myContact@gmail.com
+

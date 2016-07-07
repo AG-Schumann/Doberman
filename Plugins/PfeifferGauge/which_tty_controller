@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+
+TTY_LINE=`dmesg | grep 'generic converter' | grep "now attached to" | tail -n 1`
+for word in $TTY_LINE;
+do
+TTY=$word
+done
+echo $TTY

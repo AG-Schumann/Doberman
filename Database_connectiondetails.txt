@@ -1,0 +1,2 @@
+host='localhost' dbname='myDatabaseName' user='myUser' password='myPassword' options='-c statement_timeout=10000'
+

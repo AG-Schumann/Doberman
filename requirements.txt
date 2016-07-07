@@ -1,0 +1,3 @@
+psycopg2==2.4.5
+pyserial==2.6
+pyusb==1.0 #for Plugin oxford_itc503
