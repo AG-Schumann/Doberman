@@ -40,7 +40,7 @@ Installation guide tested for linux ubuntu 16.04 LTS
 7. To create the tables in the database run `python Doberman.py -n` in the terminal. Confirm that you want to create all the tables (Don't start Doberman yet).
 8. Add your Plugins. Make sure you follow the steps on wiki (https://bitbucket.org/Doberman_slowcontrol/doberman/wiki/Home -> "Add a new Plugin") on how to add and properly write the Plugin specific code and where to save it.
 9. Optionally: Manage your settings (contacts, defaults, etc.) as described below ("Manage Settings").
-10. Optionally: Install the Web-App if required. ** MISSING: Link to Web-App **
+10. Optionally: Install the Web-App if required. [Doberman WebApp](https://bitbucket.org/Doberman_slowcontrol/webapp/overview)
 ## Usage ##
 
 ### Run main program ###
