@@ -13,6 +13,7 @@ import sys
 from argparse import ArgumentParser
 import imp
 import signal
+import atexit
 
 
 class Doberman(object):
@@ -1236,7 +1237,19 @@ class logFileWriter(object):
         self.close()
         return
 
+def deleteLockFile(lockfilePath):
+    os.remove(lockfilePath)
+
 if __name__ == '__main__':
+    lockfile = os.path.join(os.cwd(), "doberman.lock")
+    if os.path.exists(lockfile):
+        print("The lockfile exists: is there an instance of Doberman already running?")
+        sys.exit(0)
+    else:
+        with open(lockfile, 'w') as f:
+            f.write('\0')
+        atexit.register(deleteLockFile, lockfile)
+
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logger = logging.getLogger()
