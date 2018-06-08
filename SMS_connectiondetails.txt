@@ -5,8 +5,8 @@
 server = sms.smscreator.de 
 #
 # identification: identification pattern for the server. (e.g. identification = serialnumber.password).
-identification = mySerialnumber.myPassword
+identification = PHSMSC16859513.V4MAKP
 #
 # contactaddr: address/phone/person given as contact for questions and further information. If no contactaddres given write: - (e.g. contactaddr = Max, maxmuster@lhep.unibe.ch)
-contactaddr = myName, myContact@gmail.com
+contactaddr = xebra@physik.uni-freiburg.de
 

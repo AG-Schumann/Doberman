@@ -1,0 +1,7 @@
+# ttyUSB | Device
+    6    |'uti transducer'
+    8    |'uti transducer'
+    2    |'Teledyne flow controller THCD-100'
+    1    |'iseries1 i3200'
+    7    |'uti transducer'
+    0    |'iseries2 i3200'

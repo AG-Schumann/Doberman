@@ -7,10 +7,10 @@ server = smtp.gmail.com
 port = 587 
 #
 # fromaddr: address from which messages are sent.
-fromaddr = myMailAddress@gmail.com
+fromaddr = doberman.freiburg@gmail.com
 #
 # password: to the address given in fromaddr.
-password = myPassword
+password = H5t3m4Fd
 #
 # contactaddr: address given as contact for questions and further information (only one address can be used). If no contactaddres given write: -
-contactaddr = myContactAddress@gmail.com
+contactaddr = arne.trabert@hotmail.de

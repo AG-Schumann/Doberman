@@ -52,6 +52,8 @@ class TeledyneCommand(object):
         elif response[1][:5] != 'READ:':
             self.logger.debug("Invalide answer (%s). message was %s"%(response[1],message))
             return -1
+        elif '-' in response[1][5:10]:
+            return response[1][5:11],0
         else:
             return response[1][5:10],0
 
