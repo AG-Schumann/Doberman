@@ -1,17 +1,17 @@
-#! /usr/bin/env python2.7
+#!/usr/bin/env python3
 import time
 import logging
 import os
 import DobermanDB
 import alarmDistribution
-import Queue
+import queue
 import threading
 import datetime
-import thread
-from thread import start_new_thread
+import _thread
+from _thread import start_new_thread
 import sys
 from argparse import ArgumentParser
-import imp
+import importlib
 import signal
 
 
@@ -31,7 +31,7 @@ class Doberman(object):
         self.opts = opts
         self.logger = self.opts.logger
 
-        self.queue = Queue.Queue(0)
+        self.queue = queue.Queue(0)
         self.path = os.getcwd()  # Gets path to the folder of this file
 
         self.DDB = DobermanDB.DobermanDB(opts, logger)
@@ -93,11 +93,11 @@ class Doberman(object):
         Adds the path to the plugin and imports it.
         '''
         # converting config entries into opts. values
-	#
-	print "*******************"
-	print plugin
-	print "*******************"
-	#
+        #
+        print("*******************")
+        print(plugin)
+        print("*******************")
+        #
 
         name = plugin[0]
         opts.loginterval = plugin[7]
@@ -149,7 +149,7 @@ class Doberman(object):
         try:
             with timeout(self.opts.importtimeout):
                 __import__("%sControl" % name)
-                temp_plugin = imp.load_source('%sControl' % name,
+                temp_plugin = imp.load_module('%sControl' % name,
                                               '%s/Plugins/%s' %
                                               (self.path, name))
                 imp_plugin = (getattr(temp_plugin,
@@ -219,42 +219,42 @@ class Doberman(object):
         if len(running_controllers) > 0:
             self.logger.info("The following controller were successfully "
                              "started: %s" % str(running_controllers))
-            print "\n" + 60 * '-'
-            print "--Successfully started: %s" % str(running_controllers)
-            print "--Failed to start: %s" % str(failed_controllers)
-            print "--Failed to import: %s" % str(self.failed_import)
+            print(("\n" + 60 * '-'))
+            print(("--Successfully started: %s" % str(running_controllers)))
+            print(("--Failed to start: %s" % str(failed_controllers)))
+            print(("--Failed to import: %s" % str(self.failed_import)))
 
-            print "\n--Alarm statuses:"
+            print("\n--Alarm statuses:")
             for controller in running_controllers:
-                print("  %s: %s" %
+                print(("  %s: %s" %
                       (controller,
                        str([dev[2] for dev in self._config
-                            if dev[0] == controller][0])))
-            print "\n--Enabled contacts, status:"
+                            if dev[0] == controller][0]))))
+            print("\n--Enabled contacts, status:")
 
             for contact in self.DDB.getContacts():
                 if contact[1] in ['ON', 'TEL', 'MAIL']:
-                    print "  %s, %s" % (str(contact[0]), str(contact[1]))
+                    print(("  %s, %s" % (str(contact[0]), str(contact[1]))))
 
-            print "\n--Loaded connection details for alarms:"
+            print("\n--Loaded connection details for alarms:")
             if self.alarmDistr.mailconnection_details:
-                print "  Mail: Successfull."
+                print("  Mail: Successfull.")
                 if self.alarmDistr.smsconnection_details:
-                    print "  SMS: Successfull."
+                    print("  SMS: Successfull.")
                 else:
-                    print "  SMS: Not loaded!"
+                    print("  SMS: Not loaded!")
             else:
-                print "  Mail: Not loaded!"
-                print "  SMS: Mail required!"
+                print("  Mail: Not loaded!")
+                print("  SMS: Mail required!")
 
             if self.opts.testrun == -1:
-                print "\n--Testrun:\n  Activated."
+                print("\n--Testrun:\n  Activated.")
             elif self.opts.testrun == 0:
-                print "\n--Testrun:\n  Deactivated."
+                print("\n--Testrun:\n  Deactivated.")
             else:
-                print("\n--Testrun:\n  Active for the first %s minutes." %
-                      str(self.opts.testrun))
-            print 60 * '-'
+                print(("\n--Testrun:\n  Active for the first %s minutes." %
+                      str(self.opts.testrun)))
+            print((60 * '-'))
             return running_controllers
         else:
             self.logger.critical("No controller was started (Failed to import: "
@@ -1362,8 +1362,8 @@ if __name__ == '__main__':
     logger.removeHandler(chlog)
     logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of " % loglevel_default)
+        print(("ERROR: Given log level %i not allowed. "
+              "Fall back to default value of " % loglevel_default))
         opts.loglevel = loglevel_default
     logger.setLevel(int(opts.loglevel))
     chlog = logging.StreamHandler()
@@ -1389,8 +1389,8 @@ if __name__ == '__main__':
         print("\nUser input aborted! Check if your input changed anything.")
         sys.exit(0)
     except Exception as e:
-        print("\nError while user input! Check if your input changed anything."
-              " Error: %s", e)
+        print(("\nError while user input! Check if your input changed anything."
+              " Error: %s", e))
     if opts.new:
         DDB.recreateTableConfigHistory()
         DDB.recreateTableAlarmHistory()
@@ -1410,17 +1410,17 @@ if __name__ == '__main__':
     if opts.testrun == -1:
         print("WARNING: Testrun activated: No alarm / warnings will be sent.")
     elif opts.testrun == testrun_default:
-        print("WARNING: Testrun=%d (minutes) activated by default: "
+        print(("WARNING: Testrun=%d (minutes) activated by default: "
               "No alarms/warnings will be sent for the first %d minutes." %
-              (testrun_default, testrun_default))
+              (testrun_default, testrun_default)))
     else:
-        print("Testrun=%s (minutes) activated: "
+        print(("Testrun=%s (minutes) activated: "
               "No alarms/warnings will be sent for the first %s minutes." %
-              (str(opts.testrun), str(opts.testrun)))
+              (str(opts.testrun), str(opts.testrun))))
     # Import timeout option -i
     if opts.importtimeout < 1:
-        print("ERROR: Importtimeout to small. "
-              "Fall back to default value of %d s" % import_default)
+        print(("ERROR: Importtimeout to small. "
+              "Fall back to default value of %d s" % import_default))
         opts.importtimeout = import_default
     # Occupied ttyUSB option -o
     with open("ttyUSB_assignement.txt", "w") as f:
@@ -1430,16 +1430,16 @@ if __name__ == '__main__':
             f.write("    %d    |'Predefined unknown device'\n" % occupied_tty)
     # Filereading option -f
     if opts.filereading:
-        print("WARNING: opt -f enabled: Reading Plugin Config from file"
+        print(("WARNING: opt -f enabled: Reading Plugin Config from file"
               " '%s' and storing new settings to database... "
               "Possible changes in the database will be overwritten...!" %
-              opts.filereading)
+              opts.filereading))
         try:
             DDB.storeSettingsFromFile(opts.filereading)
         except Exception as e:
-            print("ERROR: Reading plugin settings from file failed! "
+            print(("ERROR: Reading plugin settings from file failed! "
                   "Error: %s. Check the settings in the database for any "
-                  "unwanted or missed changes." % e)
+                  "unwanted or missed changes." % e))
             text = ("Do you want to start the Doberman slow control "
                     "anyway (Y/N)?")
             answer = DDB.getUserInput(text, input_type=[str], be_in=[Y, y, N, n])
@@ -1452,6 +1452,6 @@ if __name__ == '__main__':
     except AttributeError:
         pass
     except Exception as e:
-        print e
+        print(e)
 
     sys.exit(0)

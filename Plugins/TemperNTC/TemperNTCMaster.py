@@ -410,7 +410,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger('slowcontrol.plugins.temperntclogger')
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()
@@ -420,6 +420,6 @@ if __name__ == '__main__':
     logger.addHandler(chlog)
 
     temperNTC_master = TemperNTCMaster(opts, logger)
-    print "test", temperNTC_master.get_internal_temperature()
+    print("test", temperNTC_master.get_internal_temperature())
     temperNTC_master.TemperNTCMaster()
     sys.exit(0)

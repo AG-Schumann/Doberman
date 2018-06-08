@@ -91,7 +91,7 @@ class smartec_uti2Serial(smartec_uti2Command.smartec_uti2Command):
                     dev = subprocess.Popen(["which_tty_controller"], stdout=subprocess.PIPE).communicate()[0]
                 except OSError:
                     which_tty_controller = os.path.abspath('which_tty_controller')
-                    print ("*** OSError:  path to 'which_tty_controller': ", which_tty_controller, "  ****") 
+                    print(("*** OSError:  path to 'which_tty_controller': ", which_tty_controller, "  ****")) 
                     if not os.path.exists(which_tty_controller):
                         raise OSError("Can not find binary which_tty_controller")
                     dev = subprocess.Popen([which_tty_controller], stdout=subprocess.PIPE).communicate()[0]
@@ -343,9 +343,9 @@ if __name__ == '__main__':
     
     utis = smartec_uti2Serial(logger)
     print('\n\nAs a test I print ID, Address, Communication Parameters, Setpoint1 and current value')
-    print(utis.getID())
-    print(utis.getAddress())
-    print(utis.getCommunicationParameters())
-    print(utis.getSetpoint(1))
-    print(utis.getDisplayedValue())
+    print((utis.getID()))
+    print((utis.getAddress()))
+    print((utis.getCommunicationParameters()))
+    print((utis.getSetpoint(1)))
+    print((utis.getDisplayedValue()))
 

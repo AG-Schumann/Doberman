@@ -26,10 +26,10 @@ class supervision(object):
     def __init__(self, logger, **kwds):
         self.logger = logger
 
-        if 'DEFAULT_TIMEOUT' in kwds.keys():
+        if 'DEFAULT_TIMEOUT' in list(kwds.keys()):
             DEFAULT_TIMEOUT = float(kwds['DEFAULT_TIMEOUT'])
             self.logger.info("Changed the default timeout to %i."%DEFAULT_TIMEOUT)
-        if 'PORTRANGE' in kwds.keys():
+        if 'PORTRANGE' in list(kwds.keys()):
             try:
                 kwds['PORTRANGE'] = literal_eval(kwds['PORTRANGE'])
                 if (isinstance(kwds['PORTRANGE'], tuple) or isinstance(kwds['PORTRANGE'], list)) and len(kwds['PORTRANGE']) == 2:
@@ -38,7 +38,7 @@ class supervision(object):
             except:
                 pass
         
-        if 'CERTFILE' in kwds.keys():
+        if 'CERTFILE' in list(kwds.keys()):
             try:
                 kwds['CERTFILE'] = literal_eval(kwds['CERTFILE'])
                 if isinstance(kwds['CERTFILE'], str):
@@ -47,7 +47,7 @@ class supervision(object):
             except:
                 pass
 
-        if 'KEYFILE' in kwds.keys():
+        if 'KEYFILE' in list(kwds.keys()):
             try:
                 kwds['KEYFILE'] = literal_eval(kwds['KEYFILE'])
                 if isinstance(kwds['KEYFILE'], str):
@@ -61,7 +61,7 @@ class supervision(object):
         self.close()
 
     def close(self):
-        print "wrong way \n\n\n\n\n"
+        print("wrong way \n\n\n\n\n")
         pass
 
     def _interpr_(self, mes):
@@ -136,7 +136,7 @@ class supervisionClient(supervisionProtocol, supervision):
         self.logger.info("Starting client...")
         try:
             self.__sock.connect((self.__connected_host, self.__port))
-        except socket.error, error:
+        except socket.error as error:
             self.logger.warning("Connection error: %s."%str(error))
             if error.errno == 111:
                 self.status = -1
@@ -200,7 +200,7 @@ class supervisionClient(supervisionProtocol, supervision):
         if not self.__sslsocket is None:
             try:
                 self.__sslsocket.shutdown(socket.SHUT_RDWR)
-            except socket.error, err:
+            except socket.error as err:
                 if not err.errno == 9:
                     raise err
                 self.logger.debug("Client connection was already shut down.")
@@ -212,7 +212,7 @@ class supervisionClient(supervisionProtocol, supervision):
                 self.__sock.shutdown(socket.SHUT_RDWR)
                 self.__sock.close()
                 self.__online = False
-            except socket.error, error:
+            except socket.error as error:
                 if error.errno == 107:
                     self.status = -1
                 self.logger.debug("Client connection was already shut down.")                
@@ -254,7 +254,7 @@ class supervisionClient(supervisionProtocol, supervision):
                     self.__sslsocket.shutdown(socket.SHUT_RDWR)
                     self.__sslsocket.close()
                     self.__online = False
-                except socket.error, error:
+                except socket.error as error:
                     if error.errno == 107:
                         self.status = -1
         return check
@@ -284,7 +284,7 @@ class supervisionClient(supervisionProtocol, supervision):
                     self.logger.debug("Sending message: %s."%str(message))
                     sent = self.__sslsocket.send(message)
                     message = message[sent:]
-                except socket.error, error:
+                except socket.error as error:
                     self.logger.warning("Socket error, error code: %i."%error.errno)
                     self.status = -3
                     if error.errno != errno.EAGAIN:
@@ -385,14 +385,14 @@ class supervisionClient(supervisionProtocol, supervision):
             try:
                 self.__sslsocket.shutdown(socket.SHUT_RDWR)
                 self.__sock = None
-            except socket.error, err:
+            except socket.error as err:
                 if not err.errno == 9:
                     raise err
             self.__sslsocket.close()
         if not self.__sock is None:
             try:
                 self.__sock.shutdown(socket.SHUT_RDWR)
-            except socket.error, err:
+            except socket.error as err:
                 if err.errno != 9 and err.errno != 107:
                     raise err
             self.__sock.close()
@@ -535,7 +535,7 @@ ooo
                 message = message[sent:]
                 if len(message):
                     self.logger.debug("Still left to send: %s."%message)
-            except socket.error, error:#  ssl.SSLWantWriteError: ?
+            except socket.error as error:#  ssl.SSLWantWriteError: ?
                 self.logger.warning("Have not sent %s, because of error: %s with error code: %s"%(message, str(error),  str(error.errno)))
                 self.status = -2
                 if error.errno != errno.EAGAIN:
@@ -612,7 +612,7 @@ ooo
                 self.logger.debug("Closing input connection")
                 connection.shutdown(socket.SHUT_RDWR)
                 connection.close()
-            except IOError, err:
+            except IOError as err:
                 if err.errno == 107:
                     connection.close()
         return True
@@ -628,7 +628,7 @@ ooo
         if not self.__sock is None:
             try:
                 self.__sock.shutdown(socket.SHUT_RDWR)
-            except socket.error, err:
+            except socket.error as err:
                 if err.errno == 107:
                     pass
                 else:
@@ -651,7 +651,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger()
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()
@@ -662,7 +662,7 @@ if __name__ == '__main__':
     if opts.server:
         opts.client = False
     if (opts.server and opts.client) or (not opts.server and not opts.client):
-        print 'can only server or client. You have to choose one'
+        print('can only server or client. You have to choose one')
         sys.exit(-1)
     if opts.server:
         server = supervisionServer(logger, (opts.address, opts.port))
@@ -672,14 +672,14 @@ if __name__ == '__main__':
         for i in range(1,2):
             client = supervisionClient(logger, (opts.address, opts.port))
             if opts.message:
-                print 'wanna send', opts.message
+                print('wanna send', opts.message)
                 client.send(opts.message)
             else:
-                print "online:", client.querry_online(), "\n --------------------------"
+                print("online:", client.querry_online(), "\n --------------------------")
                 client.close()
                 client = supervisionClient(logger, (opts.address, opts.port))
-                print "warning:", client.querry_warning(), "\n --------------------------"
+                print("warning:", client.querry_warning(), "\n --------------------------")
                 client.close()
                 client = supervisionClient(logger, (opts.address, opts.port))
-                print "alarm:", client.querry_alarm(), "\n --------------------------"
+                print("alarm:", client.querry_alarm(), "\n --------------------------")
     sys.exit(0)

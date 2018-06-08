@@ -421,7 +421,7 @@ class cryoCommand(object):
         message = 'LOOP '+ochannel+':HTRREAD?\n'
         if self.sendMsg(message) != 0:
             return -1
-        return unicode.replace(self.read(),'%','',1)
+        return str.replace(self.read(),'%','',1)
 
     def getLoopHeatsinkTemp(self, ochannel = None):
         if ochannel is None:

@@ -76,7 +76,7 @@ class supervisionProtocol(object):
         answer = str(answer).split(":",2)
         if len(answer) != 2:
             return -2
-        if not question in map(str, self.__qaa):
+        if not question in list(map(str, self.__qaa)):
             return -1
         if not question in answer[1]:
             return 0

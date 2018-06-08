@@ -291,8 +291,8 @@ if __name__ == '__main__':
     mks = MKS_MFCSerial(opts)
     print("\n\nAs a test I print Address, Units, FlowRate, "
           "Status, Internal Temperature")
-    print(mks.getAddress())
-    print(mks.getUnits())
-    print(mks.getFlowRate())
-    print(mks.getStatus())
-    print(mks.getInternalTemperature())
+    print((mks.getAddress()))
+    print((mks.getUnits()))
+    print((mks.getFlowRate()))
+    print((mks.getStatus()))
+    print((mks.getInternalTemperature()))

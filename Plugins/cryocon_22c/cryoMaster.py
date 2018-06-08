@@ -135,7 +135,7 @@ class ReadoutThread(threading.Thread):
         """
         Read out thread itself. Defines the read out format.
         """
-	print "!!!!!!!!!!! ATTENTION: We have overwritten cryocon22.ReadOutT with queued_ReadOutT !!!!"
+	print("!!!!!!!!!!! ATTENTION: We have overwritten cryocon22.ReadOutT with queued_ReadOutT !!!!")
         self.logger.debug("Reading data for log...")
         now = datetime.datetime.now()
         readout = str("| %s | %s | %s | %s | %s | %s | %s |"%(now.strftime('%Y-%m-%d | %H:%M:%S'),self.controller.getTemp('A'),self.controller.getTemp('B'), self.cryocon_22c_master.controller.getLoopPower('1'), self.cryocon_22c_master.controller.getLoopPowerOut('1'), self.cryocon_22c_master.controller.getSetPoint('1'), self.cryocon_22c_master.controller.getSetPoint('2'), self.controller.getAlarmStatus('A'),self.controller.getAlarmStatus('B')))
@@ -155,7 +155,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger()
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()

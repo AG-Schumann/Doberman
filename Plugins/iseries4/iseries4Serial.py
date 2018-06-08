@@ -237,9 +237,9 @@ if __name__ == '__main__':
     
     iser = iseries4Serial(logger)
     print('\n\nAs a test I print ID, Address, Communication Parameters, Setpoint1 and current value')
-    print(iser.getID())
-    print(iser.getAddress())
-    print(iser.getCommunicationParameters())
-    print(iser.getSetpoint(1))
-    print(iser.getDisplayedValue())
+    print((iser.getID()))
+    print((iser.getAddress()))
+    print((iser.getCommunicationParameters()))
+    print((iser.getSetpoint(1)))
+    print((iser.getDisplayedValue()))
 

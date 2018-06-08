@@ -3,7 +3,7 @@
 import cryoMaster
 
 import datetime
-import Queue
+import queue
 
 class cryocon_22cControl(object):
     """

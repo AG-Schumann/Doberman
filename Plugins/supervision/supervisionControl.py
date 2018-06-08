@@ -3,7 +3,7 @@
 import supervisionMaster
 
 import datetime
-import Queue
+import queue
 
 
 
@@ -17,9 +17,9 @@ class supervisionControl(object):
         self.__name = 'supervision'
         self.queue=opts.queue
         opts.server_address = opts.addresses[1]
-	    opts.server_port = int(opts.addresses[2])
-	    opts.remote_address = opts.additional_parameters[0]
-	    opts.remote_port = int(opts.additional_parameters[1])
+        opts.server_port = int(opts.addresses[2])
+        opts.remote_address = opts.additional_parameters[0]
+        opts.remote_port = int(opts.additional_parameters[1])
 
         self.supervision_master = supervisionMaster.supervisionMaster(opts, self.logger)
         supervisionMaster.ReadoutThread.ReadOutT = self.queued_ReadOutT #Redefine ReadOutT
@@ -33,7 +33,7 @@ class supervisionControl(object):
         '''
         self.logger.debug("Reading data for log...")
         now = datetime.datetime.now()
-       
+
         #collect data
         data = [self.supervision_master.super_vision_client.querry_online(), self.supervision_master.super_vision_client.querry_warning(), self.supervision_master.super_vision_client.querry_alarm()]
         status = [self.supervision_master.super_vision_server.status_online(),self.supervision_master.super_vision_server.status_warning(),self.supervision_master.super_vision_server.status_alarm()]

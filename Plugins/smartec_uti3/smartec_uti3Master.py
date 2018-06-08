@@ -21,7 +21,7 @@ class smartec_uti3Master(object):
     """
     def __init__(self, opts, logger):
 
-        print "*************************** hier bin ich ******************************"
+        print("*************************** hier bin ich ******************************")
         self.logger = logger
         self.logger.info(" init of smartec_uti3.utiMaster...")
         self.logger.debug(" init of smartec_uti3.utiMaster...")
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger()
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()

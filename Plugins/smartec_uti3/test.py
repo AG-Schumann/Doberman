@@ -13,12 +13,12 @@ ser = serial.Serial(
 
 ser.isOpen()
 
-print 'Enter your commands below.\r\nInsert "exit" to leave the application.'
+print('Enter your commands below.\r\nInsert "exit" to leave the application.')
 
 input=1
 while 1 :
     # get keyboard input
-    input = raw_input(">> ")
+    input = input(">> ")
         # Python 3 users
         # input = input(">> ")
     if input == 'exit':
@@ -34,4 +34,4 @@ while 1 :
             out += ser.read(1)
 
         if out != '':
-            print ">>" + out
+            print(">>" + out)

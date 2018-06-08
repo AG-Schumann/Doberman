@@ -326,13 +326,13 @@ if __name__ == '__main__':
     logger = logging.getLogger()
     logger.setLevel(10)
     
-    ps = pressureSerial(logger=logger,vendorID=0711,productID=0230)
+    ps = pressureSerial(logger=logger,vendorID=0o711,productID=0o230)
     print('\n\nAs a test I print Error Status, Gauge Control Settings, Pressure Data and Pressure Unit')
-    print(ps.getErrorStatus())
-    print(ps.getGaugeControl())
-    print(ps.getPressureData())
-    print(ps.getPressureUnit())
+    print((ps.getErrorStatus()))
+    print((ps.getGaugeControl()))
+    print((ps.getPressureData()))
+    print((ps.getPressureUnit()))
 
     print('other stuff')
-    print(ps.getTransmissionRate())
+    print((ps.getTransmissionRate()))
 

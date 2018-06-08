@@ -15,7 +15,7 @@ class pressureWriter(object):
         if self.__keyword is None:
             self.__keyword = 'STD'
 
-        if kwds.has_key('log_path'):
+        if 'log_path' in kwds:
              self._logpath = str(kwds['log_path'])
 
         if not os.path.isdir(self._logpath):

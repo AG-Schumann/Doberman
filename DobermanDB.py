@@ -1,8 +1,8 @@
-#! /usr/bin/env python2.7
+#!/usr/bin/env python3
 import time
 import logging
 from argparse import ArgumentParser
-import thread
+import _thread
 import psycopg2
 import datetime
 import time
@@ -50,7 +50,7 @@ class DobermanDB(object):
             return -1
         try:
             # Connect and get a cursor
-            conn = psycopg2.connect(self._conn_string)
+            conn = psycopg2.connect(self._conn_string) # cursor_factory=psycopg2.extras.DictCursor
             cur = conn.cursor()
             self.logger.debug("Connected with Doberman database.")
 
@@ -69,7 +69,7 @@ class DobermanDB(object):
             conn.commit()
             cur.close()
             conn.close()
-        except psycopg2.DatabaseError, e:
+        except psycopg2.DatabaseError as e:
             self.logger.warning("Can not interact with database "
                                 "(action = %s, %s). Error: %s" %
                                 (action, str(additional_actions), e))
@@ -374,7 +374,7 @@ class DobermanDB(object):
                                        be_in=[y, Y, n, N])
         if drop_table not in ['Y', 'y']:
             return
-        drop_str = "DROP TABLE IF EXISTS config_history"
+        drop_str = "DROP TABLE IF EXISTS Data_%s" % name
         if self.interactWithDatabase(drop_str) == -1:
             self.logger.warning("Can not delete data table 'Data_%s' from "
                                 "database. Error while interacting with DB" % name)
@@ -500,7 +500,7 @@ class DobermanDB(object):
                     "Parameters which the plugin needs and are not mentioned "
                     "in any of the other points.")
         for sentence in text:
-            print("\n - " + sentence)
+            print(("\n - " + sentence))
 
     def getUserInput(self, text, input_type=None, be_in=None, be_not_in=None, be_array=False, limits=None, string_length=None, exceptions=None):
         """
@@ -527,11 +527,11 @@ class DobermanDB(object):
                 literaleval = True
             # Read input.
             try:
-                user_input = self.__input_eval__(raw_input(text), literaleval)
+                user_input = self.__input_eval__(input(text), literaleval)
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                print("Error: %s. Try again." % e)
+                print(("Error: %s. Try again." % e))
                 continue
             # Check for input exceptions
             if exceptions:
@@ -548,7 +548,7 @@ class DobermanDB(object):
                     user_input = list(user_input)
                 elif isinstance(user_input, str):
                     user_input = user_input.split(",")
-                elif isinstance(user_input, (int, float, long)):
+                elif isinstance(user_input, (int, float)):
                     user_input = [user_input]
             # Remove spaces after comma for input lists
             if be_array and input_type == [str]:
@@ -556,41 +556,41 @@ class DobermanDB(object):
             # Check input for type, be_in, be_not_in, limits.
             if input_type:
                 if not all(isinstance(item, tuple(input_type)) for item in user_input):
-                    print("Wrong input format. Must be in %s. "
+                    print(("Wrong input format. Must be in %s. "
                           "Try again." %
-                          str(tuple(input_type)))
+                          str(tuple(input_type))))
                     continue
             if be_in:
                 if any(item not in be_in for item in user_input):
-                    print("Input must be in: %s. Try again." % str(be_in))
+                    print(("Input must be in: %s. Try again." % str(be_in)))
                     continue
             if be_not_in:
                 if any(item in be_not_in for item in user_input):
-                    print("Input is not allowed to be in: %s. "
-                          "Try again." % str(be_not_in))
+                    print(("Input is not allowed to be in: %s. "
+                          "Try again." % str(be_not_in)))
                     continue
             if limits:
                 if limits[0] or limits[0] == 0:  # Allows also 0.0 as lower limit
                     if any(item < limits[0] for item in user_input):
-                        print("Input must be between: %s. "
-                              "Try again." % str(limits))
+                        print(("Input must be between: %s. "
+                              "Try again." % str(limits)))
                         continue
                 if limits[1]:
                     if any(item > limits[1] for item in user_input):
-                        print("Input must be between: %s. "
-                              "Try again." % str(limits))
+                        print(("Input must be between: %s. "
+                              "Try again." % str(limits)))
                         continue
             # Check for string length
             if string_length:
                 if string_length[0] != None:
                     if any(len(item) < string_length[0] for item in user_input):
-                        print("Input string must have more than %s characters."
-                              " Try again." % str(string_length[0]))
+                        print(("Input string must have more than %s characters."
+                              " Try again." % str(string_length[0])))
                         continue
                 if string_length[1] != None:
                     if any(len(item) > string_length[1] for item in user_input):
-                        print("Input string must have less than %s characters."
-                              " Try again." % str(string_length[1]))
+                        print(("Input string must have less than %s characters."
+                              " Try again." % str(string_length[1])))
                         continue
             break
         if not be_array:
@@ -604,17 +604,17 @@ class DobermanDB(object):
         """
         while len(input_list) < length:
             if input_name:
-                print("Warning: Lenght of list '%s' too small, "
-                      "appending '%s'." % (input_name, str(append_item)))
+                print(("Warning: Lenght of list '%s' too small, "
+                      "appending '%s'." % (input_name, str(append_item))))
             else:
-                print("Warning: Lenght of list too small, "
-                      "appending '%s'." % str(append_item))
+                print(("Warning: Lenght of list too small, "
+                      "appending '%s'." % str(append_item)))
             input_list.append(append_item)
         if len(input_list) > length:
             if input_name:
-                print("Warning: Lenght of list '%s' larger than expected "
+                print(("Warning: Lenght of list '%s' larger than expected "
                       "(%s > %s)." % (input_name, str(len(input_list)),
-                                      str(length)))
+                                      str(length))))
             else:
                 print("Warning: Lenght of list larger than expected.")
         return input_list
@@ -627,26 +627,26 @@ class DobermanDB(object):
         y, Y = 'y', 'Y'
         n, N = 'n', 'N'
         # Print informations
-        print('\n' + 60 * '-' + '\nNew controller. ' +
-              'Please enter the following parameters below:\n')
+        print(('\n' + 60 * '-' + '\nNew controller. ' +
+              'Please enter the following parameters below:\n'))
         self.printParameterDescription()
-        print('\n' + 60 * '-' + '\n')
-        print('  - No string signs (") needed.\n  '
+        print(('\n' + 60 * '-' + '\n'))
+        print(('  - No string signs (") needed.\n  '
               '- Split arrays with comma (no spaces after it), '
               'no brackets needed!  \n  '
-              '- Enter 0 for no or default value  \n' + 60 * '-')
+              '- Enter 0 for no or default value  \n' + 60 * '-'))
         name = None
         # Enter all parameters:
         # Name
         while not name:
             name = self.getUserInput("Controller name:", input_type=[str],
-                                     be_not_in=[map(str, range(100))])
+                                     be_not_in=[list(map(str, list(range(100))))])
             # Check if name exists already
             if self._config == "EMPTY":  # First device
                 pass
             elif [dev[0] for dev in self._config if dev[0] == name]:
-                print("There is already a controller with the name '%s'." %
-                      str(name))
+                print(("There is already a controller with the name '%s'." %
+                      str(name)))
                 text = "Do you want to change '%s' (y/n)?" % str(name)
                 if self.getUserInput(text, input_type=[str]) in ['y', 'Y', y, Y]:
                     self.changeControllerByKeyboard()
@@ -736,13 +736,13 @@ class DobermanDB(object):
         for ii, al_stat in enumerate(alarm_status):
             try:
                 if al_stat == 'ON' and not (alarm_low[ii] <= warning_low[ii] < warning_high[ii] <= alarm_high[ii]):
-                    print("Warning: Invalid alarm/warning levels %d. "
-                          "Set alarm status %d to 'OFF' by default" % (ii, ii))
+                    print(("Warning: Invalid alarm/warning levels %d. "
+                          "Set alarm status %d to 'OFF' by default" % (ii, ii)))
                     alarm_status[ii] = 'OFF'
             except Exception as e:
-                print("Warning: Can not compare alarm/warning levels %d. "
+                print(("Warning: Can not compare alarm/warning levels %d. "
                       "Error %s. Set alarm status %d to 'OFF' by default" %
-                      (ii, e, ii))
+                      (ii, e, ii)))
                 alarm_status[ii] = 'OFF'
         # Make changes at database.
         add_str = ("INSERT INTO config (CONTROLLER, STATUS, ALARM_STATUS, "
@@ -759,12 +759,12 @@ class DobermanDB(object):
         counter = 0
         while self.interactWithDatabase(add_str) == -1:
             if counter >= 2:
-                print("Can not add controller %s." % name)
+                print(("Can not add controller %s." % name))
                 return -1
             print("Trying again in 1 s...")
             time.sleep(1)
             counter += 1
-        print("Successfully entered %s to the database." % name)
+        print(("Successfully entered %s to the database." % name))
         self.logger.debug("Creating Data Table...")
         if self.createDataTable(name) == -1:
             self.logger.fatal("Could not create a data table for "
@@ -783,8 +783,8 @@ class DobermanDB(object):
         for ii, entry in enumerate(settings):
             if parameters[ii] == 'ReadoutInterval':
                 print(" ")
-            print(" %s: %s " % (parameters[ii], entry))
-        print(60 * '-')
+            print((" %s: %s " % (parameters[ii], entry)))
+        print((60 * '-'))
         self.addSettingToConfigHistory(settings)
         self.refreshConfigBackup()
 
@@ -794,22 +794,22 @@ class DobermanDB(object):
                   "Add it first with 'python Doberman.py -a'.")
             return
         n = 'n'
-        print('\n' + 60 * '-' + '\nUpdate plugin settings. '
-              'The following parameters can be changed:\n')
+        print(('\n' + 60 * '-' + '\nUpdate plugin settings. '
+              'The following parameters can be changed:\n'))
         self.printParameterDescription()
-        print('\n' + 60 * '-')
+        print(('\n' + 60 * '-'))
         print('  - No string signs (") needed.\n  '
               '- Split arrays with comma (no spaces after it), '
               'no brackets needed!  \n  '
               '- Enter 0 for no or default value,  \n  '
               '- Enter n for no change.')
-        print('\n' + 60 * '-' + '\n Choose the controller you want to change. '
-              '(If you would like to add a new controller use option -a instead)\n')
+        print(('\n' + 60 * '-' + '\n Choose the controller you want to change. '
+              '(If you would like to add a new controller use option -a instead)\n'))
         for number, controller in enumerate(self._config):
-            print("%s:  %s" % (str(number), controller[0]))
+            print(("%s:  %s" % (str(number), controller[0])))
         # Enter name to find controller
         existing_names = [dev[0] for dev in self._config]
-        existing_numbers = map(str, range(len(existing_names)))
+        existing_numbers = list(map(str, list(range(len(existing_names)))))
         existing_devices = existing_names + existing_numbers
         text = "\nEnter controller number or alternatively its name:"
         name = self.getUserInput(text, input_type=[str],
@@ -821,7 +821,7 @@ class DobermanDB(object):
             controller = self._config[int(name)]
             name = controller[0]
         # Print current parameters and infos.
-        print('\n' + 60 * '-' + '\n')
+        print(('\n' + 60 * '-' + '\n'))
         print('The current parameters are:\n')
         parameters = ['           Name', '         Status', '   Alarm status',
                       '    Warning low', '   Warning high', '      Alarm low',
@@ -831,8 +831,8 @@ class DobermanDB(object):
         for ii, entry in enumerate(controller):
             if parameters[ii] == 'ReadoutInterval':
                 print(" ")
-            print(" %s: %s " % (parameters[ii], entry))
-        print(60 * '-')
+            print((" %s: %s " % (parameters[ii], entry)))
+        print((60 * '-'))
         # Status
         text = ("Controller '%s': Status (ON/OFF):" % name)
         status = self.getUserInput(text, input_type=[str],
@@ -906,16 +906,16 @@ class DobermanDB(object):
         for ii, al_stat in enumerate(alarm_status):
             try:
                 if al_stat == 'ON' and not (alarm_low[ii] <= warning_low[ii] < warning_high[ii] <= alarm_high[ii]):
-                    print("Warning: Invalid alarm/warning levels %d. "
-                          "Set alarm status %d to 'OFF' by default" % (ii, ii))
+                    print(("Warning: Invalid alarm/warning levels %d. "
+                          "Set alarm status %d to 'OFF' by default" % (ii, ii)))
                     alarm_status[ii] = 'OFF'
             except Exception as e:
-                print("Warning: Can not compare alarm/warning levels %d. "
+                print(("Warning: Can not compare alarm/warning levels %d. "
                       "Error %s. Set alarm status %d to 'OFF' by default" %
-                      (ii, e, ii))
+                      (ii, e, ii)))
                 alarm_status[ii] = 'OFF'
         # Update first half
-        print "Updating inputs..."
+        print("Updating inputs...")
         update_str1 = ("UPDATE config SET STATUS = '%s', "
                        "ALARM_STATUS = ARRAY%s, WARNING_LOW = ARRAY%s, "
                        "WARNING_HIGH = ARRAY%s, ALARM_LOW = ARRAY%s, "
@@ -936,8 +936,8 @@ class DobermanDB(object):
             for ii, entry in enumerate(values):
                 if parameters[ii] == 'ReadoutInterval':
                     print(" ")
-                print(" %s: %s " % (parameters[ii], str(entry)))
-            print 60 * '-'
+                print((" %s: %s " % (parameters[ii], str(entry))))
+            print(60 * '-')
             self.addSettingToConfigHistory(values)
             self.refreshConfigBackup()
             return
@@ -1007,7 +1007,7 @@ class DobermanDB(object):
         if additional_parameters == 'n':
             additional_parameters = controller[12]
         # Update second part:
-        print "Updating second half of input..."
+        print("Updating second half of input...")
         update_str2 = ("UPDATE config SET READOUT_INTERVAL = %d, "
                        "ALARM_RECURRENCE = ARRAY%s, DESCRIPTION = ARRAY%s, "
                        "NUMBER_OF_DATA = %d, ADDRESSES = ARRAY%s, "
@@ -1030,8 +1030,8 @@ class DobermanDB(object):
         for ii, entry in enumerate(values):
             if parameters[ii] == 'ReadoutInterval':
                 print(" ")
-            print(" %s: %s " % (parameters[ii], str(entry)))
-        print 60 * '-'
+            print((" %s: %s " % (parameters[ii], str(entry))))
+        print(60 * '-')
         self.addSettingToConfigHistory(values)
         self.refreshConfigBackup()
 
@@ -1118,6 +1118,7 @@ class DobermanDB(object):
                                 "table in database.")
             return -1
         # Fill with standard defaults:
+        # load from file?
         default_list = [["Warning_Repetition", "10", "Min. time [min] between two warnings."],
                         ["Alarm_Repetition", "5", "Min. time [min] between two alarms."],
                         ["Testrun", "2", "Time [min] after start until a alarm/warning can be sent."],
@@ -1142,13 +1143,13 @@ class DobermanDB(object):
         q, Q = 'q', 'q'
         print("\nThe following Doberman settings are stored:")
         for ii, item in enumerate(settings):
-            print ii, ": ", item
+            print(ii, ": ", item)
         while True:
             text= ("\nEnter number of entry you would like to change or 'q' "
                    "to quit.")
             user_input = self.getUserInput(text,
                                            input_type=[int],
-                                           be_in=range(len(settings)),
+                                           be_in=list(range(len(settings))),
                                            exceptions = [q, Q])
             if user_input == q:
                 break
@@ -1178,7 +1179,7 @@ class DobermanDB(object):
         print("Quitting... New settings are:")
         newsettings = self.getDefaultSettings()
         for ii, item in enumerate(list(newsettings)):
-            print ii, ": ", item
+            print(ii, ": ", item)
         return
 
     def getAllTableNames(self):
@@ -1286,23 +1287,23 @@ class DobermanDB(object):
         mail_changed = False
         contacts = self.getContacts()
         existing_names = [contact[0] for contact in contacts]
-        existing_numbers = map(str, range(len(existing_names)))
+        existing_numbers = list(map(str, list(range(len(existing_names)))))
         existing_contacts = existing_names + existing_numbers
         # Print informations
-        print('\n' + 60 * '-' + '\n')
+        print(('\n' + 60 * '-' + '\n'))
         print('  - No string signs (") needed.\n  '
               '- Split arrays with comma (no spaces after it), '
               'no brackets needed!\n  '
               '- Enter 0 for no or default value\n  '
               '- Enter n for no change (in update mode only)')
-        print('\n' + 60 * '-' +
-              '\n  Saved contacts are:\n  (Name, Status, Email, Phone)\n')
+        print(('\n' + 60 * '-' +
+              '\n  Saved contacts are:\n  (Name, Status, Email, Phone)\n'))
         if contacts == -1:
             self.logger.error("Could not load contacts.")
             return -1
         for ii, contact in enumerate(contacts):
-            print ii, ': ', contact
-        print '\n' + 60 * '-' + '\n'
+            print(ii, ': ', contact)
+        print('\n' + 60 * '-' + '\n')
         # Get job selection
         text = "Would you like to add (a), update (u) or delete (d) contact?"
         job = self.getUserInput(text, input_type=[str], be_in=[a, u, d])
@@ -1318,7 +1319,7 @@ class DobermanDB(object):
         elif job == 'a':
             # Name
             text = ("Enter the name of the contact")
-            be_not_in_names = existing_names + map(str, range(100))
+            be_not_in_names = existing_names + list(map(str, list(range(100))))
             name = self.getUserInput(text,
                                      input_type=[str],
                                      be_not_in=be_not_in_names)
@@ -1421,7 +1422,7 @@ class DobermanDB(object):
         Use to make sure,
         the connection 'Doberman: Slowcontrol - contact person' is working.
         """
-        print("\nSending a test mail to '%s'..." % address)
+        print(("\nSending a test mail to '%s'..." % address))
         subject = "Test mail for Doberman: slow control system."
         message = ("Hello %s.\nThis is a test message confirming that: \n"
                    "1. Your mail address was added (or changed) at the "
@@ -1436,7 +1437,7 @@ class DobermanDB(object):
                                      Cc=None,
                                      Bcc=None,
                                      add_signature=True) != 0:
-            print "An error occured. No test mail was sent!"
+            print("An error occured. No test mail was sent!")
             return -1
         print("Successfully sent test mail. Please check if it arrived at the "
               "given address (Also check the Spam folder).")
@@ -1490,7 +1491,7 @@ class DobermanDB(object):
         try:
             if type(data) not in [list, tuple]:
                 data = [data]
-            if not all(isinstance(item, (int, long, float)) for item in data):
+            if not all(isinstance(item, (int, float)) for item in data):
                 data = [float(item) for item in data]
         except Exception as e:
             self.logger.error(
@@ -1498,7 +1499,7 @@ class DobermanDB(object):
         try:
             if type(status) not in [list, tuple]:
                 status = [status]
-            if not all(isinstance(item, (int, long, float)) for item in status):
+            if not all(isinstance(item, (int, float)) for item in status):
                 status = [float(item) for item in status]
         except Exception as e:
             self.logger.error(
@@ -1660,7 +1661,7 @@ class DobermanDB(object):
         """
         all_settings = self.getConfigFromBackup(filename)
         if not all_settings or all_settings in [-1, -2]:
-            print("Error: Can not load settings from file '%s'" % filename)
+            print(("Error: Can not load settings from file '%s'" % filename))
             raise IOError("File '%s' not found!" % filename)
         existing_names = [config[0] for config in self.getConfig()]
         for settings in all_settings:
@@ -1745,8 +1746,8 @@ if __name__ == '__main__':
 
     logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 10" % opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. "
+              "Fall back to default value of 10" % opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()

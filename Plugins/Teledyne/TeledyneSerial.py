@@ -248,9 +248,9 @@ if __name__ == '__main__':
     
     Td = TeledyneSerial(logger,'0557','2008',)
     print('\n\nAs a test I print: Address letter, Setpoint mode, current data, current unit')
-    print(Td.getAddressLetter())
-    print(Td.getSetpointMode())
-    print(Td.readData())
-    print(Td.getUnit())
+    print((Td.getAddressLetter()))
+    print((Td.getSetpointMode()))
+    print((Td.readData()))
+    print((Td.getUnit()))
 
 
