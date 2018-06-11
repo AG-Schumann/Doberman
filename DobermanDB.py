@@ -12,10 +12,9 @@ import alarmDistribution  # for test mail sending when address was changed
 
 class DobermanDB(object):
 
-    def __init__(self, opts, logger):
-        self.logger = logger
+    def __init__(self, opts):
+        self.logger = logging.getLogger(__name__)
         self.opts = opts
-        self.opts.logger = logger
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
         # Load database connection details
         try:
@@ -51,7 +50,7 @@ class DobermanDB(object):
         try:
             # Connect and get a cursor
             conn = psycopg2.connect(self._conn_string) # cursor_factory=psycopg2.extras.DictCursor
-            cur = conn.cursor()
+            cur = conn.cursor(psycopg2.extras.DictCursor)
             self.logger.debug("Connected with Doberman database.")
 
             # Do the job
@@ -1194,8 +1193,7 @@ class DobermanDB(object):
     def getDefaultSettings(self, name=None):
         """
         Reads default Doberman settings from database.
-        Returns as list with [Parameter, Value] both as strings
-        Reading with name only works for int!
+        Returns dict(parameter=value)
         """
         if "default_settings" not in str(self.getAllTableNames()):
             print("Default settings do not exist. "
@@ -1210,7 +1208,8 @@ class DobermanDB(object):
             return settings
         else:
             try:
-                settings = [int(s[1]) for s in settings if s[0] == name][0]
+                return settings[name]
+                #settings = [int(s[1]) for s in settings if s[0] == name][0]
             except IndexError as e:
                 self.logger.error("Can not read default settings. %s "
                                   "Refreshing default settings... "

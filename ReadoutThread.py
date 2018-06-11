@@ -1,14 +1,15 @@
 import threading
+import logging
 
 
 class ReadoutThread(threading.Thread):
     """Class that controls starting, running, and stopping the readout thread
     """
 
-    def __init__(self, logger, opts, writer, controller):
+    def __init__(self, opts, writer, controller):
 
         self.ReadoutInterval = 30
-        self.logger = logger
+        self.logger = logging.getLogger(__name__)
         self.opts = opts
         self.writer = writer
         self.controller = controller

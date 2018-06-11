@@ -17,7 +17,7 @@ class alarmDistribution(object):
         """
         Loading connections to Mail and SMS.
         """
-        self.logger = opts.logger
+        self.logger = logging.getLogger(__name__)
         self.mailconnection_details = self.getMailConnectionDetails()
         self.smsconnection_details = self.getSMSConnectionDetails()
         if not self.mailconnection_details:
@@ -50,7 +50,7 @@ class alarmDistribution(object):
         # Protection against default connection details
         if connection_details[2] == "myemail@gmail.com":
             self.logger.error("Default identification in file "
-                              "'Mail_connectiondetails.txt'! No alarms will "
+                              "Mail_connectiondetails.txt! No alarms will "
                               "be sent. Update connectiondetails first!")
             return []
         self.logger.debug("Email connection details loaded from file.")
@@ -77,7 +77,7 @@ class alarmDistribution(object):
         # Protection against default connection details
         if connection_details[1] == "myserialnumber.mypassword":
             self.logger.error("Default identification in file "
-                              "'SMS_connectiondetails.txt'! No SMS will be "
+                              "SMS_connectiondetails.txt! No SMS will be "
                               "sent. Update connectiondetails first!")
             return []
         self.logger.debug("SMS connection details loaded from file.")
