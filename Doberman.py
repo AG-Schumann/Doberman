@@ -528,24 +528,67 @@ class timeout:
 def deleteLockFile(lockfilePath):
     os.remove(lockfilePath)
 
+
+class DBLogger(logging.Handler):
+    """
+    Logs to the database instead of to disk. Keeps disk as backup
+    """
+    def __init__(self, db, tablename='logs'):
+        logging.Handler.__init__(self)
+        self.db = db
+        self.table_name = tablename
+        backup_filename = time.strftime('%Y-%m-%d.log', time.localtime(time.time()))
+        self.backup_logger = logging.handlers.TimedRotatingFileHanlder(
+            os.path.join(os.getcwd(), 'log', backup_filename),
+            when='midnight')
+        sql = ("CREATE TABLE IF NOT EXISTS %s ("
+            "_logno INT NOT NULL AUTO_INCREMENT,"
+            "time TIMESTAMP NOT NULL,"
+            "level VARCHAR(12),"
+            "module VARCHAR(32),"
+            "function VARCHAR(32),"
+            "line INT,"
+            "msg TEXT,"
+            "PRIMARY KEY ( _logno ));" % self.table_name)
+        if self.db.interactWithDatabase(sql):
+            self.use_backup = True
+        else:
+            self.use_backup = False
+
+    def emit(self, record):
+        if self.use_backup:
+            self.backup_logger.emit(record)
+            return
+        rec = dict(when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created)),
+                    msg = record.msg.strip(),
+                    level = record.levelname,
+                    module = record.module,
+                    funcname = record.funcName,
+                    lineno = record.lineno,
+                    table = self.table_name)
+        sql = ("INSERT INTO {table} (time, level, module, function, line, msg) VALUES "
+                "'{when}','{level}','{module}','{funcname}',{lineno},'{msg}')")
+        if self.db.interactWithDatabase(sql.format(**rec)):
+            self.backup_logger.emit(record)
+
+
 if __name__ == '__main__':
 
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logging.getLogger()
     logger.setLevel(20)
-    chlog = logging.StreamHandler()
-    chlog.setLevel(20)
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
-                                  '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
-    opts = logger
-    DDB = DobermanDB.DobermanDB(opts, logger)
+    formatter = logging.Formatter('%(asctime)s|%(levelname)s|%(module)s|'
+                                  '%(funcName)s|%(lineno)di|%(message)s')
+    DDB = DobermanDB.DobermanDB()
+    dblogger = DBLogger(DDB)
+    dblogger.setFormatter(formatter)
+    logger.addHandler(dblogger)
     defaults = DDB.getDefaultSettings()
     # START PARSING ARGUMENTS
     # RUN OPTIONS
-    import_default = DDB.getDefaultSettings(name='Importtimeout')
+    defaults = DDB.getDefaultSettings()
+    import_default = defaults['Importtimeout']
     if import_default < 1:
         import_default = 1
     parser.add_argument("-i",
@@ -554,7 +597,7 @@ if __name__ == '__main__':
                         type=int,
                         help="Set the timout for importing plugins.",
                         default=import_default)
-    testrun_default = DDB.getDefaultSettings(name='Testrun')
+    testrun_default = defaults['Testrun']
     parser.add_argument("-t", "--testrun",
                         dest='testrun',
                         nargs='?',
@@ -565,7 +608,7 @@ if __name__ == '__main__':
                               "for the time value given "
                               "(in minutes. e.g. -t=5: first 5 min) "
                               "or forever if no value is given."))
-    loglevel_default = DDB.getDefaultSettings(name='Loglevel')
+    loglevel_default = defaults['Loglevel']
     if loglevel_default%10 != 0:
         loglevel_default = 20
     parser.add_argument("-d", "--debug", dest="loglevel",
@@ -583,6 +626,7 @@ if __name__ == '__main__':
                         help=("Time in minutes until the same Plugin can send "
                               "a warning (Email) again. Default = 10 min."),
                         default=10)
+                        default=defaults['Warning_Repetition'])
     # CHANGE OPTIONS
     parser.add_argument("-n", "--new",
                         action="store_true",
@@ -628,20 +672,12 @@ if __name__ == '__main__':
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
     # Loglevel option
-    logger.removeHandler(chlog)
-    logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
         print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of " % loglevel_default)
+              "Fall back to default value of " % (opts.loglevel, loglevel_default))
         opts.loglevel = loglevel_default
     logger.setLevel(int(opts.loglevel))
-    chlog = logging.StreamHandler()
-    chlog.setLevel(int(opts.loglevel))
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
-                                  '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
-    opts.logger = logger
+
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
         if opts.update:
