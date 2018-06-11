@@ -3,10 +3,10 @@ import logging
 import time
 
 
-class iseriesCommand(object):
+class iseries4Command(object):
 
     """
-    Class that holds the newport iseries i3200 controller commands
+    Class that holds the newport iseries4 i3200 controller commands
     """
     def __init__(self):
         pass
@@ -14,7 +14,7 @@ class iseriesCommand(object):
 
     def communicate(self, message): 
         """
-        Note that this is a test function. iseriesSerial has its own communicate fuction
+        Note that this is a test function. iseries4Serial has its own communicate fuction
         Message format is ("*Z01\r\n")
         """
         print('I send %s and read the output'%str(message))

@@ -93,6 +93,12 @@ class Doberman(object):
         Adds the path to the plugin and imports it.
         '''
         # converting config entries into opts. values
+	#
+	print "*******************"
+	print plugin
+	print "*******************"
+	#
+
         name = plugin[0]
         opts.loginterval = plugin[7]
         opts.addresses = plugin[11]

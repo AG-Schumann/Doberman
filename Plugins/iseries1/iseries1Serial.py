@@ -2,16 +2,16 @@
 
 import serial
 import subprocess
-import iseriesCommand
+import iseries1Command
 
 import os
 import time
 import logging
 
 
-class iseriesSerial(iseriesCommand.iseriesCommand):
+class iseries1Serial(iseries1Command.iseries1Command):
     """
-    Class that holds the iseries controller serial connection. In total analogie to the cryoSerial which holts the cryoCon_22c
+    Class that holds the iseries1 controller serial connection. In total analogie to the cryoSerial which holts the cryoCon_22c
     Don't forget to allow write/read access to usb0:
     - create file: /etc/udev/rules.d/pfeiffer.rules
     - write in it:
@@ -49,7 +49,7 @@ class iseriesSerial(iseriesCommand.iseriesCommand):
             self.occupied_ttyUSB = opts.occupied_ttyUSB
 
         self.__connected = False
-        super(iseriesSerial, self).__init__(**kwds)
+        super(iseries1Serial, self).__init__(**kwds)
 
         self.__device = self._getControl()
         if not self.__device.isOpen():
@@ -131,10 +131,11 @@ class iseriesSerial(iseriesCommand.iseriesCommand):
             self.logger.debug("Searching in ttyUSB%s ..."%ttyport)
             tty_Vendor = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idVendor}=="%(ttyport) + '"%s"'%str(vendor_ID) + "'").readlines()
             tty_Product = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idProduct}=="%(ttyport) + '"%s"'%str(product_ID) + "'").readlines() 
-            if (tty_Vendor != [] and tty_Product != []):
-                self.logger.info("Device with vendorID = '%s' and productID = '%s' found at ttyUSB%d"%(vendor_ID, product_ID,ttyport))
+            tty_ID = os.popen("udevadm info -a -n /dev/ttyUSB%d | grep '{serial}' | head -n1"%(ttyport)).readline()
+            if (tty_Vendor != [] and tty_Product != [] and tty_ID == "    ATTRS{serial}==\"FTGEC4ZG\"\n"):
+                self.logger.info("Device with vendorID = '%s' and productID = '%s' and serialID = 'FTGEC4ZG' found at ttyUSB%d"%(vendor_ID, product_ID,ttyport))
                 return ttyport
-        self.logger.warning("Device with vendorID = '%s' and productID = '%s' NOT found at any ttyUSB"%(vendor_ID, product_ID))       
+        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = 'FTGEC4ZG' NOT found at any ttyUSB"%(vendor_ID, product_ID))       
         return -1
 
 
@@ -152,13 +153,13 @@ class iseriesSerial(iseriesCommand.iseriesCommand):
             self.logger.info("Device connected. ID confirmed")
             try: #Adding to ttyusb list
                 with open(os.path.join(self.opts.path, 'ttyUSB_assignement.txt'),"a+") as f:
-                    f.write("    %d    |'iseries i3200'\n"%self.ttyUSB)
+                    f.write("    %d    |'iseries1 i3200'\n"%self.ttyUSB)
             except Exception as e:
-                self.logger.warning("Can not add iseries i3200 to 'ttyUSB_assignement.txt'. Error %s"%e)
+                self.logger.warning("Can not add iseries1 i3200 to 'ttyUSB_assignement.txt'. Error %s"%e)
             finally:
                 return 0
         elif response == -1:
-            self.logger.warning("Iseries controller is not answering correctly.")
+            self.logger.warning("Iseries1 controller is not answering correctly.")
             self.__connected = False 
             return -1
 
@@ -235,7 +236,7 @@ if __name__ == '__main__':
     logger = logging.getLogger()
     logger.setLevel(10)
     
-    iser = iseriesSerial(logger)
+    iser = iseries1Serial(logger)
     print('\n\nAs a test I print ID, Address, Communication Parameters, Setpoint1 and current value')
     print(iser.getID())
     print(iser.getAddress())

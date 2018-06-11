@@ -15,7 +15,7 @@ import sys
 
 class cryoMaster(object):
     """
-    Main function to controll the cryo con 22 c cryo controller.
+    Main function to controll the cryo con 26 cryo controller.
     The function can be called with several options in the command line mode.
     It will start automatically a connection to the cryo controller on the choosen connection (LAN, serial, ...).
     It can run in interactive shells as well as a standalone python program (call via 'python cryoMaster.py -opts').
@@ -73,19 +73,23 @@ class cryoMaster(object):
         """
         sensa = self.controller.getInputSensor('A')
         sensb = self.controller.getInputSensor('B')
+        sensc = self.controller.getInputSensor('C')
+        sensd = self.controller.getInputSensor('D')
         self.cryo_writer.write(str("# Reading from Cryo Controller: %s . Its name is %s ."%(self.controller.getDeviceIdent(), self.controller.getInstrumentName())))
-        self.cryo_writer.write(str("Naming scheme: Channel A: %s, Channel B: %s"%(self.controller.getInputName('A'),self.controller.getInputName('B'))))        
-        self.cryo_writer.write(str("Input sensors: Ch A: %s, Ch A: %s"%(sensa, sensb)))
-        self.cryo_writer.write(str("Input sensor names: Ch A: %s, Ch A: %s"%(self.controller.getSensorName(sensa),self.controller.getSensorName(sensb))))        
-        self.cryo_writer.write(str("Input sensor types: Ch A: %s, Ch A: %s"%(self.controller.getSensorType(sensa),self.controller.getSensorType(sensb))))        
+        self.cryo_writer.write(str("Naming scheme: Channel A: %s, Channel B: %s, Channel C: %s, Channel D: %s"%(self.controller.getInputName('A'),self.controller.getInputName('B'),self.controller.getInputName('C'),self.controller.getInputName('D'))))        
+        self.cryo_writer.write(str("Input sensors: Ch A: %s, Ch B: %s, Ch C: %s, Ch D: %s"%(sensa, sensb, sensc, sensd)))
+        self.cryo_writer.write(str("Input sensor names: Ch A: %s, Ch B: %s, Ch C: %s, Ch D: %s"%(self.controller.getSensorName(sensa),self.controller.getSensorName(sensb),self.controller.getSensorName(sensc),self.controller.getSensorName(sensd))))        
+        self.cryo_writer.write(str("Input sensor types: Ch A: %s, Ch B: %s, Ch C: %s, Ch D: %s"%(self.controller.getSensorType(sensa),self.controller.getSensorType(sensb),self.controller.getSensorType(sensc),self.controller.getSensorType(sensd))))        
         self.cryo_writer.write(str("Input alarm status Ch A: low: %s, high: %s"%(self.controller.getAlarmHighStatus('A'),self.controller.getAlarmLowStatus('A'))))
         self.cryo_writer.write(str("Input alarm status Ch B: low: %s, high: %s"%(self.controller.getAlarmHighStatus('B'),self.controller.getAlarmLowStatus('B'))))
-        self.cryo_writer.write(str("Input sensors alarms high: Ch A: %s, Ch A: %s"%(self.controller.getAlarmHighVal('A'),self.controller.getAlarmHighVal('B'))))        
-        self.cryo_writer.write(str("Input sensors alarms low: Ch A: %s, Ch A: %s"%(self.controller.getAlarmLowVal('A'),self.controller.getAlarmLowVal('B'))))        
+        self.cryo_writer.write(str("Input alarm status Ch C: low: %s, high: %s"%(self.controller.getAlarmHighStatus('C'),self.controller.getAlarmLowStatus('C'))))
+        self.cryo_writer.write(str("Input alarm status Ch D: low: %s, high: %s"%(self.controller.getAlarmHighStatus('D'),self.controller.getAlarmLowStatus('D'))))
+        self.cryo_writer.write(str("Input sensors alarms high: Ch A: %s, Ch B: %s, Ch C: %s, Ch D: %s"%(self.controller.getAlarmHighVal('A'),self.controller.getAlarmHighVal('B'),self.controller.getAlarmHighVal('C'),self.controller.getAlarmHighVal('D'))))        
+        self.cryo_writer.write(str("Input sensors alarms low: Ch A: %s, Ch B: %s, Ch C: %s, Ch D: %s"%(self.controller.getAlarmLowVal('A'),self.controller.getAlarmLowVal('B'),self.controller.getAlarmLowVal('C'),self.controller.getAlarmLowVal('D'))))        
         self.cryo_writer.write(str("Loop types: 1: %s, 2: %s, 3: %s, 4: %s"%(self.controller.getLoopType('1'),self.controller.getLoopType('2'),self.controller.getLoopType('3'),self.controller.getLoopType('4'))))        
         self.cryo_writer.write(str("Loop sources: 1: %s, 2: %s, 3: %s, 4: %s"%(self.controller.getLoopSource('1'),self.controller.getLoopSource('2'),self.controller.getLoopSource('3'),self.controller.getLoopSource('4'))))        
         self.cryo_writer.write(str("\n\n"))
-        self.cryo_writer.write("^ date (Y-m-d) ^ time (H:M:S) ^ Temp A (K) ^ Temp B (K) ^ getLoopPower 1 (%) ^ getLoopPowerOut 1 (%) ^ Setpoint 1 (K) ^ Setpoint 2 (K) ^ Alarm Status Ch A ^ Alarm Status Ch B ^")
+        self.cryo_writer.write("^ date (Y-m-d) ^ time (H:M:S) ^ Temp A (K) ^ Temp B (K) ^ Temp C (K) ^ Temp D (K) ^ getLoopPower 1 (%) ^ getLoopPowerOut 1 (%) ^ Setpoint 1 (K) ^ Setpoint 2 (K) ^ Alarm Status Ch A ^ Alarm Status Ch B ^ Alarm Status Ch C ^ Alarm Status Ch D ^")
         return
 
     def close(self):
@@ -135,16 +139,15 @@ class ReadoutThread(threading.Thread):
         """
         Read out thread itself. Defines the read out format.
         """
-	print "!!!!!!!!!!! ATTENTION: We have overwritten cryocon22.ReadOutT with queued_ReadOutT !!!!"
         self.logger.debug("Reading data for log...")
         now = datetime.datetime.now()
-        readout = str("| %s | %s | %s | %s | %s | %s | %s |"%(now.strftime('%Y-%m-%d | %H:%M:%S'),self.controller.getTemp('A'),self.controller.getTemp('B'), self.cryocon_22c_master.controller.getLoopPower('1'), self.cryocon_22c_master.controller.getLoopPowerOut('1'), self.cryocon_22c_master.controller.getSetPoint('1'), self.cryocon_22c_master.controller.getSetPoint('2'), self.controller.getAlarmStatus('A'),self.controller.getAlarmStatus('B')))
+        readout = str("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"%(now.strftime('%Y-%m-%d | %H:%M:%S'),self.controller.getTemp('A'),self.controller.getTemp('B'),self.controller.getTemp('C'),self.controller.getTemp('D'), self.cryocon_26_master.controller.getLoopPower('1'), self.cryocon_26_master.controller.getLoopPowerOut('1'), self.cryocon_26_master.controller.getSetPoint('1'), self.cryocon_26_master.controller.getSetPoint('2'), self.controller.getAlarmStatus('A'),self.controller.getAlarmStatus('B'),self.controller.getAlarmStatus('C'),self.controller.getAlarmStatus('D')))
         self.cryo_writer.write(readout)
         self.logger.info("Logged string: %s"%readout)
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(usage='%(prog)s [options] \n\n Program to readout the cryo con controller 22c')
+    parser = ArgumentParser(usage='%(prog)s [options] \n\n Program to readout the cryo con controller 26')
     parser.add_argument("-l", "--lan", action="store_true", dest="lan", help="use the lan connection to the cryo controller", default=False)
     parser.add_argument("-s", "--serial", action="store_true", dest="serial", help="use the serial/usb connection to the cryo controller", default=False)
     parser.add_argument("-d", "--debug", dest="loglevel", type=int, help="switch to loglevel debug", default=10)

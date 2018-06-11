@@ -1,9 +1,9 @@
 import datetime
 import os 
 
-class iseriesWriter(object):
+class smartec_uti1Writer(object):
     """
-    Class that holds the iseries controller logging and debugging. 
+    Class that holds the uti transducer logging and debugging. 
     If a queue is existing, it pushes the data there.
     Creates a new file with the name: %Y-%m-%d_%H-%M-%S_%Keyword.log in the folder that was set. If the file already exists it tries to write the informations in the existing file.
     """
@@ -26,7 +26,7 @@ class iseriesWriter(object):
             os.mkdir(self._logpath,rights)
         
         self.now = datetime.datetime.now()
-        self.filename = os.path.join(self._logpath,"%s_%s_iseries.log" %(self.now.strftime('%Y-%m-%d_%H-%M-%S'),self.__keyword))
+        self.filename = os.path.join(self._logpath,"%s_%s_smartec_uti1.log" %(self.now.strftime('%Y-%m-%d_%H-%M-%S'),self.__keyword))
         
         ifn = 0
         while ifn < 10:
@@ -41,12 +41,12 @@ class iseriesWriter(object):
 
         self.__queue = []
 
-        self.writeToFile(("# iseries Controller logging file - generated %s. Logging mode is %s"%(self.now.strftime('%Y-%m-%d %H:%M:%S'),self.__keyword)))
+        self.writeToFile(("# uti transducer logging file - generated %s. Logging mode is %s"%(self.now.strftime('%Y-%m-%d %H:%M:%S'),self.__keyword)))
 
 
     def write(self, message, logtime=None):
         '''
-        Writs the message down, eighter to the queue or alternatively to the logfile
+        Writes the message down, either to the queue or alternatively to the logfile
         '''
         if logtime != None:
             readout = str("| %s | %s |"%(str(logtime.strftime('%Y-%m-%d | %H:%M:%S')),str(message)))
@@ -64,6 +64,7 @@ class iseriesWriter(object):
         reformats it to form [name,logtime,data,status]
         '''
         data = message
+        #print "@@@@@ UTI1.pushToQueue message: ",message
         if str(data) == '-1':
             data = [0]
             status = [-1]
@@ -81,8 +82,8 @@ class iseriesWriter(object):
                 self.logger.warning("Wrong format, %s"%e)
                 data = [0]
                 status = [3]          
-        self.queue.put(['iseries',logtime,data,status])
-        self.logger.debug("Put data to queue: ['iseries', %s, %s, %s]"%(str(logtime),str(data),str(status)))
+        self.queue.put(['smartec_uti1',logtime,data,status])
+        self.logger.debug("Put data to queue: ['smartec_uti1', %s, %s, %s]"%(str(logtime),str(data),str(status)))
 
     def writeToFile(self,message = None):
         """
@@ -125,6 +126,6 @@ if __name__ == '__main__':
     logging.basicConfig()
     logger = logging.getLogger()
     logger.setLevel(10)
-    crw = iseriesWriter(logger)
-    crw.write("test %s"%("test2"))
-    crw.close()
+    utiw = smartec_uti1Writer(logger)
+    utiw.write("test %s"%("test2"))
+    utiw.close()

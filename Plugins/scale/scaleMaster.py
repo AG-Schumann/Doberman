@@ -5,29 +5,29 @@ import time
 import datetime
 import logging
 from argparse import ArgumentParser
-import iseriesSerial
-import iseriesWriter
+import scaleSerial
+import scaleWriter
 import threading
 import sys
 
 
 
-class iseriesMaster(object):
+class scaleMaster(object):
     """
-    Main function to controll the iseries controller.
+    Main function to control the scale.
     The function can be called with several options in the command line mode.
-    It will start automatically a serial connection to the iseries controller.
-    It can run in interactive shells as well as a standalone python program (call via 'python iseriesMaster.py -opts').
+    It will start automatically a serial connection to the scale.
+    It can run in interactive shells as well as a standalone python program (call via 'python scaleMaster.py -opts').
     """
     def __init__(self, opts, logger):
 
         self.logger = logger
         self.opts = opts
         self.controller = None
-        self.controller = iseriesSerial.iseriesSerial(opts, logger)
+        self.controller = scaleSerial.scaleSerial(opts, logger)
         
         if self.controller is None:
-            self.logger.fatal("Controller not initialized correctly")
+            self.logger.fatal("Scale not initialized correctly")
             exit()
 
         self._lifes = 99999999999999999999999
@@ -36,18 +36,18 @@ class iseriesMaster(object):
             self.opts.queue = None
         
         if hasattr(self.opts, 'log_path'):
-            self.iseries_writer = iseriesWriter.iseriesWriter(logger, self.opts.queue, log_path = self.opts.log_path)
+            self.scale_writer = scaleWriter.scaleWriter(logger, self.opts.queue, log_path = self.opts.log_path)
         else:
-            self.iseries_writer = iseriesWriter.iseriesWriter(logger, self.opts.queue)
+            self.scale_writer = scaleWriter.scaleWriter(logger, self.opts.queue)
 
         if not self.opts.queue is None:
             self.logHead()
 
-        self.writerThread = ReadoutThread(self.logger, self.opts, self.iseries_writer, self.controller)
+        self.writerThread = ReadoutThread(self.logger, self.opts, self.scale_writer, self.controller)
 
-    def iseriesmaster(self):
+    def scalemaster(self):
         """
-        This function starts the read out process from the controller.
+        This function starts the read out process from the scale.
         It opens a new thread and checks from time to time whether the thread is still alive, if not it reactivates it.
         """
         try:
@@ -70,19 +70,19 @@ class iseriesMaster(object):
         """
         Defines the read out values and writes the logging file header header.
         """
-        self.iseries_writer.writeToFile(str("# Reading from iseries Controller: The ID is %s . Its address is %s ."%(self.controller.getID(), self.controller.getAddress())))
-        self.iseries_writer.writeToFile(str("# Reading from iseries Controller: The high alarm values are: 1: %s ,2: %s ."%(self.controller.getAlarmHigh(1), self.controller.getAlarmHigh(2))))
-        self.iseries_writer.writeToFile(str("# Reading from iseries Controller: The low alarm values are: 1: %s ,2: %s ."%(self.controller.getAlarmLow(1), self.controller.getAlarmLow(2))))
+        self.scale_writer.writeToFile(str("# Reading from scale: The ID is %s . Its address is %s ."%("test ID", "test address")))
+        self.scale_writer.writeToFile(str("# Reading from scale: The high alarm value is: %s ."%("test high alarm")))
+        self.scale_writer.writeToFile(str("# Reading from scale: The low alarm values is: %s ."%("test low alarm")))
        
-        self.iseries_writer.writeToFile(str("\n\n"))
-        self.iseries_writer.writeToFile("^ date (Y-m-d) ^ time (H:M:S) ^ Measured value ^")
+        self.scale_writer.writeToFile(str("\n\n"))
+        self.scale_writer.writeToFile("^ date (Y-m-d) ^ time (H:M:S) ^ Measured value ^")
         return
 
     def close(self):
         self.logger.info("Closing the logger")
         self.writerThread.stopped = True
         self.writerThread.Tevent.set()
-        self.iseries_writer.close()
+        self.scale_writer.close()
         self.controller.close()
         return
 
@@ -103,7 +103,7 @@ class ReadoutThread(threading.Thread):
         self.ReadOutInterval = 30
         self.logger = logger
         self.opts = opts
-        self.iseries_writer = writer
+        self.scale_writer = writer
         self.controller = controller
 
         if self.opts.loginterval < 1000 and self.opts.loginterval >= 5:
@@ -127,12 +127,12 @@ class ReadoutThread(threading.Thread):
         """
         self.logger.debug("Reading data for log...")
         now = datetime.datetime.now()
-        self.iseries_writer.write(self.controller.getDisplayedValue(), now)
+        self.scale_writer.write(self.controller.measure(), now)
 
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(usage='%(prog)s [options] \n\n Program to readout the iseries controller')
+    parser = ArgumentParser(usage='%(prog)s [options] \n\n Program to readout the scale')
     parser.add_argument("-d", "--debug", dest="loglevel", type=int, help="switch to loglevel debug", default=10)
     parser.add_argument("-i", "--interval", dest="loginterval", type=int, help="logging interval in s, default value: 30 s", default=30)
     parser.add_argument("-v", "--idvendor", dest="vendorID", type=int, help="VendorID. default: None", default=None)
@@ -150,6 +150,6 @@ if __name__ == '__main__':
     chlog.setFormatter(formatter)
     logger.addHandler(chlog)
 
-    iseries_master = iseriesMaster(opts, logger)
-    iseries_master.iseriesmaster()
+    scale_master = scaleMaster(opts, logger)
+    scale_master.scalemaster()
     sys.exit(0)
