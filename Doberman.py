@@ -12,6 +12,7 @@ from _thread import start_new_thread
 import sys
 from argparse import ArgumentParser
 import importlib
+import importlib.machinery
 import signal
 
 
@@ -138,7 +139,7 @@ class Doberman(object):
             self.logger.warning(text)
         # Adds the paths
         try:
-            sys.path.insert(0, '%s/Plugins/%s/' % (self.path, name))
+            sys.path.insert(0, '%s/Plugins/%s' % (self.path, name))
         except Exception as e:
             self.logger.warning("Can not add path '%s/Plugins/%s/',  %s " %
                                 (self.path, name, e))
@@ -148,10 +149,11 @@ class Doberman(object):
         # Try to import libraries
         try:
             with timeout(self.opts.importtimeout):
-                __import__("%sControl" % name)
-                temp_plugin = imp.load_module('%sControl' % name,
-                                              '%s/Plugins/%s' %
-                                              (self.path, name))
+                spec = importlib.machinery.PathFinder.find_spec('%sControl' % name)
+
+                if spec is None:
+                    raise FileNotFoundError("Can't find plugin %s" % name)
+                temp_plugin = spec.loader.load_module()
                 imp_plugin = (getattr(temp_plugin,
                                       '%sControl' % name)(self.opts))
         except Exception as e:

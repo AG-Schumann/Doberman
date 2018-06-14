@@ -50,7 +50,7 @@ class cryocon_22cControl(object):
             if data[ii] == -1 or data[ii] == '':
                 status[ii] = -1
             elif status[ii] == '--':
-		status[ii] = 0
+                status[ii] = 0
             elif status[ii] == 'SF':
                 status[ii] = 1
             elif status[ii] == 'HI' or 'LO':

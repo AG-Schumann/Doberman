@@ -22,7 +22,7 @@ class iseries2Serial(iseries2Command.iseries2Command):
     sudo udevadm trigger
     sudo reload udev
     """
-    def __init__(self, opts, logger, **kwds):  
+    def __init__(self, opts, logger, **kwds):
         self.__startcharakter = "*"  #Startcharakter may change if manualy set another   
         self.__CR = chr(13)
         self.__LF = chr(10)
@@ -54,11 +54,11 @@ class iseries2Serial(iseries2Command.iseries2Command):
         self.__device = self._getControl()
         if not self.__device.isOpen():
             self.__device.open()
-        if self.__device.isOpen():            
+        if self.__device.isOpen():
             self.__connected = True
-       
+
         counter = 0
-        
+
         while self.checkController() != 0:
             self.__device = self._getControl(True)
             counter += 1
@@ -100,7 +100,7 @@ class iseries2Serial(iseries2Command.iseries2Command):
                     baudrate=9600,
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
-		    timeout = 5
+                    timeout = 5
                 )
                 connected = True
             except serial.SerialException as e:
@@ -111,7 +111,7 @@ class iseries2Serial(iseries2Command.iseries2Command):
         self.__connected = True
         self.logger.info("Successfully connected to controller via serial port.")
         return port
-    
+
     def get_ttyUSB(self,vendor_ID,product_ID):
         '''
         Retruns the ttyUSB which the device with given ID is connected to, by looking throung the ttyUSB 0 to 4 and comparing IDs
@@ -135,14 +135,14 @@ class iseries2Serial(iseries2Command.iseries2Command):
             if (tty_Vendor != [] and tty_Product != [] and tty_ID == "    ATTRS{serial}==\"FTAJOC60\"\n"):
                 self.logger.info("Device with vendorID = '%s' and productID = '%s' and serialID = 'FTAJOC60' found at ttyUSB%d"%(vendor_ID, product_ID,ttyport))
                 return ttyport
-        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = 'FTAJOC60' NOT found at any ttyUSB"%(vendor_ID, product_ID))       
+        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = 'FTAJOC60' NOT found at any ttyUSB"%(vendor_ID, product_ID))
         return -1
 
 
     def connected(self):
         self.logger.info("The device connection status is: %s",self.__connected)
         return self.__connected
-    
+
     def checkController(self):
         """
         Checks whether the connected device is a pressure controller
@@ -171,7 +171,7 @@ class iseries2Serial(iseries2Command.iseries2Command):
         else:
             self.logger.debug("Unknown response. Device answered: %s",response)
             return -3
-    
+
     def communicate(self, message):
         """
         Send the message to the device and reads the response
@@ -182,14 +182,14 @@ class iseries2Serial(iseries2Command.iseries2Command):
             self.logger.warning("No controller connected. Cannot send message %s",message)
             return -1
         try:
-            message = self.__startcharakter + str(message)+self.__CR+self.__LF           
-            self.__device.write(message)
+            message = self.__startcharakter + str(message)+self.__CR+self.__LF
+            self.__device.write(message.encode())
 
-            response = (self.__device.readline())
+            response = self.__device.readline().decode()
             response = response.rstrip(self.__LF).rstrip(self.__CR)
 
         except serial.SerialException as e:
-            self.logger.debug("Can not send Message. Serial exception '%s'."%e) 
+            self.logger.debug("Can not send Message. Serial exception '%s'."%e)
             return -1
 
         if response == '':
