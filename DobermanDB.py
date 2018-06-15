@@ -221,7 +221,8 @@ class DobermanDB(object):
         if drop_config not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS config"
-        create_str = ("CREATE TABLE config (CONTROLLER TEXT, STATUS TEXT, "
+        create_str = ("CREATE TABLE config (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "CONTROLLER TEXT, STATUS TEXT, "
                       "ALARM_STATUS TEXT[], WARNING_LOW REAL[], "
                       "WARNING_HIGH REAL[], ALARM_LOW REAL[], "
                       "ALARM_HIGH REAL[], "
@@ -252,7 +253,8 @@ class DobermanDB(object):
         if drop_history not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS config_history"
-        create_str = ("CREATE TABLE config_history (DATETIME TIMESTAMP, "
+        create_str = ("CREATE TABLE config_history (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "DATETIME TIMESTAMP, "
                       "CONTROLLER TEXT, STATUS TEXT, "
                       "ALARM_STATUS TEXT[], WARNING_LOW REAL[], "
                       "WARNING_HIGH REAL[], ALARM_LOW REAL[], "
@@ -285,7 +287,8 @@ class DobermanDB(object):
         if drop_history not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS alarm_history"
-        create_str = ("CREATE TABLE alarm_history (DATETIME TIMESTAMP, "
+        create_str = ("CREATE TABLE alarm_history (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "DATETIME TIMESTAMP, "
                       "CONTROLLER TEXT, INDEX CHAR(3), DATA REAL, STATUS INT, REASON CHAR(2), "
                       "TYPE CHAR(1), NUMBER_OF_RECIPIENTS INT[], "
                       "ACKNOWLEDGEMENT CHAR(1))")
@@ -1112,7 +1115,8 @@ class DobermanDB(object):
                 return
         drop_str = "DROP TABLE IF EXISTS default_settings"
         create_str = ("CREATE TABLE IF NOT EXISTS default_settings "
-                      "(PARAMETER TEXT, VALUE TEXT, DESCRIPTION TEXT)")
+                      "(_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "PARAMETER TEXT, VALUE TEXT, DESCRIPTION TEXT)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
             self.logger.warning("Can not crate 'default_settings' "
                                 "table in database.")
@@ -1236,7 +1240,8 @@ class DobermanDB(object):
         if drop_contacts not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS contact"
-        create_str = ("CREATE TABLE contact (NAME TEXT, STATUS TEXT, "
+        create_str = ("CREATE TABLE contact (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "NAME TEXT, STATUS TEXT, "
                       "MAILADDRESS TEXT, PHONE TEXT)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
             self.logger.warning("Can not crate 'contact' table in database.")
@@ -1450,7 +1455,8 @@ class DobermanDB(object):
         Format: DATETIME, DATA, Status (as lists)
         """
         create_str = ("CREATE TABLE IF NOT EXISTS Data_%s "
-                      "(DATETIME TIMESTAMP, DATA REAL[], STATUS INT[])" % str(
+                      "(_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "DATETIME TIMESTAMP, DATA REAL[], STATUS INT[])" % str(
                           name))
         if self.interactWithDatabase(create_str) == -1:
             self.logger.warning("Can not add 'Data_%s' to database."
