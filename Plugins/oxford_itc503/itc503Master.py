@@ -145,7 +145,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger('slowcontrol.plugins.itc503masterlogger')
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()

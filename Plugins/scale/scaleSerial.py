@@ -281,9 +281,9 @@ if __name__ == '__main__':
     
     scales = scaleSerial(logger)
     print('\n\nAs a test I print ID, Address, Communication Parameters, Setpoint1 and current value')
-    print(scales.getID())
-    print(scales.getAddress())
-    print(scales.getCommunicationParameters())
-    print(scales.getSetpoint(1))
-    print(scales.getDisplayedValue())
+    print((scales.getID()))
+    print((scales.getAddress()))
+    print((scales.getCommunicationParameters()))
+    print((scales.getSetpoint(1)))
+    print((scales.getDisplayedValue()))
 

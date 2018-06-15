@@ -23,6 +23,7 @@ class TeledyneMaster(object):
         self.opts = opts
         self.controller = None
         self.controller = TeledyneSerial.TeledyneSerial(opts,logger)
+        self.logger.debug('%s c\'tor starting' % __class__.__name__)
 
         if self.controller is None:
             self.logger.fatal("Controller not initialized correctly")
@@ -30,15 +31,18 @@ class TeledyneMaster(object):
 
         self._lifes = 99999999999999999999999
 
+        self.logger.debug('%s starting writer...' % __class__.__name__)
         if hasattr(self.opts, 'log_path'):
             self.Teledyne_writer = TeledyneWriter.TeledyneWriter(logger, opts.queue, log_path = self.opts.log_path)
         else:
             self.Teledyne_writer = TeledyneWriter.TeledyneWriter(logger, opts.queue)
-        
+
         if not opts.queue:
             self.logHead()
 
+        self.logger.debug('%s starting readout thread' % __class__.__name__)
         self.writerThread = ReadoutThread(self.logger, self.opts, self.Teledyne_writer, self.controller)
+        self.logger.debug('%s c\'tor finished' % __class__.__name__)
 
 
     def Teledynemaster(self):
@@ -138,7 +142,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger()
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()

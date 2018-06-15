@@ -31,8 +31,8 @@ class supervisionMaster(object):
         else:
             if hasattr(self.opts, 'log_path'):
                 self.supervision_writer = supervisionWriter.supervisionWriter(self.logger, None, log_path = self.opts.log_path)
-        else:
-            self.supervision_writer = supervisionWriter.supervisionWriter(self.logger, None)
+            else:
+                self.supervision_writer = supervisionWriter.supervisionWriter(self.logger, None)
 
         self.super_vision_server = supervisionComBox.supervisionServer(self.logger, (self.opts.server_address,self.opts.server_port))
         self.super_vision_client = supervisionComBox.supervisionClient(self.logger, (self.opts.remote_address,self.opts.remote_port))
@@ -150,7 +150,7 @@ if __name__ == '__main__':
     
     logger = logging.getLogger()
     if not opts.loglevel in [0,10,20,30,40,50]:
-        print("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. Fall back to default value of 10"%opts.loglevel))
     logger.setLevel(int(opts.loglevel))
 
     chlog = logging.StreamHandler()

@@ -3,7 +3,7 @@
 import TemperNTCMaster
 
 import datetime
-import Queue
+import queue
 
 class TemperNTCControl(object):
     """

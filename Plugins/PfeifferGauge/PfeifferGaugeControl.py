@@ -1,7 +1,7 @@
 #! /usr/bin/env python3.3
 
 import pressureMaster
-import Queue
+import queue
 import datetime
 
 class PfeifferGaugeControl(object):
@@ -70,7 +70,7 @@ if __name__ == '__main__':
     logger = logging.getLogger()
     logger.setLevel(10)
     
-    queue = Queue.Queue()
+    queue = queue.Queue()
 
 
     opts = type('Test', (object,), {})  

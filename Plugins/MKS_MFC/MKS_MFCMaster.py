@@ -204,7 +204,7 @@ class ReadoutThread(threading.Thread):
                 "No queue to send the data! Only printing data to the screen.")
             print("\n\n#############################")
             print("MKS_MFC:\nFlow Rate and Unit:")
-            print("%s [%s]" % (str(flow_rate), units))
+            print(("%s [%s]" % (str(flow_rate), units)))
             print("\nMKS_MFC: Flow Rate in percent:")
             print(flow_rate_percent)
             print("\nInternal temperature [C]:")
@@ -244,8 +244,8 @@ if __name__ == '__main__':
 
     logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 20" % opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. "
+              "Fall back to default value of 20" % opts.loglevel))
         opts.loglevel = 20
     logger.setLevel(int(opts.loglevel))
 

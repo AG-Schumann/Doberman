@@ -26,7 +26,7 @@ time.sleep(0.2)
 
 while 1 :
     # get keyboard input
-    input = input(">> ")
+    input = eval(input(">> "))
         # Python 3 users
         # input = input(">> ")
     if input == 'exit':
@@ -42,4 +42,4 @@ while 1 :
             out += ser.read(1)
 
         if out != '':
-            print(">>" + out)
+            print((">>" + out))

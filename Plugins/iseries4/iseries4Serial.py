@@ -182,9 +182,9 @@ class iseries4Serial(iseries4Command.iseries4Command):
             return -1
         try:
             message = self.__startcharakter + str(message)+self.__CR+self.__LF           
-            self.__device.write(message)
+            self.__device.write(message.encode())
 
-            response = (self.__device.readline())
+            response = self.__device.readline().decode()
             response = response.rstrip(self.__LF).rstrip(self.__CR)
 
         except serial.SerialException as e:
@@ -237,9 +237,9 @@ if __name__ == '__main__':
     
     iser = iseries4Serial(logger)
     print('\n\nAs a test I print ID, Address, Communication Parameters, Setpoint1 and current value')
-    print(iser.getID())
-    print(iser.getAddress())
-    print(iser.getCommunicationParameters())
-    print(iser.getSetpoint(1))
-    print(iser.getDisplayedValue())
+    print((iser.getID()))
+    print((iser.getAddress()))
+    print((iser.getCommunicationParameters()))
+    print((iser.getSetpoint(1)))
+    print((iser.getDisplayedValue()))
 

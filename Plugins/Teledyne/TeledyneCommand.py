@@ -17,7 +17,7 @@ class TeledyneCommand(object):
         Message format is ("accc[?][arg]\r\n") 
         where a is the address letter, ccc the 3 letter (if not add spaces!) command, ? the query identification, arg is the comma separated parameter list
         """
-        print('I send %s and read the output'%str(message))
+        print(('I send %s and read the output'%str(message)))
         return 0
 
 

@@ -17,7 +17,7 @@ class MKS_MFCCommand(object):
         Note that this is a test function.
         MKS_MFCSerial has its own communicate fuction
         """
-        print('I send %s and read the output' % str(message))
+        print(('I send %s and read the output' % str(message)))
         return 0
 
     """
@@ -172,7 +172,7 @@ class MKS_MFCCommand(object):
         1: Open velve as fast as possible (1 step)
         200: Open valve in 200 equal steps (about 6.4 seconds)
         """
-        if rate not in range(1, 200):
+        if rate not in list(range(1, 200)):
             self.logger.warning("Invalid softstart rate, must be in (1, 200).")
             return -1
         message = 'SS!%f' % rate

@@ -1,6 +1,6 @@
 import datetime
 import os
-import Queue
+import queue
 import logging
 import DobermanDB
 
@@ -129,8 +129,8 @@ if __name__ == '__main__':
     logger = logging.getLogger()
     opts.logger = logger
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 10" % opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. "
+              "Fall back to default value of 10" % opts.loglevel))
     logger.setLevel(int(opts.loglevel))
     chlog = logging.StreamHandler()
     chlog.setLevel(int(opts.loglevel))
@@ -139,13 +139,13 @@ if __name__ == '__main__':
     chlog.setFormatter(formatter)
     logger.addHandler(chlog)
 
-    queue = Queue.Queue(0)
+    queue = queue.Queue(0)
     DoCo = DobermanCommunication(queue, 'the_name', logger)
-    print "Testing system by putting two numbers to queue..."
+    print("Testing system by putting two numbers to queue...")
     if DoCo.pushToQueue([55, 46], [3]) != -1:
-        print 'In the queue is:', queue.get()
+        print('In the queue is:', queue.get())
     else:
-        print 'Queue empty.'
-    print "Testing system by reading config for 'testdev'..."
-    print (DoCo.getConfigUpdates('testdev'))
+        print('Queue empty.')
+    print("Testing system by reading config for 'testdev'...")
+    print((DoCo.getConfigUpdates('testdev')))
     sys.exit(0)
