@@ -21,23 +21,22 @@ class smartec_uti3Master(object):
     """
     def __init__(self, opts, logger):
 
-        print("*************************** hier bin ich ******************************")
         self.logger = logger
         self.logger.info(" init of smartec_uti3.utiMaster...")
         self.logger.debug(" init of smartec_uti3.utiMaster...")
         self.opts = opts
         self.controller = None
         self.controller = smartec_uti3Serial.smartec_uti3Serial(opts, logger)
-        
+
         if self.controller is None:
             self.logger.fatal("Transducer not initialized correctly")
             exit()
 
         self._lifes = 99999999999999999999999
-        
+
         if not hasattr(self.opts, 'queue'):
             self.opts.queue = None
-        
+
         if hasattr(self.opts, 'log_path'):
             self.uti_writer = smartec_uti3Writer.smartec_uti3Writer(logger, self.opts.queue, log_path = self.opts.log_path)
         else:

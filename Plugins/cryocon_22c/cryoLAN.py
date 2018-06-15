@@ -19,7 +19,7 @@ class cryoLAN(cryoCommand.cryoCommand):
         self.__address = str(address)
         self.__port = int(port)
         super(cryoLAN, self).__init__(**kwds)
-        
+
         self.__device = self._getControl()
         if self.__device is None:
             self.logger.fatal("No device found here: %s at port %i. Maximum number of connection tries exceeded..."%(self.__address, self.__port))
@@ -32,7 +32,7 @@ class cryoLAN(cryoCommand.cryoCommand):
                 self.logger.fatal("No device found here: %s at port %i. Maximum number of connection tries exceeded..."%(self.__address, self.__port))
                 self.close()
                 return
-            
+
 
     def _getControl(self):
         """
@@ -72,7 +72,7 @@ class cryoLAN(cryoCommand.cryoCommand):
         response = self.read()
         if response == -1:
             self.logger.warning("Cryo controller is not answering.")
-            self.__connected = False            
+            self.__connected = False
             return -2
         self.logger.debug("Device answered: %s",response)
         if not 'Cryo-con,22C,' in response:
@@ -125,7 +125,7 @@ class cryoLAN(cryoCommand.cryoCommand):
     def __del__(self):
         self.close()
         return
-    
+
     def __exit__(self):
         self.close()
         return
