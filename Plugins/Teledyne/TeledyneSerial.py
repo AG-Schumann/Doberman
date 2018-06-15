@@ -46,14 +46,12 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
             self.occupied_ttyUSB = opts.occupied_ttyUSB
 
         self.__connected = False
-
         super(TeledyneSerial, self).__init__(**kwds)
         self.__device = self._getControl()
         if not self.__device.isOpen():
             self.__device.open()
-        if self.__device.isOpen():            
+        if self.__device.isOpen():
             self.__connected = True
-
         counter = 0
         while self.checkController() != 0:
             self.__device = self._getControl(True)
@@ -94,7 +92,7 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
                     baudrate=9600,
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
-		    timeout = 5
+                    timeout = 5
                 )
                 connected = True
             except serial.SerialException as e:
@@ -105,7 +103,7 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
         self.__connected = True
         self.logger.info("Successfully connected to controller via serial port.")
         return port
-    
+
     def get_ttyUSB(self,vendor_ID,product_ID, start_ttyUSB = 0):
         '''
         Retruns the ttyUSB which the device with given ID is connected to, by looking throung the ttyUSB 0 to 4 and comparing IDs.
@@ -120,18 +118,18 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
                 continue
             self.logger.debug("Searching in ttyUSB%s ..."%ttyport)
             tty_Vendor = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idVendor}=="%(ttyport) + '"%s"'%str(vendor_ID) + "'").readlines()
-            tty_Product = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idProduct}=="%(ttyport) + '"%s"'%str(product_ID) + "'").readlines() 
+            tty_Product = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idProduct}=="%(ttyport) + '"%s"'%str(product_ID) + "'").readlines()
             tty_ID = os.popen("udevadm info -a -n /dev/ttyUSB%d | grep '{serial}' | head -n1"%(ttyport)).readline()
             if (tty_Vendor != [] and tty_Product != [] and tty_ID == "    ATTRS{serial}==\"0000:00:14.0\"\n"):
                 self.logger.info("Device with vendorID = '%s' and productID = '%s' and serialID = '0000:00:14.0' found at ttyUSB%d"%(vendor_ID, product_ID,ttyport))
                 return ttyport
-        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = '0000:00:14.0' NOT found at any ttyUSB"%(vendor_ID, product_ID))       
+        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = '0000:00:14.0' NOT found at any ttyUSB"%(vendor_ID, product_ID))
         return -1
 
     def connected(self):
         self.logger.info("The device connection status is: %s",self.__connected)
         return self.__connected
-    
+
     def checkController(self):
         """
         Checks whether the connected device is a pressure controller
@@ -154,7 +152,7 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
         else:
             self.logger.debug("Unknown response. Device answered: %s",response)
             return -3
-    
+
     def communicate(self, message):
         """
         Send the message to the device and reads the response
@@ -170,12 +168,12 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
                 self.logger.debug("There is information on the input which will be lost as input will be flushed in order to communicate properly.")
                 self.__device.flushInput()
 
-            message = self.__AddressLetter + str(message) + self.__CR + self.__LF           
-            self.__device.write(message)
+            message = self.__AddressLetter + str(message) + self.__CR + self.__LF
+            self.__device.write(message.encode())
             time.sleep(0.1)
             response=[]
             while self.__device.inWaiting() != 0:
-                response_line = self.__device.readline()
+                response_line = self.__device.readline().decode()
                 response_line = response_line.rstrip(self.__LF).rstrip(self.__CR)
                 response.append(response_line)
                 if len(response) >3:
@@ -193,7 +191,6 @@ class TeledyneSerial(TeledyneCommand.TeledyneCommand):
         if str(response[0][4:7]) != str(message[1:4]):
             self.logger.debug("Wrong echo on message: message = %s, echo = %s, expected = %s"%(message,response[0][4:7], message[1:4]))
             return -2
-
         #Check last line if transmission was okey
         if response[-1] != '!%s!o!'%self.__AddressLetter:
             if response[-1] == '!%s!w!'%self.__AddressLetter:
@@ -248,9 +245,9 @@ if __name__ == '__main__':
     
     Td = TeledyneSerial(logger,'0557','2008',)
     print('\n\nAs a test I print: Address letter, Setpoint mode, current data, current unit')
-    print(Td.getAddressLetter())
-    print(Td.getSetpointMode())
-    print(Td.readData())
-    print(Td.getUnit())
+    print((Td.getAddressLetter()))
+    print((Td.getSetpointMode()))
+    print((Td.readData()))
+    print((Td.getUnit()))
 
 

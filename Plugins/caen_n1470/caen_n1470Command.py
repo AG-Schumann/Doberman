@@ -21,7 +21,7 @@ class caen_n1470Command(object):
 #BD:**,CMD:OK,VAL:*;*;*;* command Ok *;*;*;* = values Ch0,1,2,3 for command to all Channels
 so the * after VAL: only is returned 
         """
-        print('I send %s and read the output'%str(message))
+        print(('I send %s and read the output'%str(message)))
         return 0
 
     """

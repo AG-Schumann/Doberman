@@ -1,5 +1,5 @@
 import datetime
-import os 
+import os
 
 class TeledyneWriter(object):
     """
@@ -16,7 +16,7 @@ class TeledyneWriter(object):
         if self.__keyword is None:
             self.__keyword = 'STD'
 
-        if kwds.has_key('log_path'):
+        if 'log_path' in kwds:
              self._logpath = str(kwds['log_path'])
 
         if not os.path.isdir(self._logpath):
@@ -24,10 +24,10 @@ class TeledyneWriter(object):
             #PYTHON 2 compatibility:
             #rights = 0751
             os.mkdir(self._logpath,rights)
-        
+
         self.now = datetime.datetime.now()
         self.filename = os.path.join(self._logpath,"%s_%s_Teledyne.log" %(self.now.strftime('%Y-%m-%d_%H-%M-%S'),self.__keyword))
-        
+
         ifn = 0
         while ifn < 10:
             ifn += 1

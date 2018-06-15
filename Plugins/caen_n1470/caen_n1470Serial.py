@@ -276,7 +276,7 @@ if __name__ == '__main__':
     
     iser = caen_n1470Serial(logger)
     print('\n\nAs a test I print some values')
-    print(iser.getSN())
-    print(iser.getPolarity(0))
-    print(iser.getFWRel())
-    print(iser.getControlMode(1))
+    print((iser.getSN()))
+    print((iser.getPolarity(0)))
+    print((iser.getFWRel()))
+    print((iser.getControlMode(1)))

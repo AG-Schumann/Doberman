@@ -1,16 +1,16 @@
-#! /usr/bin/env python2.7
+#!/usr/bin/env python3
 import sys
 from argparse import ArgumentParser
 import logging
 import datetime
 import smtplib
-from email.MIMEMultipart import MIMEMultipart
-from email.MIMEText import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 
 class alarmDistribution(object):
     """
-    Class that sends an eamil or to a given address
+    Class that sends an email or to a given address
     """
 
     def __init__(self, opts):
@@ -281,8 +281,8 @@ if __name__ == '__main__':
 
     logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 10" % opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. "
+              "Fall back to default value of 10" % opts.loglevel))
     logger.setLevel(int(opts.loglevel))
     chlog = logging.StreamHandler()
     chlog.setLevel(int(opts.loglevel))

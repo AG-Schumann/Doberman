@@ -2,6 +2,7 @@
 
 import serial
 import subprocess
+from subprocess import Popen, PIPE, TimeoutExpired
 import smartec_uti3Command
 import smartec_uti3Config
 
@@ -23,16 +24,18 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
     sudo udevadm trigger
     sudo reload udev
     """
-    def __init__(self, opts, logger, **kwds):  
-        self.__startcharakter = "*"  #Startcharakter may change if manualy set another   
+    def __init__(self, opts, logger, **kwds):
+        self.__startcharakter = "*"  #Startcharakter may change if manualy set another
         self.__CR = chr(13)
         self.__LF = chr(10)
 
-        self._ID = '0000' # ID may be manually changed, be careful. Also change here! 
+        self._ID = '0000' # ID may be manually changed, be careful. Also change here!
 
         self.logger = logger
         self.productID = opts.addresses[1]
         self.vendorID = opts.addresses[2]
+        #self.serialNumber = opts.addresses[3]
+        self.serialNumber = 'DN01NAMY'
         self.opts = opts
         self.ttyUSB = -1
         self.mode = smartec_uti3Config.mode
@@ -60,11 +63,11 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         self.__device = self._getControl()
         if not self.__device.isOpen():
             self.__device.open()
-        if self.__device.isOpen():            
+        if self.__device.isOpen():
             self.__connected = True
-       
+
         counter = 0
-        
+
         while self.checkController() != 0:
             self.__device = self._getControl(True)
             counter += 1
@@ -73,6 +76,12 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
                 self.__connected = False
                 self.close()
                 break
+        try:
+            self.greet()
+            self.setMode(self.mode)
+            self.setSlow()
+        except Exception as e:
+            self.logger.error('Tried initializing device, failed: %s' % e)
 
 
     def _getControl(self, nexttty = False):
@@ -85,13 +94,14 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         if not nexttty:
             self.ttyUSB = -1
         while not connected:
-            self.ttyUSB = self.get_ttyUSB(self.vendorID,self.productID, start_ttyUSB=self.ttyUSB+1)
-            if self.ttyUSB == -1: 
+            #self.ttyUSB = self.get_ttyUSB(self.vendorID,self.productID, start_ttyUSB=self.ttyUSB+1)
+            self.ttyUSB = self.get_ttyUSB(serial_number=self.serialNumber)
+            if self.ttyUSB == -1:
                 try:
                     dev = subprocess.Popen(["which_tty_controller"], stdout=subprocess.PIPE).communicate()[0]
                 except OSError:
                     which_tty_controller = os.path.abspath('which_tty_controller')
-                    print ("*** OSError:  path to 'which_tty_controller': ", which_tty_controller, "  ****") 
+                    print(("*** OSError:  path to 'which_tty_controller': ", which_tty_controller, "  ****"))
                     if not os.path.exists(which_tty_controller):
                         raise OSError("Can not find binary which_tty_controller")
                     dev = subprocess.Popen([which_tty_controller], stdout=subprocess.PIPE).communicate()[0]
@@ -101,6 +111,10 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
             else:
                 dev = '/dev/ttyUSB'+str(self.ttyUSB)
 
+            if self.ttyUSB in self.occupied_ttyUSB:
+                self.logger.info('ttyUSB%i is already occupied? We\'ll try it anyway...' % self.ttyUSB)
+            else:
+                self.logger.debug('Connecting to ttyUSB%i' % self.ttyUSB)
             try:
                 port = serial.Serial(
                     port=dev,
@@ -118,11 +132,35 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         self.__connected = True
         self.logger.info("Successfully connected to controller via serial port.")
         return port
-    
-    def get_ttyUSB(self,vendor_ID,product_ID):
+
+    def get_ttyUSB(self, serial_number):
         '''
-        Retruns the ttyUSB which the device with given ID is connected to, by looking throung the ttyUSB 0 to 4 and comparing IDs
+        Returns the ttyUSB which the device with given serial is connected to, by looking through dmesg
         '''
+        self.logger.debug('Looking for USB device with serial %s' % serial_number)
+        proc = Popen('dmesg | grep %s | tail -n 1' % serial_number, shell=True, stdout=PIPE, stderr=PIPE)
+        try:
+            out, err = proc.communicate(timeout=10)
+        except TimeoutExpired:
+            self.logger.error('Timed out while looking for serial device')
+            proc.kill()
+            out, err = proc.communicate()
+        if len(err) or not len(out):
+            self.logger.error('Error looking for serial device. Stdout: %s. Stderr: %s' % (out.decode(), err.decode()))
+            return -1
+        usbid = out.decode().split()[3]
+        proc = Popen('dmesg | grep %s | grep -o "ttyUSB[0-9]"' % usbid, shell=True, stdout=PIPE, stderr=PIPE)
+        try:
+            out, err = proc.communicate(timeout=10)
+        except TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        if len(err) or not len(out):
+            self.logger.error('Could not find USB device, stdout: %s, stderr: %s' % (out.decode(), err.decode()))
+            return -1
+        tty_ID = out.decode()[-2] # [-1] is \n
+        return int(tty_ID)
+        """
     def get_ttyUSB(self,vendor_ID,product_ID, start_ttyUSB = 0):
         '''
         Retruns the ttyUSB which the device with given ID is connected to, by looking throung the ttyUSB 0 to 4 and comparing IDs.
@@ -137,19 +175,19 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
                 continue
             self.logger.debug("Searching in ttyUSB%s ..."%ttyport)
             tty_Vendor = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idVendor}=="%(ttyport) + '"%s"'%str(vendor_ID) + "'").readlines()
-            tty_Product = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idProduct}=="%(ttyport) + '"%s"'%str(product_ID) + "'").readlines() 
+            tty_Product = os.popen("udevadm info -a -p  $(udevadm info -q path -n /dev/ttyUSB%d) | grep 'ATTRS{idProduct}=="%(ttyport) + '"%s"'%str(product_ID) + "'").readlines()
             tty_ID = os.popen("udevadm info -a -n /dev/ttyUSB%d | grep '{serial}' | head -n1"%(ttyport)).readline()
             if (tty_Vendor != [] and tty_Product != [] and tty_ID == "    ATTRS{serial}==\"DN01NAM1\"\n"):
                 self.logger.info("Device with vendorID = '%s' and productID = '%s' and serialID = 'DN01NAM1' found at ttyUSB%d"%(vendor_ID, product_ID,ttyport))
                 return ttyport
-        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = 'DN01NAM1' NOT found at any ttyUSB"%(vendor_ID, product_ID))       
+        self.logger.warning("Device with vendorID = '%s' and productID = '%s' and serialID = 'DN01NAM1' NOT found at any ttyUSB"%(vendor_ID, product_ID))
         return -1
 
-
+        """
     def connected(self):
         self.logger.info("The device connection status is: %s",self.__connected)
         return self.__connected
-    
+
     def checkController(self):
         """
         Checks whether the connected device is a uti transducer
@@ -167,18 +205,18 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
                 return 0
         elif resp == -1:
             self.logger.warning("uti transducer is not answering correctly.")
-            self.__connected = False 
+            self.__connected = False
             return -1
 
         elif  resp != self._ID and len(resp) == 4:
-            self.logger.warning("ID not correct. Not the matching controller connected (Check ID on controller to make sure. Shold be '%s' is '%s')"%(self._ID,resp))
+            self.logger.warning("ID not correct. Not the matching controller connected (Check ID on controller to make sure. Should be '%s' is '%s')"%(self._ID,resp))
             self.__connected = False
             return -2
 
         else:
             self.logger.debug("Unknown response. Device answered: %s",resp)
             return -3
-    
+
     def communicate(self, message):
         """
         Send the message to the device and reads the response
@@ -188,16 +226,19 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
             return -1
         try:
             message = str(message)
-            self.__device.write(message)
+            self.__device.write(message.encode())
             resp = ''
             time.sleep(0.3)
-            while self.__device.inWaiting() > 0:
-                resp += self.__device.read(1)
+            bytes_to_read = self.__device.inWaiting()
+            if bytes_to_read:
+                resp = self.__device.read(bytes_to_read).decode()
+            #while self.__device.inWaiting() > 0:
+            #    resp += self.__device.read(1).decode()
 
         except serial.SerialException as e:
-            self.logger.debug("Can not send Message. Serial exception '%s'."%e) 
+            self.logger.debug("Can not send Message. Serial exception '%s'."%e)
             return -1
- 
+
         time.sleep(0.1)
         return resp
 
@@ -212,6 +253,8 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         """
         call this to properly close the serial connection to the uti transducer
         """
+        #self.powerDown()
+        self.logger.debug('Shutting down...')
         self.__connected = False
         self.__device.close()
         return
@@ -220,7 +263,7 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
     def __del__(self):
         self.close()
         return
-    
+
     def __exit__(self):
         self.close()
         return
@@ -230,6 +273,7 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         Establishes connection by sending '@'
         """
         message = '@'
+        self.logger.debug('We come in peace')
         self.communicate(message)
         return
 
@@ -237,7 +281,8 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         """
         Switches to slow mode
         """
-        message = 's'	
+        message = 's'
+        self.logger.debug('Setting slow...')
         self.communicate(message)
         return
 
@@ -245,7 +290,8 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         """
         Switches to fast mode
         """
-        message = 'f'	
+        message = 'f'
+        self.logger.debug('Setting fast...')
         self.communicate(message)
         return
 
@@ -253,14 +299,17 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
         """
         Sets measurement mode between mode 0 and mode 4
         """
+        self.logger.debug('Setting mode %s...' % self.mode)
         self.communicate(mode)
         return
 
     def powerDown(self):
         """
-        Powers down the uti transducer
+        Powers down the uti transducer. Note that you have to power-cycle
+        the board (unplug + replug) to bring it back online
         """
         message = 'p'
+        self.logger.debug('Powering down...')
         self.communicate(message)
         return
 
@@ -328,7 +377,8 @@ class smartec_uti3Serial(smartec_uti3Command.smartec_uti3Command):
             if self.mode == 'C':
                 resp = [x / 15 for x in resp]
             return resp
-        except:
+        except Exception as e:
+            self.logger.error('Could not make measurement! %s' % e)
             return -1
 
 
@@ -340,12 +390,12 @@ if __name__ == '__main__':
     logging.basicConfig()
     logger = logging.getLogger()
     logger.setLevel(10)
-    
+
     utis = smartec_uti3Serial(logger)
     print('\n\nAs a test I print ID, Address, Communication Parameters, Setpoint1 and current value')
-    print(utis.getID())
-    print(utis.getAddress())
-    print(utis.getCommunicationParameters())
-    print(utis.getSetpoint(1))
-    print(utis.getDisplayedValue())
+    print((utis.getID()))
+    print((utis.getAddress()))
+    print((utis.getCommunicationParameters()))
+    print((utis.getSetpoint(1)))
+    print((utis.getDisplayedValue()))
 

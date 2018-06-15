@@ -16,9 +16,9 @@ class iseries:
                     timeout = 5
                 )
     if not name == None:
-      print "Connected to '{}' on port {}".format(self._name, self._port)
+      print("Connected to '{}' on port {}".format(self._name, self._port))
     else:
-      print "connected to port {}".format(self._port)
+      print("connected to port {}".format(self._port))
 
 
   def communicate(self, message):

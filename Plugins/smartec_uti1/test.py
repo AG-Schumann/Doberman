@@ -13,11 +13,11 @@ ser = serial.Serial(
 
 ser.isOpen()
 
-print 'Enter your commands below.\r\nInsert "exit" to leave the application.'
+print('Enter your commands below.\r\nInsert "exit" to leave the application.')
 
 _input=1
 
-print 'test ...'
+print('test ...')
 time.sleep(0.2)
 ser.write('@'.encode('utf-8'))
 time.sleep(0.2)
@@ -28,7 +28,7 @@ time.sleep(0.2)
 
 while 1 :
     # get keyboard input
-    _input = raw_input("<< ")
+    _input = input("<< ")
         # Python 3 users
         # input = input(">> ")
     if _input == 'exit':
@@ -37,7 +37,7 @@ while 1 :
     else:
         # send the character to the device
         _input_encoded = str(_input).encode('utf-8')
-	print 'encoding input to: ', _input_encoded
+	print('encoding input to: ', _input_encoded)
         ser.write(_input_encoded)
         out = ''
         # let's wait one second before reading output (let's give device time to answer)
@@ -50,6 +50,6 @@ while 1 :
 	if converted_output != '':
 	    co = converted_output.split()
             coi = [int(i, 16) for i in co]
-	    print ">> ",
-	    print coi
+	    print(">> ", end=' ')
+	    print(coi)
 

@@ -17,7 +17,7 @@ class iseries3Command(object):
         Note that this is a test function. iseries3Serial has its own communicate fuction
         Message format is ("*Z01\r\n")
         """
-        print('I send %s and read the output'%str(message))
+        print(('I send %s and read the output'%str(message)))
         return 0
 
 

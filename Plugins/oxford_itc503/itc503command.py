@@ -96,21 +96,21 @@ class itc503Command(object):
         self.set_sensor(sensor)
 
         self.__alarm = [(0.,100.),(0.,330.),(0.,330.),(0.,330.)]
-        if 'heater_alarm_high' in kwds.keys():
+        if 'heater_alarm_high' in list(kwds.keys()):
             self.__alarm[0][1] = float(kwds['heater_alarm_high'])
-        if 'heater_alarm_low' in kwds.keys():
+        if 'heater_alarm_low' in list(kwds.keys()):
             self.__alarm[0][0] = float(kwds['heater_alarm_low'])
-        if 'temperature_alarm_1_high' in kwds.keys():
+        if 'temperature_alarm_1_high' in list(kwds.keys()):
             self.__alarm[1][1] = float(kwds['temperature_alarm_1_high'])
-        if 'temperature_alarm_2_high' in kwds.keys():
+        if 'temperature_alarm_2_high' in list(kwds.keys()):
             self.__alarm[2][1] = float(kwds['temperature_alarm_2_high'])
-        if 'temperature_alarm_3_high' in kwds.keys():
+        if 'temperature_alarm_3_high' in list(kwds.keys()):
             self.__alarm[3][1] = float(kwds['temperature_alarm_3_high'])
-        if 'temperature_alarm_1_low' in kwds.keys():
+        if 'temperature_alarm_1_low' in list(kwds.keys()):
             self.__alarm[1][0] = float(kwds['temperature_alarm_1_low'])
-        if 'temperature_alarm_2_low' in kwds.keys():
+        if 'temperature_alarm_2_low' in list(kwds.keys()):
             self.__alarm[2][0] = float(kwds['temperature_alarm_2_low'])
-        if 'temperature_alarm_3_low' in kwds.keys():
+        if 'temperature_alarm_3_low' in list(kwds.keys()):
             self.__alarm[3][0] = float(kwds['temperature_alarm_3_low'])
     
     def set_temperature_alarm(self, sensor, alarmvalues):

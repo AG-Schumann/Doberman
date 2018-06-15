@@ -3,7 +3,7 @@
 import itc503Master
 
 import datetime
-import Queue
+import queue
 
 class oxford_itc503Control(object):
     """

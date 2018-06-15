@@ -99,8 +99,8 @@ class ReadoutThread(threading.Thread):
         else:
             print("\n")
             for ii, used_space in enumerate(data):
-                print("  Memory of %s: Used %s%% (status: %s)" %
-                      (str(names[ii]), str(used_space), str(status)))
+                print(("  Memory of %s: Used %s%% (status: %s)" %
+                      (str(names[ii]), str(used_space), str(status))))
             print("\n")
 
     def checkMemory(self):
@@ -162,8 +162,8 @@ if __name__ == '__main__':
     opts = parser.parse_args()
     logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 10" % opts.loglevel)
+        print(("ERROR: Given log level %i not allowed. "
+              "Fall back to default value of 10" % opts.loglevel))
     logger.setLevel(int(opts.loglevel))
     chlog = logging.StreamHandler()
     chlog.setLevel(int(opts.loglevel))
