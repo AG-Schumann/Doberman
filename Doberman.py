@@ -1421,6 +1421,16 @@ if __name__ == '__main__':
         opts.update = False
         opts.contacts = False
         opts.new = False
+
+    lockfile = os.path.join(os.getcwd(), "doberman.lock")
+    if os.path.exists(lockfile):
+        print("The lockfile exists: is there an instance of Doberman already running?")
+        sys.exit(0)
+    else:
+        with open(lockfile, 'w') as f:
+            f.write('\0')
+        atexit.register(deleteLockFile, lockfile)
+
     # Testrun option -t
     if opts.testrun == -1:
         print("WARNING: Testrun activated: No alarm / warnings will be sent.")
