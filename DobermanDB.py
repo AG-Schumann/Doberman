@@ -50,9 +50,9 @@ class DobermanDB(object):
             return -1
         try:
             # Connect and get a cursor
-            conn = psycopg2.connect(self._conn_string) # cursor_factory=psycopg2.extras.DictCursor
+            conn = psycopg2.connect(self._conn_string)#, cursor_factory=psycopg2.extras.DictCursor)
             cur = conn.cursor()
-            self.logger.debug("Connected with Doberman database.")
+            #self.logger.debug("Connected with Doberman database.")
 
             # Do the job
             cur.execute(action)
@@ -63,7 +63,7 @@ class DobermanDB(object):
                     cur.execute(additional_action)
             if readoutput:
                 output = cur.fetchall()
-                self.logger.debug("Read output from Database...")
+                #self.logger.debug("Read output from Database...")
 
             # Closing the connection correctly
             conn.commit()
@@ -78,7 +78,7 @@ class DobermanDB(object):
             except Exception:
                 pass
             return -1
-        self.logger.debug("Closed connection with Doberman database.")
+        #self.logger.debug("Closed connection with Doberman database.")
         if readoutput:
             return output
         return 0
@@ -92,11 +92,14 @@ class DobermanDB(object):
                 f.write("# Backup file of the config table in DobermanDB. "
                         "Updated: %s" % str(datetime.datetime.now()))
                 self.logger.info("Writing new config to configBackup.txt...")
-                for row in (self._config):
-                    for item in row:
-                        f.write("\n")
-                        f.write(str(item))
-                    f.write("\n" + 20 * "-")
+                for name in (self._config):
+                    controller = self._config[name]
+                    f.write("\ncontroller:%s\n" % controller['controller']) # needs to be first entry
+                    for key in controller:
+                        if key == "controller":
+                            continue
+                        f.write("%s:%s\n" % (key, controller[key]))
+                    f.write(20 * "-")
         except Exception as e:
             self.logger.warning("Can not refresh configBackup.txt. %s." % e)
             return -1
@@ -119,25 +122,27 @@ class DobermanDB(object):
                                 "File empty")
             return -2
         self.logger.info("Backup file dates from %s" %
-                         (configBackup[0].replace("# Backup file of the config"
-                                                  "table in Doberman database."
-                                                  " Updated:", "")))
-        # The following lines are converting the text from the file back in
-        # arrays to get the same format as if it would come from the database
-        templist = []
-        temp = configBackup[1:]
-        c_backup = []
-        for item in temp:
-            if item == (20 * "-"):
-                c_backup.append([str(templist[0]), str(templist[1]),
-                                 str(templist[2]), templist[3], templist[4],
-                                 templist[5], templist[6], int(templist[7]),
-                                 templist[8], templist[9],
-                                 int(templist[10]), templist[11],
-                                 templist[12]])
-                templist = []
-                continue
-            templist.append(item)
+                (configBackup[0].split(': ')[1]))
+        # The following lines convert the text from the file back into
+        # the backend dictionaries
+        c_backup = {}
+        index_string = '-' * 20
+        num_entries = configBackup.count(index_string)
+        entry_start, entry_end = 1, configBackup.index(index_string)
+        for _ in range(num_entries):
+            entry = configBackup[entry_start:entry_end]
+            name = entry[0].split(':')[1]
+            c_backup[name] = {}
+            for row in entry:
+                key, val = row.split(':')
+                try:
+                    c_backup[name][key] = eval(val)
+                except NameError:
+                    c_backup[name][key] = val
+            entry_start = entry_end+1
+            if entry_start == len(configBackup):
+                break
+            entry_end = configBackup.index(index_string, entry_start)
         return c_backup
 
     def refreshContactsBackup(self):
@@ -221,14 +226,15 @@ class DobermanDB(object):
         if drop_config not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS config"
-        create_str = ("CREATE TABLE config (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+        create_str = ("CREATE TABLE config ("
                       "CONTROLLER TEXT, STATUS TEXT, "
                       "ALARM_STATUS TEXT[], WARNING_LOW REAL[], "
                       "WARNING_HIGH REAL[], ALARM_LOW REAL[], "
                       "ALARM_HIGH REAL[], "
                       "READOUT_INTERVAL INT, ALARM_RECURRENCE INT[], "
                       "DESCRIPTION TEXT[], NUMBER_OF_DATA INT, "
-                      "ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[])")
+                      "ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[], "
+                      "_id SERIAL PRIMARY KEY)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
             self.logger.warning("Can not recreate config table in database. "
                                 "Error while interacting with DB.")
@@ -253,7 +259,7 @@ class DobermanDB(object):
         if drop_history not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS config_history"
-        create_str = ("CREATE TABLE config_history (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+        create_str = ("CREATE TABLE config_history ("
                       "DATETIME TIMESTAMP, "
                       "CONTROLLER TEXT, STATUS TEXT, "
                       "ALARM_STATUS TEXT[], WARNING_LOW REAL[], "
@@ -261,7 +267,8 @@ class DobermanDB(object):
                       "ALARM_HIGH REAL[], "
                       "READOUT_INTERVAL INT, ALARM_RECURRENCE INT[], "
                       "DESCRIPTION TEXT[], NUMBER_OF_DATA INT, "
-                      "ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[])")
+                      "ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[], "
+                      "_id SERIAL PRIMARY KEY)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
             self.logger.warning("Can not recreate config_history table in the "
                                 " database. Error while interacting with DB.")
@@ -287,11 +294,12 @@ class DobermanDB(object):
         if drop_history not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS alarm_history"
-        create_str = ("CREATE TABLE alarm_history (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+        create_str = ("CREATE TABLE alarm_history ("
                       "DATETIME TIMESTAMP, "
                       "CONTROLLER TEXT, INDEX CHAR(3), DATA REAL, STATUS INT, REASON CHAR(2), "
                       "TYPE CHAR(1), NUMBER_OF_RECIPIENTS INT[], "
-                      "ACKNOWLEDGEMENT CHAR(1))")
+                      "ACKNOWLEDGEMENT CHAR(1), "
+                      "_id SERIAL PRIMARY KEY)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
             self.logger.warning("Can not recreate alarm_history table in the "
                                 " database. Error while interacting with DB.")
@@ -386,7 +394,7 @@ class DobermanDB(object):
             self.logger.warning("Deleted table 'Data_%s'" % str(name))
             return 0
 
-    def addSettingToConfigHistory(self, settings):
+    def addSettingToConfigHistory(self, controller):
         """
         Adds the current setting of a controller to the config history
         (DATETIME TIMESTAMP,
@@ -405,15 +413,16 @@ class DobermanDB(object):
                           "('%s'::timestamp, '%s', '%s', "
                           "ARRAY%s, ARRAY%s, ARRAY%s, ARRAY%s, ARRAY%s, "
                           "%d, ARRAY%s, ARRAY%s, %d, ARRAY%s, ARRAY%s)" %
-                          (now, settings[0], settings[1], str(settings[2]),
-                           str(settings[3]), str(settings[4]), str(settings[5]),
-                           str(settings[6]),
-                           settings[7], str(settings[8]),
-                           str(settings[9]), settings[10],
-                           str(settings[11]), str(settings[12])))
+                          (now, controller['controller'], controller['status'],
+                              str(controller['alarm_status']), str(controller['warning_low']),
+                              str(controller['warning_high']), str(controller['alarm_low']),
+                              str(controller['alarm_high']), controller['readout_interval'],
+                              str(controller['alarm_recurrence']), str(controller['description']),
+                              controller['number_of_data'], str(controller['addresses']),
+                              str(controller['additional_parameters'])))
         if self.interactWithDatabase(addHistory_str) == -1:
             self.logger.warning("Can not add settings of %s to config_history. "
-                                "Database interaction error." % settings[0])
+                                "Database interaction error." % controller['controller'])
             return -1
         return 0
 
@@ -444,7 +453,20 @@ class DobermanDB(object):
             self.logger.warning("Can not read from config table in DobermanDB. "
                                 "Database interaction error.")
             return -1
-        return controller_config
+
+        column_names = self.getConfigColumnNames()
+        config_dict = {}
+        if name=='all':
+            # dict of dicts
+            for controller in controller_config:
+                controller_name = controller[0]
+                config_dict[controller_name] = {}
+                for col,val in zip(column_names, controller):
+                    config_dict[controller_name][col] = val
+        else:
+            for col,val in zip(column_names, controller_config[0]):
+                config_dict[col] = val
+        return config_dict
 
     def printParameterDescription(self):
         """
@@ -503,7 +525,7 @@ class DobermanDB(object):
                     "Parameters which the plugin needs and are not mentioned "
                     "in any of the other points.")
         for sentence in text:
-            print(("\n - " + sentence))
+            print("\n - " + sentence)
 
     def getUserInput(self, text, input_type=None, be_in=None, be_not_in=None, be_array=False, limits=None, string_length=None, exceptions=None):
         """
@@ -607,17 +629,17 @@ class DobermanDB(object):
         """
         while len(input_list) < length:
             if input_name:
-                print(("Warning: Lenght of list '%s' too small, "
-                      "appending '%s'." % (input_name, str(append_item))))
+                print("Warning: Lenght of list '%s' too small, "
+                      "appending '%s'." % (input_name, str(append_item)))
             else:
-                print(("Warning: Lenght of list too small, "
-                      "appending '%s'." % str(append_item)))
+                print("Warning: Lenght of list too small, "
+                      "appending '%s'." % str(append_item))
             input_list.append(append_item)
         if len(input_list) > length:
             if input_name:
-                print(("Warning: Lenght of list '%s' larger than expected "
+                print("Warning: Lenght of list '%s' larger than expected "
                       "(%s > %s)." % (input_name, str(len(input_list)),
-                                      str(length))))
+                                      str(length)))
             else:
                 print("Warning: Lenght of list larger than expected.")
         return input_list
@@ -630,14 +652,14 @@ class DobermanDB(object):
         y, Y = 'y', 'Y'
         n, N = 'n', 'N'
         # Print informations
-        print(('\n' + 60 * '-' + '\nNew controller. ' +
-              'Please enter the following parameters below:\n'))
+        print('\n' + 60 * '-' + '\nNew controller. ' +
+              'Please enter the following parameters below:\n')
         self.printParameterDescription()
-        print(('\n' + 60 * '-' + '\n'))
-        print(('  - No string signs (") needed.\n  '
+        print('\n' + 60 * '-' + '\n')
+        print('  - No string signs (") needed.\n  '
               '- Split arrays with comma (no spaces after it), '
               'no brackets needed!  \n  '
-              '- Enter 0 for no or default value  \n' + 60 * '-'))
+              '- Enter 0 for no or default value  \n' + 60 * '-')
         name = None
         # Enter all parameters:
         # Name
@@ -647,9 +669,10 @@ class DobermanDB(object):
             # Check if name exists already
             if self._config == "EMPTY":  # First device
                 pass
-            elif [dev[0] for dev in self._config if dev[0] == name]:
-                print(("There is already a controller with the name '%s'." %
-                      str(name)))
+            elif name in self._config:
+                #elif [dev[0] for dev in self._config if dev[0] == name]:
+                print("There is already a controller with the name '%s'." %
+                      str(name))
                 text = "Do you want to change '%s' (y/n)?" % str(name)
                 if self.getUserInput(text, input_type=[str]) in ['y', 'Y', y, Y]:
                     self.changeControllerByKeyboard()
@@ -739,13 +762,13 @@ class DobermanDB(object):
         for ii, al_stat in enumerate(alarm_status):
             try:
                 if al_stat == 'ON' and not (alarm_low[ii] <= warning_low[ii] < warning_high[ii] <= alarm_high[ii]):
-                    print(("Warning: Invalid alarm/warning levels %d. "
-                          "Set alarm status %d to 'OFF' by default" % (ii, ii)))
+                    print("Warning: Invalid alarm/warning levels %d. "
+                          "Set alarm status %d to 'OFF' by default" % (ii, ii))
                     alarm_status[ii] = 'OFF'
             except Exception as e:
-                print(("Warning: Can not compare alarm/warning levels %d. "
+                print("Warning: Can not compare alarm/warning levels %d. "
                       "Error %s. Set alarm status %d to 'OFF' by default" %
-                      (ii, e, ii)))
+                      (ii, e, ii))
                 alarm_status[ii] = 'OFF'
         # Make changes at database.
         add_str = ("INSERT INTO config (CONTROLLER, STATUS, ALARM_STATUS, "
@@ -762,32 +785,38 @@ class DobermanDB(object):
         counter = 0
         while self.interactWithDatabase(add_str) == -1:
             if counter >= 2:
-                print(("Can not add controller %s." % name))
+                print("Can not add controller %s." % name)
                 return -1
             print("Trying again in 1 s...")
             time.sleep(1)
             counter += 1
-        print(("Successfully entered %s to the database." % name))
+        print("Successfully entered %s to the database." % name)
         self.logger.debug("Creating Data Table...")
         if self.createDataTable(name) == -1:
             self.logger.fatal("Could not create a data table for "
                               "controller %s" % name)
-        settings = [name, status, alarm_status, warning_low,
-                    warning_high, alarm_low, alarm_high,
-                    readout_interval, recurrence, description,
-                    number_of_data, str(addresses),
-                    additional_parameters]
+        #settings = [name, status, alarm_status, warning_low,
+        #            warning_high, alarm_low, alarm_high,
+        #            readout_interval, recurrence, description,
+        #            number_of_data, str(addresses),
+        #            additional_parameters]
+        settings = {'controller' : name, 'status' : status, 'alarm_status' : alarm_status,
+                    'warning_low' : warning_low, 'warning_high' : warning_high,
+                    'alarm_low' : alarm_low, 'alarm_high' : alarm_high,
+                    'readout_interval' : readout_interval, 'alarm_recurrence' : recurrence,
+                    'description' : description, 'number_of_data' : number_of_data,
+                    'addresses' : addresses, 'additional_parameters' : additional_parameters}
         parameters = ['           Name', '         Status', '   Alarm status',
                       '    Warning low', '   Warning high', '      Alarm low',
                       '     Alarm high', 'ReadoutInterval', '     Recurrence',
                       '    Description', ' Number of data', '      Addresses',
                       'Additional par.']
         print("The stored parameters are:\n")
-        for ii, entry in enumerate(settings):
+        for ii, entry in enumerate(settings.keys()):
             if parameters[ii] == 'ReadoutInterval':
                 print(" ")
-            print((" %s: %s " % (parameters[ii], entry)))
-        print((60 * '-'))
+            print(" %s: %s " % (parameters[ii], settings[entry]))
+        print(60 * '-')
         self.addSettingToConfigHistory(settings)
         self.refreshConfigBackup()
 
@@ -797,51 +826,56 @@ class DobermanDB(object):
                   "Add it first with 'python Doberman.py -a'.")
             return
         n = 'n'
-        print(('\n' + 60 * '-' + '\nUpdate plugin settings. '
-              'The following parameters can be changed:\n'))
+        print('\n' + 60 * '-' + '\nUpdate plugin settings. '
+              'The following parameters can be changed:\n')
         self.printParameterDescription()
-        print(('\n' + 60 * '-'))
+        print('\n' + 60 * '-')
         print('  - No string signs (") needed.\n  '
               '- Split arrays with comma (no spaces after it), '
               'no brackets needed!  \n  '
               '- Enter 0 for no or default value,  \n  '
               '- Enter n for no change.')
-        print(('\n' + 60 * '-' + '\n Choose the controller you want to change. '
-              '(If you would like to add a new controller use option -a instead)\n'))
-        for number, controller in enumerate(self._config):
-            print(("%s:  %s" % (str(number), controller[0])))
+        print('\n' + 60 * '-' + '\n Choose the controller you want to change. '
+              '(If you would like to add a new controller use option -a instead)\n')
+        devices = list(self._config.keys())
+        for number, controller in enumerate(devices):
+            print("%s:\t%s" % (str(number), controller))
         # Enter name to find controller
-        existing_names = [dev[0] for dev in self._config]
+        existing_names = devices #[dev[0] for dev in self._config]
         existing_numbers = list(map(str, list(range(len(existing_names)))))
         existing_devices = existing_names + existing_numbers
         text = "\nEnter controller number or alternatively its name:"
         name = self.getUserInput(text, input_type=[str],
                                  be_in=existing_devices)
-        controller = [list(dev) for dev in self._config if dev[0] == name]
-        if controller:
-            controller = controller[0]
-        else:
-            controller = self._config[int(name)]
-            name = controller[0]
+        try:
+            controller = self._config[name]
+        except KeyError:
+            name = devices[int(name)]
+            controller = self._config[name]
+        #if controller:
+        #    controller = controller[0]
+        #else:
+        #    controller = self._config[int(name)]
+        #    name = controller[0]
         # Print current parameters and infos.
-        print(('\n' + 60 * '-' + '\n'))
+        print('\n' + 60 * '-' + '\n')
         print('The current parameters are:\n')
         parameters = ['           Name', '         Status', '   Alarm status',
                       '    Warning low', '   Warning high', '      Alarm low',
                       '     Alarm high', 'ReadoutInterval', '     Recurrence',
                       '    Description', ' Number of data', '      Addresses',
                       'Additional par.']
-        for ii, entry in enumerate(controller):
-            if parameters[ii] == 'ReadoutInterval':
+        for key in controller.keys():
+            if key == 'readout_interval':
                 print(" ")
-            print((" %s: %s " % (parameters[ii], entry)))
-        print((60 * '-'))
+            print("{:>16}: {} ".format(key, controller[key]))
+        print(60 * '-')
         # Status
         text = ("Controller '%s': Status (ON/OFF):" % name)
         status = self.getUserInput(text, input_type=[str],
                                    be_in=['ON', 'OFF', 'n'])
-        if status == 'n':  # Continue with old status if no change
-            status = controller[1]
+        if status != 'n':  # Continue with old status if no change
+            controller['status'] = status
         # Number of Data: # Pull here because it needs to know n_o_d for others
         if change_all:
             text = ("Controller '%s': Number of data values "
@@ -850,10 +884,10 @@ class DobermanDB(object):
                                                input_type=[int],
                                                limits=[1, 100],
                                                exceptions=['n'])
-            if number_of_data == 'n':
-                number_of_data = controller[10]
-        else:
-            number_of_data = controller[10]
+            if number_of_data != 'n':
+                controller['number_of_data'] = number_of_data
+            else:
+                number_of_data = controller['number_of_data']
         # Alarm status:
         text = ("Controller '%s': Alarm status(es) "
                 "(ON/OFF,... e.g. ON,OFF,ON):" % name)
@@ -862,63 +896,66 @@ class DobermanDB(object):
                                          be_in=['ON', 'OFF'],
                                          be_array=True,
                                          exceptions=['n'])
-        if alarm_status == 'n':
-            alarm_status = controller[2]
-        alarm_status = self.adjustListLength(alarm_status, number_of_data,
-                                             "OFF", "Alarm status")
+        if alarm_status != 'n':
+            controller['alarm_status'] = self.adjustListLength(
+                    alarm_status, number_of_data, "OFF", "Alarm status")
         # Lower warning levels:
         text = ("Controller '%s': Lower WARNING level(s): (float(s)):" % name)
         warning_low = self.getUserInput(text,
                                         input_type=[int, float],
                                         be_array=True,
                                         exceptions=['n'])
-        if warning_low == 'n':
-            warning_low = controller[3]
-        warning_low = self.adjustListLength(warning_low, number_of_data,
-                                            0, "Lower warning levels")
+        if warning_low != 'n':
+            controller['warning_low'] = self.adjustListLength(
+                    warning_low, number_of_data, 0, "Lower warning levels")
         # Higher warning levels:
         text = ("Controller '%s': Higher WARNING level(s): (float(s)):" % name)
         warning_high = self.getUserInput(text,
                                          input_type=[int, float],
                                          be_array=True,
                                          exceptions=['n'])
-        if warning_high == 'n':
-            warning_high = controller[4]
-        warning_high = self.adjustListLength(warning_high, number_of_data,
-                                             0, "Higher warning levels")
+        if warning_high != 'n':
+            controller['warning_high'] = self.adjustListLength(
+                    warning_high, number_of_data, 0, "Higher warning levels")
         # Lower alarm levels:
         text = ("Controller '%s': Lower ALARM level(s): (float(s)):" % name)
         alarm_low = self.getUserInput(text,
                                       input_type=[int, float],
                                       be_array=True,
                                       exceptions=['n'])
-        if alarm_low == 'n':
-            alarm_low = controller[5]
-        alarm_low = self.adjustListLength(alarm_low, number_of_data,
-                                          0, "Lower alarm levels")
+        if alarm_low != 'n':
+            controller['alarm_low'] = self.adjustListLength(
+                    alarm_low, number_of_data, 0, "Lower alarm levels")
         # Higher alarm levels:
         text = ("Controller '%s': Higher ALARM level(s): (float(s)):" % name)
         alarm_high = self.getUserInput(text,
                                        input_type=[int, float],
                                        be_array=True,
                                        exceptions=['n'])
-        if alarm_high == 'n':
-            alarm_high = controller[6]
-        alarm_high = self.adjustListLength(alarm_high, number_of_data,
-                                           0, "Higher alarm levels")
-        for ii, al_stat in enumerate(alarm_status):
+        if alarm_high != 'n':
+            controller['alarm_high'] = self.adjustListLength(
+                    alarm_high, number_of_data, 0, "Higher alarm levels")
+
+        for ii, al_stat in enumerate(controller['alarm_status']):
             try:
                 if al_stat == 'ON' and not (alarm_low[ii] <= warning_low[ii] < warning_high[ii] <= alarm_high[ii]):
-                    print(("Warning: Invalid alarm/warning levels %d. "
-                          "Set alarm status %d to 'OFF' by default" % (ii, ii)))
-                    alarm_status[ii] = 'OFF'
+                    print("Warning: Invalid alarm/warning levels %d. "
+                          "Set alarm status %d to 'OFF' by default" % (ii, ii))
+                    controller['alarm_status'][ii] = 'OFF'
             except Exception as e:
-                print(("Warning: Can not compare alarm/warning levels %d. "
+                print("Warning: Can not compare alarm/warning levels %d. "
                       "Error %s. Set alarm status %d to 'OFF' by default" %
-                      (ii, e, ii)))
-                alarm_status[ii] = 'OFF'
+                      (ii, e, ii))
+                controller['alarm_status'][ii] = 'OFF'
         # Update first half
         print("Updating inputs...")
+        alarm_low = controller['alarm_low']
+        alarm_high = controller['alarm_high']
+        alarm_status = controller['alarm_status']
+        warning_low = controller['warning_low']
+        warning_high = controller['warning_high']
+        status = controller['status']
+
         update_str1 = ("UPDATE config SET STATUS = '%s', "
                        "ALARM_STATUS = ARRAY%s, WARNING_LOW = ARRAY%s, "
                        "WARNING_HIGH = ARRAY%s, ALARM_LOW = ARRAY%s, "
@@ -932,16 +969,11 @@ class DobermanDB(object):
             print("Successfully updated first half.")
         # Jump over second half if not change_all = True
         if not change_all:
-            values = [name, status, alarm_status, warning_low,
-                      warning_high, alarm_low, alarm_high]
-            values += controller[7:]
             print("The new parameters are:\n")
-            for ii, entry in enumerate(values):
-                if parameters[ii] == 'ReadoutInterval':
-                    print(" ")
-                print((" %s: %s " % (parameters[ii], str(entry))))
+            for key in controller.keys():
+                print("{:>16}: {} ".format(key, str(controller[key])))
             print(60 * '-')
-            self.addSettingToConfigHistory(values)
+            self.addSettingToConfigHistory(controller)
             self.refreshConfigBackup()
             return
         # Second half -uu only
@@ -952,8 +984,8 @@ class DobermanDB(object):
                                              input_type=[int],
                                              limits=[1, 86400],
                                              exceptions=['n'])
-        if readout_interval == 'n':
-            readout_interval = controller[7]
+        if readout_interval != 'n':
+            controller['readout_interval'] = readout_interval
         # Alarm recurrence:
         text = ("Controller '%s': Recurrence (# of times in a row that data "
                 "needs to exceed the alarm/warning limit before alarm/warning "
@@ -963,10 +995,9 @@ class DobermanDB(object):
                                        be_array=True,
                                        limits=[1, 99],
                                        exceptions=['n'])
-        if recurrence == 'n':
-            recurrence = controller[8]
-        recurrence = self.adjustListLength(recurrence, number_of_data,
-                                           1, "Recurrence")
+        if recurrence != 'n':
+            controller['recurrence'] = self.adjustListLength(
+                    recurrence, number_of_data, 1, "Recurrence")
         # Description:
         text = ("Controller '%s': Description of data value(s)/"
                 "Info(s)/Unit(s)/ect.:" % name)
@@ -975,18 +1006,17 @@ class DobermanDB(object):
                                         be_array=True,
                                         string_length=[None, 50],
                                         exceptions=['n'])
-        if description == 'n':
-            description = controller[9]
-        description = self.adjustListLength(description, number_of_data,
-                                            '', "Description")
+        if description != 'n':
+            controller['description'] = self.adjustListLength(
+                    description, number_of_data, '', "Description")
         # Addresses:
         text = "Controller '%s': Connection type (LAN/SER/0))" % name
         connection_type = self.getUserInput(text,
                                             input_type=[str],
                                             be_in=['LAN', 'SER', 0, '0'],
                                             exceptions=['n'])
-        if connection_type == 'n':
-            connection_type = controller[11][0]
+        if connection_type != 'n':
+            controller['addresses'][0] = connection_type
         text = ("Controller '%s': Addresses (["
                 "First address((IP Address/Product ID/0),"
                 "Second address(Port/Vendor ID/0)]):" % name)
@@ -995,21 +1025,25 @@ class DobermanDB(object):
                                       string_length=[None, 20],
                                       be_array=True,
                                       exceptions=['n'])
-        if addresses == 'n':
-            addresses = controller[11][1:]
-        addresses = self.adjustListLength(addresses, 2, '',
-                                          "Addresses (["
-                                          "Address1,Address2])")
-        addresses = [connection_type] + addresses
+        if addresses != 'n':
+            controller['addresses'][1:] = self.adjustListLength(
+                    addresses, 2, '', "Addresses ([Address1,Address2])")
+
         # Additional paramters:
         text = "Controller '%s': Additional parameters:" % name
         additional_parameters = self.getUserInput(text,
                                                   input_type=[str],
                                                   be_array=True,
                                                   exceptions=['n'])
-        if additional_parameters == 'n':
-            additional_parameters = controller[12]
+        if additional_parameters != 'n':
+            controller['additional_parameters'] = additional_parameters
         # Update second part:
+        readout_interval = controller['readout_interval']
+        recurrence = controller['recurrence']
+        description = controller['description']
+        number_of_data = controller['number_of_data']
+        addresses = controller['addresses']
+        additional_parameters = controller['additional_parameters']
         print("Updating second half of input...")
         update_str2 = ("UPDATE config SET READOUT_INTERVAL = %d, "
                        "ALARM_RECURRENCE = ARRAY%s, DESCRIPTION = ARRAY%s, "
@@ -1025,17 +1059,10 @@ class DobermanDB(object):
         # Summarize new settings
         print("Successfully updated second half.\n\n"
               "The new parameters are:\n")
-        values = [name, status, alarm_status, warning_low,
-                  warning_high, alarm_low, alarm_high,
-                  readout_interval, recurrence, description,
-                  number_of_data, addresses,
-                  additional_parameters]
-        for ii, entry in enumerate(values):
-            if parameters[ii] == 'ReadoutInterval':
-                print(" ")
-            print((" %s: %s " % (parameters[ii], str(entry))))
+        for key in controller:
+            print("{:>16}: {}".format(key, str(controller[key])))
         print(60 * '-')
-        self.addSettingToConfigHistory(values)
+        self.addSettingToConfigHistory(controller)
         self.refreshConfigBackup()
 
     def removeControllerFromConfig(self):
@@ -1048,7 +1075,7 @@ class DobermanDB(object):
             return
         y, Y = 'y', 'Y'
         n, N = 'n', 'N'
-        existing_names = [dev[0] for dev in self._config]
+        existing_names = list(self._config.keys()) #[dev[0] for dev in self._config]
         # Ask for controller to delete and confirmation.
         text = ("\nEnter the name of the controller you would like to remove "
                 "from config:")
@@ -1090,9 +1117,18 @@ class DobermanDB(object):
         '''
         Returns a list of the column names in the config table
         '''
-        columns = []
+        return self.getColumnNames('config')
+
+    def getColumnNames(self, table):
+        '''
+        Returns a list of column names from the specified table
+        '''
+        if table not in self.getAllTableNames():
+            print('Table %s doesn\'t exist?' % table)
+            print('Tables: %s' % self.getAllTableNames())
+            return -1
         column_str = ("SELECT column_name FROM information_schema.columns "
-                      "WHERE table_name='config';")
+                      "WHERE table_name='%s';" % table)
         output = self.interactWithDatabase(column_str, readoutput=True)
         if output in [0, '']:
             return []
@@ -1115,7 +1151,7 @@ class DobermanDB(object):
                 return
         drop_str = "DROP TABLE IF EXISTS default_settings"
         create_str = ("CREATE TABLE IF NOT EXISTS default_settings "
-                      "(_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+                      "(_id SERIAL PRIMARY KEY, "
                       "PARAMETER TEXT, VALUE TEXT, DESCRIPTION TEXT)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
             self.logger.warning("Can not crate 'default_settings' "
@@ -1193,7 +1229,8 @@ class DobermanDB(object):
         check_str = ("select relname from pg_class where relkind='r' "
                      "and relname !~ '^(pg_|sql_)'")
         table_list = self.interactWithDatabase(check_str, readoutput=True)
-        return table_list
+        tables = [t[0] for t in table_list]
+        return tables
 
     def getDefaultSettings(self, name=None):
         """
@@ -1240,7 +1277,7 @@ class DobermanDB(object):
         if drop_contacts not in ['Y', 'y']:
             return
         drop_str = "DROP TABLE IF EXISTS contact"
-        create_str = ("CREATE TABLE contact (_id INTEGER NOT NULL AUTO INCREMENT PRIMARY KEY, "
+        create_str = ("CREATE TABLE contact (_id SERIAL PRIMARY KEY, "
                       "NAME TEXT, STATUS TEXT, "
                       "MAILADDRESS TEXT, PHONE TEXT)")
         if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
@@ -1543,14 +1580,15 @@ class DobermanDB(object):
             if config == -2:
                 self.logger.warning("Can not read plugin settings properly.")
                 return -1
-        if config == []:  # If config is empty (No controllers)
+        if config == {}:  # If config is empty (No controllers)
             return -2
         if not name:
             return config
-        controller = [dev for dev in self._config if dev[0] == name]
-        if not controller:
-            return -3
-        return controller
+        else:
+            try:
+                return config[name]
+            except KeyError:
+                return -3
 
     def updateConfig(self, old_config):
         """
@@ -1562,11 +1600,12 @@ class DobermanDB(object):
         new_config = self.getConfig()
         if new_config in [-1, -2, -3]:
             return -1
-        new_names = [entry[0] for entry in new_config]
-        old_names = [entry[0] for entry in old_config]
+        new_names = list(new_config.keys()) #[entry[0] for entry in new_config]
+        old_names = list(old_config.keys()) #[entry[0] for entry in old_config]
         for name in old_names:
             if name not in new_names:
-                new_config.append([entry for entry in old_config if entry[0] == name][0])
+                new_config[name] = old_config[name].copy()
+                #new_config.append([entry for entry in old_config if entry[0] == name][0])
         return new_config
 
     def getData(self, name, limit=1, datetimestamp=None):
@@ -1601,6 +1640,9 @@ class DobermanDB(object):
         If multichanges is 'False' only the latest change per device
           is returned, otherwise all.
         '''
+        # TODO 20180619 - update to use dicts
+        if True:
+            return -1
         # Check formats of limit, and time_before
         limit = self.__limitMapper__(limit)
         if not isinstance(time_before, datetime.datetime):
@@ -1656,9 +1698,9 @@ class DobermanDB(object):
             try:
                 return literal_eval(inputstr)
             except:
-                return str(inputstr.decode('utf_8', 'replace'))
+                return str(inputstr)#.decode('utf_8', 'replace'))
         else:
-            return str(inputstr.decode('utf_8', 'replace'))
+            return str(inputstr)#.decode('utf_8', 'replace'))
 
     def storeSettingsFromFile(self, filename):
         """
