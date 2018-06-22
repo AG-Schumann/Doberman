@@ -15,7 +15,18 @@ import importlib
 import importlib.machinery
 import signal
 import atexit
+import Plugin
 
+
+class options(object):
+    pass
+
+def clip(val, low, high):
+    if val < low:
+        return low
+    if val > high:
+        return high
+    return val
 
 class Doberman(object):
     '''
@@ -31,7 +42,7 @@ class Doberman(object):
 
     def __init__(self, opts):
         self.opts = opts
-        self.logger = self.opts.logger
+        self.logger = logging.getLogger(__name__)
 
         self.queue = queue.Queue(0)
         self.path = os.getcwd()  # Gets path to the folder of this file
@@ -41,6 +52,7 @@ class Doberman(object):
         self._config = self.DDB.getConfig()
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
 
+        self.plugin_search_paths = ['./Plugins']
         self.imported_plugins, self.imported_plugins_name = self.importAllPlugins()
         self._running_controllers = self.startAllControllers()
         if self._running_controllers == -1:  # No controller was started
@@ -69,18 +81,19 @@ class Doberman(object):
         imported_plugins_name = []
         all_plugins = []
         for device in self._config:
-            name = str(device[0])
-            status = str(device[1])
+            controller = self._config[device]
+            name = controller['controller']
+            status = controller['status']
             all_plugins.append(name)
             if status != 'ON':
-                self.logger.warning("Plugin '%s' is not imported as its status"
+                self.logger.debug("Plugin '%s' is not imported as its status"
                                     " is '%s'", name, status)
                 continue
             else:
-                imp_plugin = self.importPlugin(device)
-                if imp_plugin not in [-1, -2]:
+                plugin = self.importPlugin(device)
+                if plugin not in [-1, -2]:
                     imported_plugins_name.append(name)
-                    imported_plugins.append(imp_plugin)
+                    imported_plugins.append(plugin)
                 else:
                     self.failed_import.append(name)
 
@@ -90,38 +103,26 @@ class Doberman(object):
                                           imported_plugins_name))
         return [imported_plugins, imported_plugins_name]
 
-    def importPlugin(self, plugin):
+    def importPlugin(self, controller):
         '''
         Adds the path to the plugin and imports it.
         '''
         # converting config entries into opts. values
-        #
-        print("*******************")
-        print(plugin)
-        print("*******************")
-        #
 
-        name = plugin[0]
-        opts.loginterval = plugin[7]
-        opts.addresses = plugin[11]
+        name = controller['controller']
+        opts = options()
+        opts.loginterval = controller['readout_interval']
+        opts.addresses = controller['addresses']
         # for backwards compatibility
-        if plugin[11][0] == 'LAN':
-            opts.lan = True  # Use opts.connectiontype instead
-            opts.serial = False  # Use opts.connectiontype instead
-            opts.ipaddress = plugin[11][1]
-            opts.port = plugin[11][2]
-        elif plugin[11][0] == 'SER':
-            opts.lan = False  # Use opts.connectiontype instead
-            opts.serial = True  # Use opts.connectiontype instead
-            opts.productID = plugin[11][1]
-            opts.vendorID = plugin[11][2]
+        if controller['addresses'][0] == 'LAN':
+            opts.ipaddress = plugin['addresses'][1]
+            opts.port = plugin['addresses'][2]
+        elif plugin['addresses'][0] == 'SER':
+            opts.productID = plugin['addresses'][1]
+            opts.vendorID = plugin['addresses'][2]
         else:
-            opts.lan = False
-            opts.ser = False
-        opts.additional_parameters = plugin[12]
-        opts.logger = self.logger
+        opts.additional_parameters = plugin['additional_parameters']
         opts.queue = self.queue
-        opts.log_path = name
         try:  # Reading which ports are already occupied.
             with open(os.path.join(opts.path, 'ttyUSB_assignement.txt'), "r") as f:
                 occupied_ttyUSB = []
@@ -138,30 +139,22 @@ class Doberman(object):
                     "(%s). This might disturb an other controller." %
                     (e, str(opts.occupied_ttyUSB)))
             self.logger.warning(text)
-        # Adds the paths
-        try:
-            sys.path.insert(0, '%s/Plugins/%s' % (self.path, name))
-        except Exception as e:
-            self.logger.warning("Can not add path '%s/Plugins/%s/',  %s " %
-                                (self.path, name, e))
-            return -1
-        self.logger.debug("Added path '%s/Plugins/%s/'" %
-                          (self.path, name))
+
         # Try to import libraries
         try:
             with timeout(self.opts.importtimeout):
-                spec = importlib.machinery.PathFinder.find_spec('%sControl' % name)
+                spec = importlib.machinery.PathFinder.find_spec(name,
+                        self.plugin_search_paths)
 
                 if spec is None:
                     raise FileNotFoundError("Can't find plugin %s" % name)
-                temp_plugin = spec.loader.load_module()
-                imp_plugin = (getattr(temp_plugin,
-                                      '%sControl' % name)(self.opts))
+                plugin_module = spec.loader.load_module()
+                plugin = getattr(plugin_module, '%sPlugin' % name)(opts)
         except Exception as e:
             self.logger.error("Can not add '%s'. %s " % (name, e))
             return -1
         self.logger.debug("Imported plugin '%s'" % name)
-        return imp_plugin
+        return plugin
 
     def startPlugin(self, plugin, pluginname):
         '''
@@ -169,7 +162,7 @@ class Doberman(object):
         '''
         try:
             self.started = True
-            getattr(plugin, '%scontrol' % pluginname)()
+            getattr(plugin, 'Run')()
         except Exception as e:
             self.logger.error("Failed to start plugin '%s', "
                               "error: %s" % (pluginname, str(e)))
@@ -189,11 +182,12 @@ class Doberman(object):
             return -1
         if self._config == "EMPTY":
             return -1
-        for device in self._config:
-            name = device[0]
-            status = device[1]
+        for key in self._config:
+            controller = self._config[key]
+            name = controller['controller']
+            status = controller['status']
             if status != 'ON':
-                self.logger.warning("Controller '%s' is not started as its "
+                self.logger.debug("Controller '%s' is not started as its "
                                     "status is '%s'" %
                                     (name, status))
                 continue
@@ -210,7 +204,7 @@ class Doberman(object):
             self.started = False
             start_new_thread(self.startPlugin,
                              (self.imported_plugins[index], name))
-            time.sleep(0.1)  # Makes sure the plugin has time to react.
+            time.sleep(0.5)  # Makes sure the plugin has time to react.
             if self.started:
                 running_controllers.append(name)
                 self.logger.debug("Successfully started plugin '%s'" % name)
@@ -230,9 +224,7 @@ class Doberman(object):
             print("\n--Alarm statuses:")
             for controller in running_controllers:
                 print("  %s: %s" %
-                      (controller,
-                       str([dev[2] for dev in self._config
-                            if dev[0] == controller][0])))
+                      (controller, self._config[controller]['alarm_status']))
             print("\n--Enabled contacts, status:")
 
             for contact in self.DDB.getContacts():
@@ -270,14 +262,13 @@ class Doberman(object):
         '''
         Checks that observation thread is still alive, restarts it if not
         '''
-        runner = 1
+        yesno = False
         try:
             self.observationThread.start()
             # Loop for working until stopped.
             while True:
-                runner += 1
                 self.logger.info("Main program still alive...")
-                if runner % 2 == 0:
+                if yesno:
                     if (self.observationThread.stopped or not self.observationThread.isAlive()):
                         text = ("Observation thread died, Reviving... "
                                 "(observationThread.stopped = %s, "
@@ -290,6 +281,7 @@ class Doberman(object):
                             self.opts, self._config, self._running_controllers)
                         self.observationThread.start()
                 time.sleep(30)
+                yesno = not yesno
             self.close()
         except KeyboardInterrupt:
             self.logger.fatal("\n\n Program killed by ctrl-c \n\n")
@@ -302,7 +294,7 @@ class Doberman(object):
         try:
             for plugin in self.imported_plugins:
                 try:
-                    getattr(plugin, "__exit__")()
+                    getattr(plugin, "close")()
                 except Exception as e:
                     self.logger.warning("Can not close plugin '%s' properly. "
                                         "Error: %s" % (plugin, e))
@@ -338,7 +330,7 @@ class observationThread(threading.Thread):
 
     def __init__(self, opts, _config, _running_controllers):
         self.opts = opts
-        self.logger = opts.logger
+        self.logger = logging.getLogger(__name__)
         self.queue = opts.queue
         self._config = _config
         self._running_controllers = _running_controllers
@@ -348,7 +340,7 @@ class observationThread(threading.Thread):
         threading.Thread.__init__(self)
         self.Tevent = threading.Event()
         self.waitingTime = 5
-        self.DDB = DobermanDB.DobermanDB(opts, logger)
+        self.DDB = DobermanDB.DobermanDB(opts)
         self.alarmDistr = alarmDistribution.alarmDistribution(opts)
         self.logFile_writer = logFileWriter(logger)
         self.sentAlarms = []
@@ -378,12 +370,9 @@ class observationThread(threading.Thread):
                 if len(job) < 2:
                     self.logger.warning("Unknown job: %s" % str(job))
                     continue
-                elif len(job) in [2, 3]:
-                    while len(job) < 4:
-                        job.append('')
                 self.logger.info("Processing data from '%s': %s" %
-                                 (str(job[0]), str(job[1:])))
-                self.processData(job[0], job[1], job[2], job[3])
+                                 (str(job[0])))
+                self.processData(job)
             self.checkTimeDifferences()
             if self.queue.empty():
                 self.critical_queue_size = DDB.getDefaultSettings(name="Queue_size")
@@ -396,17 +385,13 @@ class observationThread(threading.Thread):
                                   str(self.waitingTime))
                 self.Tevent.wait(self.waitingTime)
 
-    def processData(self, name, logtime, data=0, status=-2):
+    def processData(self, chunk):
         """
         Checks the data format and then passes it to the database and
         the data check.
         """
-        if status in ['', None]:
-            status = [-2]
-        data, status, logtime = self.checkDataFormat(
-            name, data, status, logtime)
-        self.writeData(name, logtime, data, status)
-        self.checkData(name, logtime, data, status)
+        self.writeData(*chunk)
+        self.checkData(*chunk)
 
     def updateConfig(self):
         """
@@ -440,18 +425,18 @@ class observationThread(threading.Thread):
         """
         Checks if all data is within limits, and start warning if necessary.
         """
-        device = [dev for dev in self._config if name == dev[0]]
-        if len(device) != 1:
+        try:
+            device = self._config[name]
+        except KeyError:
             self.logger.error("No or several controller with name '%s' found. "
                               "Can not check data." % name)
             return -1
-        device = device[0]
-        alarm_status = device[2]
-        lowerwarning = device[3]
-        higherwarning = device[4]
-        loweralarm = device[5]
-        higheralarm = device[6]
-        description = device[9]
+        alarm_status = device['alarm_status']
+        lowerwarning = device['warning_low']
+        higherwarning = device['warning_high']
+        loweralarm = device['alarm_low']
+        higheralarm = device['alarm_high']
+        description = device['description']
         # Check if the right amount of data arrived as given in the config.
         if len(alarm_status) > len(data):
             self.logger.warning("Received less data then expected for '%s'. "
@@ -468,16 +453,28 @@ class observationThread(threading.Thread):
                                        reason="DL",
                                        alarm_type="W",
                                        number_of_recipients=n_o_r)
-        if len(status) < len(data):
-            self.logger.warning("Less status entries than data entries. "
-                                "Appending -2 (no status) until correct.")
-            while len(status) < len(data):
-                status.append(-2)
-        elif len(status) > len(data):
-            self.logger.warning("More status entries than data entries. "
-                                "Ignoring the rest.")
         # Actual status and data check.
         try:
+            self.logger.debug('Checking data from %s' % name)
+            for val, wlow, whi, alow, ahi, al_stat, stat, i in zip(data, warning_low, warning_high,
+                    alarm_low, alarm_high, alarm_status, status, range(len(data))):
+                if al_stat == 'ON':
+                    if stat != 0:
+                        msg = 'Lost connection to %s? Status %i is %i' % (name, i, stat)
+                    elif clip(val, alow, ahigh) in [alow, ahigh]:
+                        msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
+                            i, name, description[i], val, alow, ahigh)
+                        send_alarm
+                    elif clip(val, wlow, whigh) in [wlow, whigh]:
+                        msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
+                            i, name, description[i], val, wlow, whigh)
+                        send_warning
+                    else:
+                        self.logger.debug('Reading %i from %s nominal' % (i, name))
+                else:
+                    self.logger.debug('Alarm status %i from %s is off, skipping...' % (i, name))
+
+
             for ii, al_status in enumerate(alarm_status):
                 status_tested_positive = False
                 if al_status != 'ON':
