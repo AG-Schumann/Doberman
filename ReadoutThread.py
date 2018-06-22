@@ -1,16 +1,16 @@
 import threading
+import datetime
 
 
 class ReadoutThread(threading.Thread):
     """Class that controls starting, running, and stopping the readout thread
     """
 
-    def __init__(self, logger, opts, writer, controller):
+    def __init__(self, opts, logger, controller):
 
         self.ReadoutInterval = 30
         self.logger = logger
-        self.opts = opts
-        self.writer = writer
+        self.queue = opts.queue
         self.controller = controller
 
         if 5 <= self.opts.loginterval and self.opts.loginterval < 1000:
@@ -19,17 +19,23 @@ class ReadoutThread(threading.Thread):
         else:
             self.logger.error("Invalid readout interval. Using default 30 sec.")
 
-        self.stopped = False
-        thread.Thread.__init__(self)
+        self.running = False
+        super().__init__()
         self.Tevent = threading.Event()
 
     def run(self):
-        while not self.stopped:
-            self.ReadoutT()
+        while self.running:
+            self.Readout()
             self.Tevent.wait(self.ReadoutInterval)
 
-    def ReadoutT(self):
+    def Readout(self):
         """
-        Actually interacts with the device. Defines the readout format.
+        Actually interacts with the device. Pushes [name, time, data, status] upstream
         """
-        raise NotImplementedError
+        vals = self.controller.Readout()
+        if vals['data'] is not None and not isinstance(vals['data'], (list, tuple)):
+            vals['data'] = [vals['data']]
+        upstream = [self.controller.name, datetime.datetime.now(),
+                    vals['data'],vals['retcode']]
+        self.queue.put(upstream)
+        return
