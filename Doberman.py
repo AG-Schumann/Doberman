@@ -22,11 +22,7 @@ class options(object):
     pass
 
 def clip(val, low, high):
-    if val < low:
-        return low
-    if val > high:
-        return high
-    return val
+    return max(min(val, high), low)
 
 class Doberman(object):
     '''
@@ -47,13 +43,13 @@ class Doberman(object):
         self.queue = queue.Queue(0)
         self.path = os.getcwd()  # Gets path to the folder of this file
 
-        self.DDB = DobermanDB.DobermanDB(opts, logger)
+        self.DDB = DobermanDB.DobermanDB(opts)
 
         self._config = self.DDB.getConfig()
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
 
         self.plugin_search_paths = ['./Plugins']
-        self.imported_plugins, self.imported_plugins_name = self.importAllPlugins()
+        self.imported_plugins = self.importAllPlugins()
         self._running_controllers = self.startAllControllers()
         if self._running_controllers == -1:  # No controller was started
             self.__exit__(stop_observationThread=False)
@@ -77,14 +73,11 @@ class Doberman(object):
                               "'python Doberman.py -a'.")
             return ['', '']
         self.failed_import = []
-        imported_plugins = []
-        imported_plugins_name = []
-        all_plugins = []
+        imported_plugins = {}
         for device in self._config:
             controller = self._config[device]
             name = controller['controller']
             status = controller['status']
-            all_plugins.append(name)
             if status != 'ON':
                 self.logger.debug("Plugin '%s' is not imported as its status"
                                     " is '%s'", name, status)
@@ -92,16 +85,15 @@ class Doberman(object):
             else:
                 plugin = self.importPlugin(device)
                 if plugin not in [-1, -2]:
-                    imported_plugins_name.append(name)
-                    imported_plugins.append(plugin)
+                    imported_plugins[device] = plugin
                 else:
                     self.failed_import.append(name)
 
         self.logger.info("The following plugins were successfully imported "
-                         "(%s/%s): %s" % (str(len(imported_plugins_name)),
-                                          str(len(all_plugins)),
-                                          imported_plugins_name))
-        return [imported_plugins, imported_plugins_name]
+                         "(%i/%i): %s" % (len(imported_plugins),
+                                          len(self._config),
+                                          list(imported_plugins.keys())))
+        return imported_plugins
 
     def importPlugin(self, controller):
         '''
@@ -120,43 +112,21 @@ class Doberman(object):
         elif plugin['addresses'][0] == 'SER':
             opts.productID = plugin['addresses'][1]
             opts.vendorID = plugin['addresses'][2]
-        else:
+        
         opts.additional_parameters = plugin['additional_parameters']
         opts.queue = self.queue
-        try:  # Reading which ports are already occupied.
-            with open(os.path.join(opts.path, 'ttyUSB_assignement.txt'), "r") as f:
-                occupied_ttyUSB = []
-                for line in f:
-                    ttyUSB_line = line.split()[0]
-                    if ttyUSB_line == '#':
-                        continue
-                    else:
-                        occupied_ttyUSB.append(int(ttyUSB_line))
-                opts.occupied_ttyUSB = occupied_ttyUSB
-        except Exception as e:
-            text = ("Can not read 'ttyUSB_assignement.txt'. Error %s. "
-                    "Continue with only the predifined occupied ports "
-                    "(%s). This might disturb an other controller." %
-                    (e, str(opts.occupied_ttyUSB)))
-            self.logger.warning(text)
+        opts.name = name
 
         # Try to import libraries
         try:
-            with timeout(self.opts.importtimeout):
-                spec = importlib.machinery.PathFinder.find_spec(name,
-                        self.plugin_search_paths)
-
-                if spec is None:
-                    raise FileNotFoundError("Can't find plugin %s" % name)
-                plugin_module = spec.loader.load_module()
-                plugin = getattr(plugin_module, '%sPlugin' % name)(opts)
+            plugin = Plugin(opts)
         except Exception as e:
             self.logger.error("Can not add '%s'. %s " % (name, e))
             return -1
         self.logger.debug("Imported plugin '%s'" % name)
         return plugin
 
-    def startPlugin(self, plugin, pluginname):
+    def startPlugin(self, plugin):
         '''
         Starts a plugin
         '''
@@ -165,7 +135,7 @@ class Doberman(object):
             getattr(plugin, 'Run')()
         except Exception as e:
             self.logger.error("Failed to start plugin '%s', "
-                              "error: %s" % (pluginname, str(e)))
+                              "error: %s" % (plugin.name, str(e)))
             self.started = False
             return -1
         return 0
@@ -182,28 +152,13 @@ class Doberman(object):
             return -1
         if self._config == "EMPTY":
             return -1
-        for key in self._config:
-            controller = self._config[key]
-            name = controller['controller']
-            status = controller['status']
-            if status != 'ON':
-                self.logger.debug("Controller '%s' is not started as its "
-                                    "status is '%s'" %
-                                    (name, status))
-                continue
-            # Compare if there is a imported plugin with this name.
-            try:
-                index = self.imported_plugins_name.index(name)
-            except:
-                self.logger.debug("Plugin '%s' is not started as was not "
-                                  "imported successfully." % name)
-                continue
+        for name, plugin in self.imported_plugins.items()
+            
             # Try to start the plugin.
             self.logger.debug("Trying to start  device '%s' ..." % name)
             started = False
             self.started = False
-            start_new_thread(self.startPlugin,
-                             (self.imported_plugins[index], name))
+            start_new_thread(self.startPlugin, plugin)
             time.sleep(0.5)  # Makes sure the plugin has time to react.
             if self.started:
                 running_controllers.append(name)
@@ -343,6 +298,12 @@ class observationThread(threading.Thread):
         self.DDB = DobermanDB.DobermanDB(opts)
         self.alarmDistr = alarmDistribution.alarmDistribution(opts)
         self.logFile_writer = logFileWriter(logger)
+        self.lastMeasurementTime = {(name, datetime.datetime.now()) 
+                                    for name in self._config}
+        self.lastAlarmTime = {(name, datetime.datetime.now())
+                               for name in self._config}
+        self.lastWarningTime = {(name, datetime.datetime.now())
+                                 for name in self._config}
         self.sentAlarms = []
         self.sentWarnings = []
         self.recurrence_counter = self.initializeRecurrenceCounter()
@@ -390,8 +351,8 @@ class observationThread(threading.Thread):
         Checks the data format and then passes it to the database and
         the data check.
         """
-        self.writeData(*chunk)
         self.checkData(*chunk)
+        self.writeData(*chunk)
 
     def updateConfig(self):
         """
@@ -415,398 +376,111 @@ class observationThread(threading.Thread):
           1-9 = warning
           > 9 = alarm
         """
-        if self.DDB.writeDataToDatabase(name, logtime, data, status) == -1:
-            self.logger.debug("Reading data for log...")
-            readout = str("| %s | %s | %s | %s |" % (
-                logtime.strftime('%Y-%m-%d | %H:%M:%S'), name, data, status))
-            self.logFile_writer.write(readout)
+        self.log.debug('Writing data from %s to database...' % name)
+        if self.DDB.writeDataToDatabase(name, logtime, data, status):
+            self.logger.error('Could not write data from %s to database' % name)
 
-    def checkData(self, name, logtime, data, status):
+    def checkData(self, name, when, data, status):
         """
         Checks if all data is within limits, and start warning if necessary.
         """
         try:
             device = self._config[name]
         except KeyError:
-            self.logger.error("No or several controller with name '%s' found. "
+            self.logger.error("No controller called %s. "
                               "Can not check data." % name)
             return -1
-        alarm_status = device['alarm_status']
-        lowerwarning = device['warning_low']
-        higherwarning = device['warning_high']
-        loweralarm = device['alarm_low']
-        higheralarm = device['alarm_high']
-        description = device['description']
-        # Check if the right amount of data arrived as given in the config.
-        if len(alarm_status) > len(data):
-            self.logger.warning("Received less data then expected for '%s'. "
-                                "Check data and continue..." % name)
-        elif len(alarm_status) < len(data):
-            text = ("Receved more data than expected for '%s' "
-                    "(description: %s, logtime: %s), can not check all data "
-                    "for alarm limits!" % (name, description, logtime))
-            self.logger.warning(text + " Raising warning and continue...")
-            index='All'
-            n_o_r = self.sendWarning(name, text, index)
-            self.DDB.addAlarmToHistory(name, index, logtime, data,
-                                       status,
-                                       reason="DL",
-                                       alarm_type="W",
-                                       number_of_recipients=n_o_r)
+        al_stat = device['alarm_status']
+        wlow = device['warning_low']
+        whigh = device['warning_high']
+        alow = device['alarm_low']
+        ahigh = device['alarm_high']
+        desc = device['description']
+        readout_interval = device['readout_interval']
+
         # Actual status and data check.
         try:
             self.logger.debug('Checking data from %s' % name)
-            for val, wlow, whi, alow, ahi, al_stat, stat, i in zip(data, warning_low, warning_high,
-                    alarm_low, alarm_high, alarm_status, status, range(len(data))):
-                if al_stat == 'ON':
-                    if stat != 0:
-                        msg = 'Lost connection to %s? Status %i is %i' % (name, i, stat)
-                    elif clip(val, alow, ahigh) in [alow, ahigh]:
+            for i in range(len(data)):
+                if al_stat[i] == 'ON':
+                    if status[i] != 0:
+                        msg = 'Lost connection to %s? Status %i is %i' % (name, i, status[i])
+                        num_recip = self.sendMessage(name, when, msg, 'warning', i)
+                        self.logger.warning(msg)
+                        self.DDB.addAlarmToHistory(name, i, when, data, status,
+                                                  reason='NC',alarm_type='W',
+                                                  number_of_recipients=num_recip)
+                    elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
                         msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
-                            i, name, description[i], val, alow, ahigh)
-                        send_alarm
-                    elif clip(val, wlow, whigh) in [wlow, whigh]:
+                            i, name, desc[i], data[i], alow[i], ahigh[i])
+                        num_recip = self.sendMessage(name, when, msg, 'alarm', i)
+                        self.logger.critical(msg)
+                        self.DDB.addAlarmToHistory(name, i, when, data, status,
+                                                  reason='AL',alarm_type='A',
+                                                  number_of_recipients=num_recip)
+                    elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
                         msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
-                            i, name, description[i], val, wlow, whigh)
-                        send_warning
+                            i, name, desc[i], data[i], wlow[i], whigh[i])
+                        num_recip = self.sendMessage(name, when, msg, 'warning', i)
+                        self.logger.warning(msg)
+                        self.DDB.addAlarmToHistory(name, i, when, data, status,
+                                                  reason='WA',alarm_type='W',
+                                                  number_of_recipients=num_recip)
                     else:
                         self.logger.debug('Reading %i from %s nominal' % (i, name))
                 else:
                     self.logger.debug('Alarm status %i from %s is off, skipping...' % (i, name))
-
-
-            for ii, al_status in enumerate(alarm_status):
-                status_tested_positive = False
-                if al_status != 'ON':
-                    self.logger.debug("Data from '%s[%d]' not checked as "
-                                      "alarm status is %s." %
-                                      (name, ii, al_status))
-                    continue
-                data_string = "%.2f" % data[ii]
-                # Check the status
-                if status[ii] in [0, -2]:  # Status OK (0) or 'No status' (-2)
-                    self.logger.info("Status[%d] from '%s' ok." % (ii, name))
-                    status_tested_positive = True
-                elif status[ii] in range(1, 10):  # Warning status (1-9)
-                    self.logger.warning("Status[%d] from '%s' not ok (status "
-                                        "= %d, data = %s, description = %s). "
-                                        "Sending warning..." %
-                                        (ii, name, status[ii],
-                                         data_string, description[ii]))
-                    text = ("'%s[%d]' got a warning: Status '%d' "
-                            "(Data: %s, Description: %s)" %
-                            (name, ii, status[ii],
-                             data_string, description[ii]))
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendWarning(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii, logtime, data,
-                                                   status,
-                                                   reason=str(status[ii]),
-                                                   alarm_type="W",
-                                                   number_of_recipients=n_o_r)
-                elif status[ii] == -1:  # No connection status (-1)
-                    text = "No connection to '%s' (%s)" % (name, logtime)
-                    self.logger.warning(text)
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendWarning(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii, logtime, data,
-                                                   status,
-                                                   reason="-1",
-                                                   alarm_type="W",
-                                                   number_of_recipients=n_o_r)
-                else:  # Alarm status (all the other)
-                    self.logger.warning("Status from '%s[%d]' not ok (status "
-                                        "= %d, data = %s, description = %s). "
-                                        "Sending alarm..." %
-                                        (name, ii, status[ii],
-                                         data_string, description[ii]))
-                    text = ("'%s[%d]' got an error: Status '%d' (Data: %s, "
-                            "Description: %s)" % (name, ii, status[ii],
-                                                  data_string,
-                                                  description[ii]))
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendAlarm(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii, logtime, data,
-                                                   status,
-                                                   reason=str(status[ii]),
-                                                   alarm_type="A",
-                                                   number_of_recipients=n_o_r)
-                # Check the data
-                if data[ii] > higheralarm[ii]:
-                    text = ("Data from '%s[%d]' above upper ALARM level "
-                            "(Data: %s, Upper alarm: %s, Description: %s)." %
-                            (name, ii, data_string, str(higheralarm[ii]),
-                             description[ii]))
-                    self.logger.error(text + " Raising alarm...")
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendAlarm(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii, logtime, data,
-                                                   status,
-                                                   reason="AH",
-                                                   alarm_type="A",
-                                                   number_of_recipients=n_o_r)
-                elif data[ii] < loweralarm[ii]:
-                    text = ("Data from '%s[%d]' below lower ALARM level "
-                            "(Data: %s, Lower alarm: %s, Description: %s)." %
-                            (name, ii, data_string, str(loweralarm[ii]),
-                             description[ii]))
-                    self.logger.error(text + " Raising alarm...")
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendAlarm(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii, logtime, data,
-                                                   status,
-                                                   reason="AL",
-                                                   alarm_type="A",
-                                                   number_of_recipients=n_o_r)
-                elif data[ii] > higherwarning[ii]:
-                    text = ("Data from '%s[%d]' above upper WARNING level "
-                            "(Data: %s, Upper warning: %s, Description: %s)." %
-                            (name, ii, data_string, str(higherwarning[ii]),
-                             description[ii]))
-                    self.logger.warning(text + " Raising warning...")
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendWarning(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii,
-                                                   logtime, data, status,
-                                                   reason="WH",
-                                                   alarm_type="W",
-                                                   number_of_recipients=n_o_r)
-                elif data[ii] < lowerwarning[ii]:
-                    text = ("Data from '%s[%d]' below lower WARNING level "
-                            "(Data: %s, Lower warning: %s, Description: %s)." %
-                            (name, ii, data_string, str(lowerwarning[ii]),
-                             description[ii]))
-                    self.logger.warning(text + " Raising warning...")
-                    if self.editRecurrenceCounter(name, index=ii) == 1:
-                        n_o_r = self.sendWarning(name, text, index=ii)
-                        self.DDB.addAlarmToHistory(name, ii, logtime, data,
-                                                   status,
-                                                   reason="WL",
-                                                   alarm_type="W",
-                                                   number_of_recipients=n_o_r)
-                else:
-                    self.logger.info("Data from '%s[%d]' ok." % (name, ii))
-                    if status_tested_positive:
-                        self.editRecurrenceCounter(name, index=ii, backwards=True)
+            time_diff = (when - self.lastMeasurementTime[name]).total_seconds()
+            if time_diff > 2*readout_interval:
+                msg = '%s last send data %.1f sec ago instead of %i' % (
+                    name, time_diff, readout_interval)
+                self.logger.warning(msg)
+                num_recip = self.sendMessage(name, when, msg, 'warning', i)
+                self.DDB.addAlarmToHistory(name, i, when, data, status, reason='TD',
+                                          alarm_type='W',number_of_recipients=num_recip)
+            self.lastMeasurementTime[name] = when  # when will then be now?
         except Exception as e:
             self.logger.critical("Can not check data values and status! "
                                  "Device: %s. Error: %s" % (name, e))
 
-    def checkDataFormat(self, name, data, status, logtime):
+    def sendMessage(self, name, when, msg, howbad, index=0):
         """
-        Checks if the data and status have the right format
-        Data: Float or int
-        Status: Int
-        Logtime: datetime.datetime
+        Sends a warning/alarm to the appropriate contacts
         """
-        # Checking logtime format.
-        try:
-            logtime = str(logtime.strftime('%Y-%m-%d | %H:%M:%S'))
-        except:
-            self.logger.warning("Logtime of %s has a worg format. "
-                                "Replaced by current time." % name)
-            logtime = str(datetime.datetime.now().strftime(
-                '%Y-%m-%d | %H:%M:%S'))
-        # Check that data is an array
-        if not isinstance(data, list):
-            data = self.makeTypeList(data)
-            if data == -1:
-                self.logger.error("Wrong data format from device '%s'! "
-                                  "Data can not be analyzed and is replaced "
-                                  "by [0] and status [9] (warning). "
-                                  "Check your Plugins data transfer." % name)
-                return [0], [9], logtime
-        # Check that status is an array
-        if not isinstance(status, list):
-            status = self.makeTypeList(status)
-            if status == -1:
-                self.logger.error("Wrong status format from device '%s'. "
-                                  "Statuses are replaced by 9 (warning)! "
-                                  "Check your Plugins status transfer." % name)
-                status = [9 for i in len(data)]
-                self.logger.info("Replaced statuses from '%s' to %s" % (
-                                 name, str(status)))
-        # Check that data entries are floats/ints
-        data_length = len(data)
-        if not all(isinstance(entry, (float, int)) for entry in data):
-            for ii, d in enumerate(data):
-                try:
-                    data[ii] = float(d)
-                except Exception as e:
-                    self.logger.error("Data from '%s[%d]' has a wrong "
-                                      "format (Must be type int or float and "
-                                      "can not be changed to type float. "
-                                      "Error: %s. "
-                                      "Replaced by 0, status 9 (warning). "
-                                      "Check your Plugins data transfer! "
-                                      % (name, ii, e))
-                    data[ii] = 0
-                    status[ii] = 9
-        # Check that status entries are ints
-        if not all(isinstance(entry, int) for entry in status):
-            for ii, stat in enumerate(status):
-                try:
-                    status[ii] = int(stat)
-                except Exception as e:
-                    self.logger.error("Status[%d] from '%s' has a wrong format "
-                                      "(Must be type int) and can "
-                                      "not be changed to it. "
-                                      "Error: %s. Check your Plugins status "
-                                      "transfer. Changing status to 9 "
-                                      "(warning)!" % (ii, name, e))
-                    status[ii] = 9
-        return data, status, logtime
-
-    def makeTypeList(self, data):
-        """
-        Returns the data as type list
-        """
-        try:
-            if not isinstance(data, list):
-                if isinstance(data, tuple):
-                    data = list(data)
-                else:
-                    data = [data]
-        except Exception as e:
-            self.logger.warning("Data is not of type list and can not be "
-                                "changed to this type. Error: %s. "
-                                "Data: %s.") % (e, str(data))
-            return -1
-        return data
-
-    def checkTimeDifferences(self):
-        """
-        Checks time between latest two measurements and between the
-        last and the expected next one.
-        """
-        self.logger.debug("Checking time differences for all controllers.")
-        for controller in self._running_controllers:
-            device = [dev for dev in self._config if dev[0] == controller]
-            if len(device) != 1:
-                self.logger.warning("Error in loading the correct config. "
-                                    "Can not check time differences for "
-                                    "'%s'." % controller)
-                continue
-            device = device[0]  # undo double list [[name, status, ...]]
-            alarm_status = device[2]
-            readout_interval = device[7]
-            now = datetime.datetime.now()
-            # Compare if program was running longer long enough to get two
-            # data point. *1.5 to make sure.
-            if (now - self.__startTime).total_seconds() < readout_interval * 1.5:
-                self.logger.debug("'%s' has not been running long enough "
-                                  "to get data." % controller)
-                continue
-            # Reading logtime of the last two points from the database.
-            self.logger.debug("Checking times for '%s'..." % controller)
-            latestData = self.DDB.getData(controller, limit=2)
-            if latestData == -1:
-                self.logger.error("Can not copmare data. "
-                                  "Could not get the two latest data entries.")
-                continue
-            try:  # Testing if latest Data is accessable
-                a = latestData[0][0]
-            except IndexError:
-                self.logger.warning("Can not copmare data. Latest data not "
-                                    "loaded. Probabely no data stored.")
-                continue
-            # Defining tolerances in time checking.
-            ttolerance0, ttolerance1 = 0, 0
-            if readout_interval < 5:
-                ttolerance0 = 4
-                ttolerance1 = 2.5
-            elif readout_interval >= 5 and readout_interval <= 20:
-                ttolerance0 = 10
-                ttolerance1 = 4
-            else:
-                ttolerance0 = 20
-                ttolerance1 = 10
-            # Check if time since last measurements is not bigger than expected
-            # (+ttolerance for savety, e.g. if queue is too slow)
-            timediff = (now - latestData[0][0]).total_seconds()
-            if timediff > (readout_interval + ttolerance0):
-                text = ("Time inteval since latest measurements for '%s' "
-                        "too big: diff = %.1f s, requested interval = %s s." %
-                        (controller, float(timediff), str(readout_interval)))
-                self.logger.error(text)
-                if self.editRecurrenceCounter(controller) == 1:
-                    if any(al_status == 'ON' for al_status in alarm_status):
-                        n_o_r = self.sendAlarm(controller, text, index='All')
-                        self.DDB.addAlarmToHistory(name=controller,
-                                                   index='All',
-                                                   logtime=now,
-                                                   data=latestData[0][1],
-                                                   status=latestData[0][2],
-                                                   reason="TD",
-                                                   alarm_type="A",
-                                                   number_of_recipients=n_o_r)
-                    else:
-                        self.logger.warning("No alarm is sent as none of the "
-                                            "alarm statuses is 'ON' for '%s'." %
-                                            controller)
-                continue
-            # Check if time difference between latest two measurements is not
-            # bigger than expected (+ttolreance, e.g. slow serial connection)
-            timediff = (latestData[0][0] -
-                        latestData[1][0]).total_seconds()
-            if timediff > (readout_interval + ttolerance1):
-                text = ("Time interval between two measurements for '%s' "
-                        "too big: diff = %.1f s, requested interval = %s s." %
-                        (controller, float(timediff), str(readout_interval)))
-                self.logger.warning(text)
-                if self.editRecurrenceCounter(controller) == 1:
-                    if any(al_status == 'ON' for al_status in alarm_status):
-                        n_o_r = self.sendWarning(controller, text, index='All')
-                        self.DDB.addAlarmToHistory(name=controller,
-                                                   index='All',
-                                                   logtime=now,
-                                                   data=latestData[0][1],
-                                                   status=latestData[0][2],
-                                                   reason="TD",
-                                                   alarm_type="W",
-                                                   number_of_recipients=n_o_r)
-                    else:
-                        self.logger.warning("No alarm is sent as none of the "
-                                            "alarm statuses is 'ON' for '%s'." %
-                                            controller)
-            else:
-                self.logger.debug(
-                    "Time differences for '%s' ok." % controller)
-
-    def sendAlarm(self, name, message, index=None):
-        """
-        Sends a alarm to the address(es) from the database.
-        This will send an SMS for the contact with status "ON" or "TEL"
-        or a Email with status "MAIL" or if the SMS sending failed.
-        """
-        now = datetime.datetime.now()
-        # Check if the testrun is still active
+        # permanent testrun?
         if self.opts.testrun == -1:
-            self.logger.warning(
-                "Testrun: No alarm sent. Alarm message: %s" % message)
+            self.logger.warning('Testrun, no alarm sent. Message: %s' % msg)
             return [-1, -1]
-        runtime = (now - self.__startTime).total_seconds() / 60.
+        now = datetime.datetime.now()
+        runtime = (now - self.__startTime).total_seconds()/60
+        # still a testrun?
         if runtime < self.opts.testrun:
-            self.logger.warning("Testrun still active (%.1f/%s minutes). "
-                                "No alarm sent. Alarm message: %s" %
-                                (runtime, str(self.opts.testrun), message))
+            self.logger.warning('Testrun still active (%.1f/%i min). Message (%s) not sent' % (runtime, self.opts.testrun, msg))
             return [-1, -1]
-        # Check if already an ALARM was out for this device
-        if not self.repetitionAllowed(name, now, self.sentAlarms,
-                                      self.opts.alarm_repetition):
-            self.logger.warning("An alarm for '%s' was already sent. "
-                                "Alarm message: %s" % (name, message))
-            return [-2, -2]
-        # Gets enabled alarm contacts
+        # when was last message sent?
+        mintime = self._config[name]['alarm_recurrence'][index]
+        if howbad == 'alarm':
+            time_since = (now - self.lastAlarmTime[name]).total_seconds()/60
+            if time_since < mintime:
+                self.logger.debug('Alarm for %s sent recently (%.1f/%i min)' % (
+                    name, time_since, mintime))
+                return [-2,-2]
+        elif howbad == 'warning':
+            time_since = (now - self.lastWarningTime[name]).total_seconds()/60
+            if time_since < mintime:
+                self.logger.debug('Warning for %s send recently (%.1f/%i min)' % (
+                    name, time_since, mintime))
+                return [-2,-2]
+        # who to send to?
         sms_recipients = [contact[3] for contact in self.DDB.getContacts()
-                          if contact[1] in ['ON', 'TEL']]
+                          if contact[1] in ['ON','TEL']]
         mail_recipients = [contact[2] for contact in self.DDB.getContacts()
-                           if contact[1] in ['ON', 'MAIL']]
-        sms_sent = False
-        mail_sent = False
-        if sms_recipients:
-            if self.alarmDistr.sendSMS(sms_recipients, message) == -1:
-                self.logger.error("SMS sending not successful. Trying mail...")
+                           if contact[1] in ['ON','TEL']]
+        sent_sms = False
+        sent_mail = False
+        if sms_recipients and howbad == 'alarm':
+            if self.alarmDistr.sendSMS(sms_recipients, msg) == -1:
+                self.logger.error('Could not send SMS, trying mail...')
                 additional_mail_recipients = [contact[2] for contact
                                               in self.DDB.getContacts()
                                               if contact[3] in sms_recipients
@@ -815,80 +489,25 @@ class observationThread(threading.Thread):
                 mail_recipients = mail_recipients + additional_mail_recipients
                 sms_recipients = []
                 if not mail_recipients:
-                    self.logger.error("Can not send alarm to email, "
-                                      "no contacts.")
+                    self.logger.error('No one to email :(')
             else:
-                self.logger.info("Sent SMS with alarm to %s" %
-                                 str(sms_recipients))
-                sms_sent = True
+                self.logger.error('Send SMS to %s' % sms_recipients)
+                sent_sms = True
+                self.lastAlarmTime[name] = now
         if mail_recipients:
-            subject = "ALARM: '%s'" % name
-            message = message + self.getAdditionalInfos(name, index)
-            if self.alarmDistr.sendEmail(toaddr=mail_recipients, subject=subject, message=message) == -1:
-                self.logger.error("Could not send alarm: %s" % message)
+            subject = "%s: %s" % (howbad.upper(), name)
+            if self.alarmDistr.sendEmail(toaddr=mail_recipients, subject=subject,
+                                         message=msg) == -1:
+                self.logger.error('Could not send %s email!' % howbad)
                 mail_recipients = []
             else:
-                self.logger.info("Successfully sent email with alarm to %s" %
-                                 str(mail_recipients))
-                mail_sent = True
-        if any([mail_sent, sms_sent]):
-            now = datetime.datetime.now()
-            self.sentAlarms = self.updateSentList(self.sentAlarms, name, now)
-        else:
-            self.logger.critical("Unable to send alarm! "
-                                 "Alarm message %s." % message)
+                self.logger.info('Sent %s email to %s' % (howbad, mail_recipients))
+                sent_mail = True
+                self.lastWarningTime[name] = now
+        if not any([sent_mail, sent_sms]):
+            self.logger.critical('Unable to send message!')
         return [len(sms_recipients), len(mail_recipients)]
-
-    def sendWarning(self, name, message, subject=None, toaddr=None, index=None):
-        """
-        Sends a warning to the adress(es) from the database
-        or to the 'toaddr' if given.
-        """
-        now = datetime.datetime.now()
-        # Check if the testrun is still active
-        if self.opts.testrun == -1:
-            self.logger.warning(
-                "Testrun: No warning sent. Warning message: %s" % message)
-            return [-1, -1]
-        runtime = (now - self.__startTime).total_seconds() / 60.
-        if runtime < self.opts.testrun:
-            self.logger.warning("Testrun still active (%.1f/%s minutes). "
-                                "No alarm warning. Waring message: %s" %
-                                (float(runtime), str(self.opts.testrun), message))
-            return [-1, -1]
-        # Check if already an ALARM was out for this device
-        if not self.repetitionAllowed(name, now, self.sentAlarms,
-                                      self.opts.warning_repetition):
-            self.logger.warning("An alarm for '%s' was already sent. "
-                                "Warning message: %s" % (name, message))
-            return [-2, -2]
-        # Check if already a WARNING was out for this device
-        elif not self.repetitionAllowed(name, now, self.sentWarnings,
-                                        self.opts.warning_repetition):
-            self.logger.warning("A warning for '%s' was already sent. "
-                                "Warning message: %s" % (name, message))
-            return [-2, -2]
-        # Create autosubject if not given
-        if not subject:
-            subject = 'Warning: "%s"' % name
-        # Getting contact addresses from the database if not given
-        if not toaddr:
-            # Choose contacts with status on or mail.
-            recipients = [contact[2] for contact in self.DDB.getContacts()
-                          if contact[1] in ['ON', 'MAIL']]
-        else:
-            recipients = toaddr
-        if recipients:
-            message = message + self.getAdditionalInfos(name, index)
-            if self.alarmDistr.sendEmail(toaddr=recipients,
-                                         subject=subject,
-                                         message=message) != -1:
-                self.sentWarnings = self.updateSentList(self.sentWarnings,
-                                                        name, now)
-            else:
-                self.logger.critical("Sending of warning failed.")
-                return [0, 0]
-            return [0, len(recipients)]
+        
 
     def getAdditionalInfos(self, name, index=None):
         """
@@ -904,7 +523,7 @@ class observationThread(threading.Thread):
                      "     - Warnings: %s min.\n"
                      "     - Alarms:   %s min."
                      % (str(self.opts.warning_repetition),
-                        str(self.opts.alarm_repetition)))
+                        str(self.opts.alarm_recurrence)))
         # Doberman has no Data stored, so return.
         if name == "Doberman":
             return add_infos
@@ -1027,118 +646,6 @@ class observationThread(threading.Thread):
                                 "Error %s." % (name, str(index), e))
         return add_infos
 
-    def repetitionAllowed(self, name, time, array, repetition_time):
-        """
-        Function designed for sentWarnings and sentAlarms check
-        Returns False if the name is not in the array or the
-        time between the time in the array and given time is bigger than
-        the repetition_time.
-        Otherwise returns True
-        """
-        array_names = [item[0] for item in array]
-        if name not in array_names:
-            return True
-        latest_entry = max([item[1] for item in array if item[0] == name])
-        if (time - latest_entry).total_seconds()/60. > repetition_time:
-            self.logger.debug("Repetition allowed because time since last "
-                              "entry bigger than repetition time. (%.2f > %s)" %
-                              ((time - latest_entry).total_seconds()/60.,
-                               str(repetition_time)))
-            return True
-        else:
-            self.logger.info("Repetition not allowed because time since last "
-                             "entry is smaller than repetition time. (%.2f < %s)" %
-                             ((time - latest_entry).total_seconds()/60.,
-                              str(repetition_time)))
-            return False
-
-    def updateSentList(self, array, name, time):
-        """
-        Updates the sentWanring and sentAlarm list properly.
-        Removes old entries. Append latest one. Returns the new array
-        """
-        array = [item for item in array if item[0] != name]
-        array.append([name, time])
-        return array
-
-    def initializeRecurrenceCounter(self):
-        """
-        Initializing recurrence counter (self.reccurence_counter) by
-        setting [[name, limits, conuter], ... ]
-        where limits = [limit0, limit1, ...] are read from config
-        and counter = [conunter1, counter2,..] are all set to 0
-        """
-        try:
-            recurrence = []
-            for controller in self._running_controllers:
-                number_of_data = [dev[10] for dev in self._config if dev[0] == controller][0]
-                limits = [dev[8] for dev in self._config if dev[0] == controller][0]
-                counter = [0]*number_of_data
-                recurrence.append([controller, counter, limits])
-            return recurrence
-        except Exception as e:
-            self.logger.error("Could not initialize recurrence counter properly! "
-                              "Will continue without recurrence counting!...")
-            return []
-
-    def editRecurrenceCounter(self, name, index=False, backwards=False):
-        """
-        Adds one to the recurrence counter of name[index]
-          (to all if index=None)
-        And if above limit sets back to 0 and returns 1, otherways returns 0
-        If backwards it reduces the index (all if index=False) by 1
-          (as long as >0)
-        """
-        all_names = [item[0] for item in self.recurrence_counter]
-        name_index = all_names.index(name)
-        limits = self.recurrence_counter[name_index][2]
-        values = self.recurrence_counter[name_index][1]
-        limit_exceeded = False
-        # Backwards
-        if backwards:
-            for ii, value in enumerate(values):
-                if value > 0 and (not index or ii == index):
-                    self.recurrence_counter[name_index][1][ii] -= 1
-            return 0
-        # Adding and check limits
-        if index is False:  # For all
-            for ii, value in enumerate(values):
-                if value + 1 >= limits[ii]:
-                    limit_exceeded = True
-                    break
-                else:
-                    self.recurrence_counter[name_index][1][ii] += 1
-            if limit_exceeded:
-                self.logger.debug("Recurrence counter from '%s[%d]' above "
-                                  "recurrence limit. Setting back counters and"
-                                  " continuing with alarm/warning..." %
-                                  (name, ii))
-                for ii, value in enumerate(values):
-                    self.recurrence_counter[name_index][1][ii] = 0
-                return 1
-            else:
-                self.logger.warning("Recurrence counters from '%s' all below "
-                                    "recurrence limit. No alarm/warning "
-                                    "will be sent." % name)
-                return 0
-        else:  # Only for 1 index
-            if values[index] + 1 >= limits[index]:
-                self.recurrence_counter[name_index][1][index] = 0
-                self.logger.debug("Recurrence counter from '%s[%d]' above "
-                                  "recurrence limit. Setting back counter and"
-                                  " continuing with alarm/warning..." %
-                                  (name, index))
-                return 1
-            else:
-                self.recurrence_counter[name_index][1][index] += 1
-                self.logger.warning("Recurrence counter from '%s[%d]' below "
-                                    "recurrence limit (%d<%d). No "
-                                    "alarm/warning will be sent." %
-                                    (name, index, values[index],
-                                     limits[index]))
-                return 0
-
-
 class timeout:
     '''
     Timeout class. Raises an error when timeout is reached.
@@ -1159,89 +666,6 @@ class timeout:
         signal.alarm(0)
 
 
-class logFileWriter(object):
-    """
-    Class that holds the logFile logging and debugging.
-    This is only used, if there is no connection to the database.
-    Creates a new file with the name:
-        %Y-%m-%d_%H-%M-%S_%Keyword.log in the folder that was set.
-    If the file already exists it tries to write the informations
-        in the existing file.
-    """
-
-    def __init__(self, logger, keyword=None, **kwds):
-        self.logger = logger
-
-        self._logpath = 'log'
-        self.__keyword = keyword
-        if self.__keyword is None:
-            self.__keyword = 'Doberman'
-
-        if not os.path.isdir(self._logpath):
-            rights = 0o751
-            # PYTHON 2 compatibility:
-            # rights = 0751
-            os.mkdir(self._logpath, rights)
-
-        self.now = datetime.datetime.now()
-        self.filename = os.path.join(self._logpath, "%s_%s.log" % (
-            self.now.strftime('%Y-%m-%d_%H-%M-%S'), self.__keyword))
-
-        ifn = 0
-        while ifn < 10:
-            ifn += 1
-            if os.path.isfile(self.filename):
-                newname = os.path.join(self._logpath, "%s_%s_%i.log" %
-                                       (self.now.strftime('%Y-%m-%d_%H-%M-%S'),
-                                        self.__keyword, ifn))
-                self.logger.warning("File: %s exists already. "
-                                    "Trying to write to %s..." %
-                                    (self.filename, newname))
-                self.filename = newname
-            else:
-                break
-        self.__file = open(self.filename, 'w')
-        self.__file_queue = []
-
-        self.write(("# Doberman: Slow control logging file - generated %s. "
-                    "Logging mode is %s" %
-                    (self.now.strftime('%Y-%m-%d %H:%M:%S'), self.__keyword)))
-
-    def write(self, message=None):
-        """
-        Writes a message to the file
-        """
-        towrite = []
-        if len(self.__file_queue) != 0:
-            towrite = self.__file_queue
-        if message is not None:
-            if not isinstance(message, str):
-                self.logger.warning("Invalid format for the logging file.")
-                return -1
-            else:
-                towrite = towrite + [message]
-        for elem in towrite:
-            self.__file.write(elem.rstrip() + '\n')
-        self.__file.flush()
-        return 0
-
-    def close(self):
-        """
-        Call this to properly close the file of the writer.
-        """
-        if not self.__file.closed:
-            self.__file.flush()
-            self.__file.close()
-        return
-
-    def __del__(self):
-        self.close()
-        return
-
-    def __exit__(self):
-        self.close()
-        return
-
 def deleteLockFile(lockfilePath):
     os.remove(lockfilePath)
 
@@ -1249,7 +673,7 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     # READING DEFAULT VALUES (need a logger to do so)
-    logger = logger = logging.getLogger()
+    logger = logging.getLogger()
     logger.setLevel(20)
     chlog = logging.StreamHandler()
     chlog.setLevel(20)
@@ -1300,8 +724,8 @@ if __name__ == '__main__':
                         type=int,
                         help="Force program to NOT search ttyUSBx (x=int).",
                         default=default_ports)
-    parser.add_argument("-ar", "--alarm_repetition_time",
-                        dest="alarm_repetition",
+    parser.add_argument("-ar", "--alarm_recurrence_time",
+                        dest="alarm_recurrence",
                         type=int,
                         help=("Time in minutes until the same Plugin can send "
                               "an alarm (SMS/Email) again. Default = 5 min."),

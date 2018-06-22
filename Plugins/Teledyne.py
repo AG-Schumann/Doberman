@@ -1,8 +1,7 @@
 from Doberman.Controller import SerialController
-from Doberman.Plugin import Plugin
 
 
-class TeledyneController(SerialController):
+class Teledyne(SerialController):
     """
     Teledyne flow controller
     """
@@ -87,9 +86,3 @@ class TeledyneController(SerialController):
             val['data'] = float(data[1].split(';')[0])
 
         return val
-
-
-class TeledynePlugin(Plugin):
-    def __init__(self, opts):
-        self.controller = TeledyneController(opts)
-        super().__init__(opts)
