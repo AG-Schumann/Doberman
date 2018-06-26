@@ -3,33 +3,90 @@ import time
 import logging
 from argparse import ArgumentParser
 import _thread
-import psycopg2
 import datetime
+import pymongo
 import time
 from ast import literal_eval
 import alarmDistribution  # for test mail sending when address was changed
 
 
 class DobermanDB(object):
+    """
+    Class to handle interfacing with the Doberman database
+    """
+
+    client = None
 
     def __init__(self, opts, logger):
         self.logger = logger
         self.opts = opts
-        self.opts.logger = logger
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
         # Load database connection details
         try:
-            f = open('Database_connectiondetails.txt', 'r')
-            self._conn_string = f.read()
-            f.close()
+            with open('Database_connectiondetails.txt', 'r') as f:
+                conn_details = eval(f.read())
         except Exception as e:
             self.logger.warning("Can not load database connection details. "
                                 "Trying default details. Error %s" % e)
-            self._conn_string = ("host='localhost' dbname='Doberman' "
-                                 "user='postgres' password='Doberman' "
-                                 "options='-c statement_timeout=10000'")
+            conn_details = {'host' : 'localhost', 'port' : 13178}
+        try:
+            self._connect(**conn_details)
         # load config details
         self._config = self.getConfig()
+
+    def close(self):
+        if self.client:
+            self.client.close()
+            self.client = None
+
+    def __del__(self):
+        self.close()
+        return
+
+    def __exit__(self):
+        self.close()
+
+    @classmethod
+    def _connect(cls, host, port, username, password):
+        if cls.client:
+            return
+        cls.client = pymongo.MongoClient(host=host, port=port, username=username, password=password)
+
+    def _check(self, db_name, collection_name):
+        if db_name not in self.client.list_database_names():
+            self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
+        elif collection_name not in self.client[db_name].collection_names(False):
+            self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
+        return self.client[db_name][collection_name]
+
+    def insertIntoDatabase(self, db_name, collection_name, document):
+        collection = self._check(db_name, collection_name)
+        if isinstance(document, (list, tuple)):
+            result = collection.insert_many(document)
+            self.logger.debug('Inserted %i entries into %s/%s' % (len(result.inserted_ids), db_name,
+                collection_name))
+            return 0
+        elif isinstance(document, dict):
+            collection.insert_one(document)
+            self.logger.debug('Inserted 1 entry into %s/%s' % (db_name, collection_name))
+            return 0
+        else:
+            self.logger.error('Not sure what to do with %s type' % type(document))
+            return -1
+
+    def readFromDatabase(self, db_name, collection_name, cuts, onlyone=False):
+        collection = self._check(db_name,collection_name)
+        if onlyone:
+            return collection.find_one(cuts)
+        else:
+            return collection.find(cuts)
+
+    def updateDatabase(self, db_name, collection_name, cuts, updates, onlyone=False):
+        collection = self._check(db_name, collection_name)
+        if onlyone:
+            collection.update(cuts, updates)
+        else:
+            collection.update(cuts, updates.update({'multi' : True})
 
     def interactWithDatabase(self, action, additional_actions=[], readoutput=False):
         """
@@ -92,14 +149,10 @@ class DobermanDB(object):
                 f.write("# Backup file of the config table in DobermanDB. "
                         "Updated: %s" % str(datetime.datetime.now()))
                 self.logger.info("Writing new config to configBackup.txt...")
-                for name in (self._config):
+                for name in self._config:
                     controller = self._config[name]
-                    f.write("\ncontroller:%s\n" % controller['controller']) # needs to be first entry
-                    for key in controller:
-                        if key == "controller":
-                            continue
-                        f.write("%s:%s\n" % (key, controller[key]))
-                    f.write(20 * "-")
+                    f.write('%s\n' % controller)
+                    f.write('# ' + 20 * "-")
         except Exception as e:
             self.logger.warning("Can not refresh configBackup.txt. %s." % e)
             return -1
@@ -112,8 +165,8 @@ class DobermanDB(object):
         """
         try:
             with open(filename, 'r') as f:
-                self.logger.info("Reading config from configBackup.txt...")
-                configBackup = f.read().splitlines()
+                self.logger.info("Reading config from %s..." % filename)
+                configBackup = f.read()
         except Exception as e:
             self.logger.warning("Can not read from configBackup.txt. %s" % e)
             return -2
@@ -122,27 +175,17 @@ class DobermanDB(object):
                                 "File empty")
             return -2
         self.logger.info("Backup file dates from %s" %
-                (configBackup[0].split(': ')[1]))
-        # The following lines convert the text from the file back into
-        # the backend dictionaries
+                (configBackup.splitlines()[0].split(': ')[1]))
+        configBackup = configBackup[1:]  # strips first line with date
         c_backup = {}
-        index_string = '-' * 20
-        num_entries = configBackup.count(index_string)
-        entry_start, entry_end = 1, configBackup.index(index_string)
-        for _ in range(num_entries):
-            entry = configBackup[entry_start:entry_end]
-            name = entry[0].split(':')[1]
-            c_backup[name] = {}
-            for row in entry:
-                key, val = row.split(':')
-                try:
-                    c_backup[name][key] = eval(val)
-                except NameError:
-                    c_backup[name][key] = val
-            entry_start = entry_end+1
-            if entry_start == len(configBackup):
-                break
-            entry_end = configBackup.index(index_string, entry_start)
+        for blob in configBackup.split('# ' + 20*'-'):
+            try:
+                d = eval(blob)
+            except Exception as e:
+                self.logger.error('Error parsing %s: %s' % (filename, e))
+                return -1
+            else:
+                c_backup[d['name']] = d
         return c_backup
 
     def refreshContactsBackup(self):
@@ -205,108 +248,6 @@ class DobermanDB(object):
                 continue
             templist.append(item)
         return c_backup
-
-    def recreateTableConfig(self):
-        """
-        Clears and recreates table config. Only use for support maintenance:
-        Config rows:
-        (CONTROLLER TEXT, STATUS TEXT, ALARM_STATUS TEXT,
-         WARNING_LOW REAL[], WARNING_HIGH REAL[], ALARM_LOW REAL[],
-         ALARM_HIGH REAL[]
-         READOUT_INTERVAL INT, ALARM_RECURRENCE INT[], DESCRIPTION TEXT[],
-         NUMBER_OF_DATA INT, ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[])
-        """
-        y, Y = 'y', 'Y'
-        n, N = 'n', 'N'
-        text = ("Are you sure you want to clear and recreate table 'config'? "
-                "All plugin settings will be lost. (y/n)?")
-        drop_config = self.getUserInput(text,
-                                        input_type=[str],
-                                        be_in=[y, Y, n, N])
-        if drop_config not in ['Y', 'y']:
-            return
-        drop_str = "DROP TABLE IF EXISTS config"
-        create_str = ("CREATE TABLE config ("
-                      "CONTROLLER TEXT, STATUS TEXT, "
-                      "ALARM_STATUS TEXT[], WARNING_LOW REAL[], "
-                      "WARNING_HIGH REAL[], ALARM_LOW REAL[], "
-                      "ALARM_HIGH REAL[], "
-                      "READOUT_INTERVAL INT, ALARM_RECURRENCE INT[], "
-                      "DESCRIPTION TEXT[], NUMBER_OF_DATA INT, "
-                      "ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[], "
-                      "_id SERIAL PRIMARY KEY)")
-        if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
-            self.logger.warning("Can not recreate config table in database. "
-                                "Error while interacting with DB.")
-            return -1
-        else:
-            self.logger.warning("Recreated table config.")
-            return 0
-
-    def recreateTableConfigHistory(self):
-        """
-        Clears and reacreates table config_history. Only use for support maintenance:
-        Config hirstory rows:
-        (DATETIME TIMESTAMP, config)
-        """
-        y, Y = 'y', 'Y'
-        n, N = 'n', 'N'
-        text = ("Are you sure you want to clear and recreate table "
-                "'config_history'? The plugin settings history will be lost. (Y/N)?")
-        drop_history = self.getUserInput(text,
-                                         input_type=[str],
-                                         be_in=[y, Y, n, N])
-        if drop_history not in ['Y', 'y']:
-            return
-        drop_str = "DROP TABLE IF EXISTS config_history"
-        create_str = ("CREATE TABLE config_history ("
-                      "DATETIME TIMESTAMP, "
-                      "CONTROLLER TEXT, STATUS TEXT, "
-                      "ALARM_STATUS TEXT[], WARNING_LOW REAL[], "
-                      "WARNING_HIGH REAL[], ALARM_LOW REAL[], "
-                      "ALARM_HIGH REAL[], "
-                      "READOUT_INTERVAL INT, ALARM_RECURRENCE INT[], "
-                      "DESCRIPTION TEXT[], NUMBER_OF_DATA INT, "
-                      "ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[], "
-                      "_id SERIAL PRIMARY KEY)")
-        if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
-            self.logger.warning("Can not recreate config_history table in the "
-                                " database. Error while interacting with DB.")
-            return -1
-        else:
-            self.logger.warning("Recreated table config_history.")
-            return 0
-
-    def recreateTableAlarmHistory(self):
-        """
-        Clears and recreates table alarm_history. Only use for support maintenance:
-        Config hirstory rows:
-        (Data_controller[i]), REASON TEXT, TYPE CHAR(1),
-        NUMBER_OF_RECIPIENTS INT[], ACKNOWLEDGEMENT  CHAR(1)
-        """
-        y, Y = 'y', 'Y'
-        n, N = 'n', 'N'
-        text = ("Are you sure you want to clear and recreate table 'alarm_history'? "
-                "The alarm/warning history will be lost. (Y/N)?")
-        drop_history = self.getUserInput(text,
-                                         input_type=[str],
-                                         be_in=[y, Y, n, N])
-        if drop_history not in ['Y', 'y']:
-            return
-        drop_str = "DROP TABLE IF EXISTS alarm_history"
-        create_str = ("CREATE TABLE alarm_history ("
-                      "DATETIME TIMESTAMP, "
-                      "CONTROLLER TEXT, INDEX CHAR(3), DATA REAL, STATUS INT, REASON CHAR(2), "
-                      "TYPE CHAR(1), NUMBER_OF_RECIPIENTS INT[], "
-                      "ACKNOWLEDGEMENT CHAR(1), "
-                      "_id SERIAL PRIMARY KEY)")
-        if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
-            self.logger.warning("Can not recreate alarm_history table in the "
-                                " database. Error while interacting with DB.")
-            return -1
-        else:
-            self.logger.warning("Recreated table alarm_history.")
-            return 0
 
     def addAlarmToHistory(self, name, index, logtime, data, status, reason, alarm_type, number_of_recipients, acknowledgement='N'):
         """
@@ -372,28 +313,6 @@ class DobermanDB(object):
             return []
         return latest_alarms
 
-    def deleteDataTable(self, name):
-        """
-        Deletes the Data_name table. Only use for maintenance.
-        """
-        y, Y = 'y', 'Y'
-        n, N = 'n', 'N'
-        text = ("Are you sure you want to delete the data table 'Data_%s'? "
-                "This can not be reverted. (Y/N)?" % name)
-        drop_table = self.getUserInput(text,
-                                       input_type=[str],
-                                       be_in=[y, Y, n, N])
-        if drop_table not in ['Y', 'y']:
-            return
-        drop_str = "DROP TABLE IF EXISTS Data_%s" % name
-        if self.interactWithDatabase(drop_str) == -1:
-            self.logger.warning("Can not delete data table 'Data_%s' from "
-                                "database. Error while interacting with DB" % name)
-            return -1
-        else:
-            self.logger.warning("Deleted table 'Data_%s'" % str(name))
-            return 0
-
     def addSettingToConfigHistory(self, controller):
         """
         Adds the current setting of a controller to the config history
@@ -436,12 +355,10 @@ class DobermanDB(object):
          NUMBER_OF_DATA INT, ADDRESSES TEXT[], ADDITIONAL_PARAMETERS TEXT[])
         """
         if name == 'all':
-            select_str = "SELECT * FROM config"
+            controller = self.readFromDatabase('config','controllers')
         else:
-            select_str = "SELECT * FROM config WHERE CONTROLLER = '%s'" % str(
-                name)
-        controller_config = self.interactWithDatabase(select_str,
-                                                      readoutput=True)
+            controller = self.readFromDatabase('config','controllers',{'name' : name})
+
         if not controller_config:
             if name == 'all':
                 self.logger.info("Config table empty.")
@@ -475,7 +392,7 @@ class DobermanDB(object):
         """
         text = []
         text.append("Name: -- Name of your device. "
-                    "Make sure your Plugin code is named the correct way.")
+                    "Make sure your Plugin class is named the same.")
         text.append("Status: -- ON/OFF: is your instrument (or plugin) turned on or not. Resp."
                     " should it collect data over the Doberman slow control.")
         text.append("Alarm Status: -- ON/OFF,...: "
@@ -503,8 +420,8 @@ class DobermanDB(object):
                     "Enter the higher warning level for your data values. "
                     "Analog Lower Alarm Level.")
         text.append("Readout interval: -- How often (in seconds) should your "
-                    "device read the data and send it to the Doberman "
-                    "slow control. Default = 5 seconds")
+                    "device read the data and send it to Doberman. "
+                    "Default = 5 seconds")
         text.append("Alarm recurrence: -- How many times in a row has the "
                     "data to be out of the warning/alarm limits before an "
                     "alarm/warning is sent.")
@@ -644,182 +561,6 @@ class DobermanDB(object):
                 print("Warning: Lenght of list larger than expected.")
         return input_list
 
-    def addControllerByKeyboard(self):
-        """
-        With this function you can add a controller to the database
-        over the terminal.
-        """
-        y, Y = 'y', 'Y'
-        n, N = 'n', 'N'
-        # Print informations
-        print('\n' + 60 * '-' + '\nNew controller. ' +
-              'Please enter the following parameters below:\n')
-        self.printParameterDescription()
-        print('\n' + 60 * '-' + '\n')
-        print('  - No string signs (") needed.\n  '
-              '- Split arrays with comma (no spaces after it), '
-              'no brackets needed!  \n  '
-              '- Enter 0 for no or default value  \n' + 60 * '-')
-        name = None
-        # Enter all parameters:
-        # Name
-        while not name:
-            name = self.getUserInput("Controller name:", input_type=[str],
-                                     be_not_in=[list(map(str, list(range(100))))])
-            # Check if name exists already
-            if self._config == "EMPTY":  # First device
-                pass
-            elif name in self._config:
-                #elif [dev[0] for dev in self._config if dev[0] == name]:
-                print("There is already a controller with the name '%s'." %
-                      str(name))
-                text = "Do you want to change '%s' (y/n)?" % str(name)
-                if self.getUserInput(text, input_type=[str]) in ['y', 'Y', y, Y]:
-                    self.changeControllerByKeyboard()
-                    return
-                else:
-                    name = None
-        # Status:
-        text = "Controller '%s': Status (ON/OFF):" % name
-        status = self.getUserInput(text, be_in=['ON', 'OFF'])
-        # Number of Data:  # Pulled here because it needs to know list length.
-        text = ("Controller '%s': Number of data values "
-                "per transmission (integer):" % name)
-        number_of_data = self.getUserInput(text, input_type=[int],
-                                           limits=[1, 100])
-        # Alarm status:
-        text = ("Controller '%s': Alarm status(es) "
-                "(ON/OFF,... e.g. ON,OFF,ON):" % name)
-        alarm_status = self.getUserInput(text, input_type=[str],
-                                         be_in=['ON', 'OFF'], be_array=True)
-        alarm_status = self.adjustListLength(alarm_status, number_of_data,
-                                             "OFF", "Alarm status")
-        # Lower warning levels:
-        text = ("Controller '%s': Lower WARNING level(s): (float(s)):" % name)
-        warning_low = self.getUserInput(text, input_type=[int, float],
-                                        be_array=True)
-        warning_low = self.adjustListLength(warning_low, number_of_data,
-                                            0, "Lower warning levels")
-        # Higher warning levels:
-        text = ("Controller '%s': Higher WARNING level(s): (float(s)):" % name)
-        warning_high = self.getUserInput(text, input_type=[int, float],
-                                         be_array=True)
-        warning_high = self.adjustListLength(warning_high, number_of_data,
-                                             0, "Higher warning levels")
-        # Lower alarm levels:
-        text = ("Controller '%s': Lower ALARM level(s): (float(s)):" % name)
-        alarm_low = self.getUserInput(text, input_type=[int, float],
-                                      be_array=True)
-        alarm_low = self.adjustListLength(alarm_low, number_of_data,
-                                          0, "Lower alarm levels")
-        # Higher alarm levels:
-        text = ("Controller '%s': Higher ALARM level(s): (float(s)):" % name)
-        alarm_high = self.getUserInput(text, input_type=[int, float],
-                                       be_array=True)
-        alarm_high = self.adjustListLength(alarm_high, number_of_data,
-                                           0, "Higher alarm levels")
-        # Readout interval:
-        text = ("Controller '%s': Readout Interval "
-                "(in seconds, integer):" % name)
-        readout_interval = self.getUserInput(text, input_type=[int],
-                                             limits=[1, 86400])
-        # Alarm recurrence:
-        text = ("Controller '%s': Recurrence (# of times in a row that data "
-                "needs to exceed the alarm/warning limit before alarm/warning "
-                "is sent, integer):" % name)
-        recurrence = self.getUserInput(text, input_type=[int],
-                                       be_array=True, limits=[1, 99])
-        recurrence = self.adjustListLength(recurrence, number_of_data,
-                                           1, "Recurrence")
-        # Description:
-        text = ("Controller '%s': Description of data value(s)/"
-                "Info(s)/Unit(s)/ect.:" % name)
-        description = self.getUserInput(text, input_type=[str],
-                                        be_array=True,
-                                        string_length=[None, 50])
-        description = self.adjustListLength(description, number_of_data,
-                                            '', "Description")
-        # Addresses:
-        text = "Controller '%s': Connection type (LAN/SER/0)" % name
-        connection_type = self.getUserInput(text,
-                                            input_type=[str],
-                                            be_in=['LAN', 'SER', 0, '0'])
-        text = ("Controller '%s': Addresses (["
-                "First address((IP Address/Product ID/0),"
-                "Second address(Port/Vendor ID/0)]):" % name)
-        addresses = self.getUserInput(text,
-                                      input_type=[str],
-                                      string_length=[None, 20],
-                                      be_array=True)
-        addresses = self.adjustListLength(addresses, 2, '',
-                                          "Addresses ([""Address1,Address2])")
-        addresses = [connection_type] + addresses
-        # Additional parameters:
-        text = "Controller '%s': Additional parameters:" % name
-        additional_parameters = self.getUserInput(text, input_type=[str],
-                                                  be_array=True)
-        # Check alarm/warning levels.
-        for ii, al_stat in enumerate(alarm_status):
-            try:
-                if al_stat == 'ON' and not (alarm_low[ii] <= warning_low[ii] < warning_high[ii] <= alarm_high[ii]):
-                    print("Warning: Invalid alarm/warning levels %d. "
-                          "Set alarm status %d to 'OFF' by default" % (ii, ii))
-                    alarm_status[ii] = 'OFF'
-            except Exception as e:
-                print("Warning: Can not compare alarm/warning levels %d. "
-                      "Error %s. Set alarm status %d to 'OFF' by default" %
-                      (ii, e, ii))
-                alarm_status[ii] = 'OFF'
-        # Make changes at database.
-        add_str = ("INSERT INTO config (CONTROLLER, STATUS, ALARM_STATUS, "
-                   "WARNING_LOW, WARNING_HIGH, ALARM_LOW, ALARM_HIGH, "
-                   "READOUT_INTERVAL, ALARM_RECURRENCE, DESCRIPTION, "
-                   "NUMBER_OF_DATA, ADDRESSES , ADDITIONAL_PARAMETERS) "
-                   "VALUES ('%s', '%s', ARRAY%s, ARRAY%s, ARRAY%s, ARRAY%s, "
-                   "ARRAY%s, %d, ARRAY%s, ARRAY%s, %d, ARRAY%s, ARRAY%s)" %
-                   (name, status, str(alarm_status), str(warning_low),
-                    str(warning_high), str(alarm_low), str(alarm_high),
-                    readout_interval, str(recurrence), str(description),
-                    number_of_data, str(addresses),
-                    str(additional_parameters)))
-        counter = 0
-        while self.interactWithDatabase(add_str) == -1:
-            if counter >= 2:
-                print("Can not add controller %s." % name)
-                return -1
-            print("Trying again in 1 s...")
-            time.sleep(1)
-            counter += 1
-        print("Successfully entered %s to the database." % name)
-        self.logger.debug("Creating Data Table...")
-        if self.createDataTable(name) == -1:
-            self.logger.fatal("Could not create a data table for "
-                              "controller %s" % name)
-        #settings = [name, status, alarm_status, warning_low,
-        #            warning_high, alarm_low, alarm_high,
-        #            readout_interval, recurrence, description,
-        #            number_of_data, str(addresses),
-        #            additional_parameters]
-        settings = {'controller' : name, 'status' : status, 'alarm_status' : alarm_status,
-                    'warning_low' : warning_low, 'warning_high' : warning_high,
-                    'alarm_low' : alarm_low, 'alarm_high' : alarm_high,
-                    'readout_interval' : readout_interval, 'alarm_recurrence' : recurrence,
-                    'description' : description, 'number_of_data' : number_of_data,
-                    'addresses' : addresses, 'additional_parameters' : additional_parameters}
-        parameters = ['           Name', '         Status', '   Alarm status',
-                      '    Warning low', '   Warning high', '      Alarm low',
-                      '     Alarm high', 'ReadoutInterval', '     Recurrence',
-                      '    Description', ' Number of data', '      Addresses',
-                      'Additional par.']
-        print("The stored parameters are:\n")
-        for ii, entry in enumerate(settings.keys()):
-            if parameters[ii] == 'ReadoutInterval':
-                print(" ")
-            print(" %s: %s " % (parameters[ii], settings[entry]))
-        print(60 * '-')
-        self.addSettingToConfigHistory(settings)
-        self.refreshConfigBackup()
-
     def changeControllerByKeyboard(self, change_all=True):
         if self._config == "EMPTY":
             print("Config empty. Can not change plugin settings. "
@@ -841,7 +582,7 @@ class DobermanDB(object):
         for number, controller in enumerate(devices):
             print("%s:\t%s" % (str(number), controller))
         # Enter name to find controller
-        existing_names = devices #[dev[0] for dev in self._config]
+        existing_names = devices
         existing_numbers = list(map(str, list(range(len(existing_names)))))
         existing_devices = existing_names + existing_numbers
         text = "\nEnter controller number or alternatively its name:"
@@ -852,214 +593,65 @@ class DobermanDB(object):
         except KeyError:
             name = devices[int(name)]
             controller = self._config[name]
-        #if controller:
-        #    controller = controller[0]
-        #else:
-        #    controller = self._config[int(name)]
-        #    name = controller[0]
+
         # Print current parameters and infos.
         print('\n' + 60 * '-' + '\n')
         print('The current parameters are:\n')
-        parameters = ['           Name', '         Status', '   Alarm status',
-                      '    Warning low', '   Warning high', '      Alarm low',
-                      '     Alarm high', 'ReadoutInterval', '     Recurrence',
-                      '    Description', ' Number of data', '      Addresses',
-                      'Additional par.']
-        for key in controller.keys():
-            if key == 'readout_interval':
-                print(" ")
+        for i,key in enumerate(controller.keys()):
+            if i == int(len(controller)):
+                print()
             print("{:>16}: {} ".format(key, controller[key]))
         print(60 * '-')
-        # Status
-        text = ("Controller '%s': Status (ON/OFF):" % name)
-        status = self.getUserInput(text, input_type=[str],
-                                   be_in=['ON', 'OFF', 'n'])
-        if status != 'n':  # Continue with old status if no change
-            controller['status'] = status
-        # Number of Data: # Pull here because it needs to know n_o_d for others
-        if change_all:
-            text = ("Controller '%s': Number of data values "
-                    "per transmission (integer):" % name)
-            number_of_data = self.getUserInput(text,
-                                               input_type=[int],
-                                               limits=[1, 100],
-                                               exceptions=['n'])
-            if number_of_data != 'n':
-                controller['number_of_data'] = number_of_data
+        print('Which parameter(s) do you want to change?')
+        which = self.getUserInput('Parameter:', input_type=[str],be_in=controller.keys(),exceptions=['n'])
+        changes = []
+        while which != 'n':
+            if which == 'status':
+                text = 'Controller %s: Status (ON/OFF):' % name
+                status = self.getUserInput(text, input_type=[str], be_in['ON','OFF','n'])
+                if status != 'n':
+                    controller['status'] = status
+                    changes.append(which)
+            elif which == 'alarm_status':
+                text = 'Controller %s: alarm status (ON/OFF, ON/OFF...):' % name
+                val = self.getUserInput(text, input_type=[str], be_in['ON','OFF'],
+                        be_array=True,exceptions=['n'])
+                if val != 'n':
+                    controller[which] = self.adjustListLength(val, controller['number_of_data'], 'OFF', which)
+                    changes.append(which)
+            elif which in ['alarm_low', 'alarm_high', 'warning_low', 'warning_high']:
+                text = 'Controller {name} {wh[1]} {wh[0]} level(s) (float(s)):'.format(
+                        name=name,wh=which.split('_'))
+                vals = self.getUserInput(text, input_type=[int, float], be_array=True, exceptions=['n'])
+                if vals != 'n':
+                    controller[which] = self.adjustListLength(vals, controller['number_of_data'], 0, which)
+                    changes.append(which)
+            elif which == 'readout_interval':
+                text = 'Controller %s readout interval (int):' % name
+                val = self.getUserInput(text, input_type[int, float], limits=[1, 86400], exceptions=['n'])
+                if val != 'n':
+                    controller[which] = val
+                    changes.append(which)
+            elif which == 'recurrence':
+                text = 'Controller %s alarm recurrence (# consecutive values past limits before issuing warning/alarm' % name
+                val = self.getUserInput(text, input_type[int], limits=[1,99], exceptions=['n'])
+                if val != 'n':
+                    controller[which] = self.adjustListLength(val, controller['number_of_data'], 1, which)
+                    changes.append(which)
             else:
-                number_of_data = controller['number_of_data']
-        # Alarm status:
-        text = ("Controller '%s': Alarm status(es) "
-                "(ON/OFF,... e.g. ON,OFF,ON):" % name)
-        alarm_status = self.getUserInput(text,
-                                         input_type=[str],
-                                         be_in=['ON', 'OFF'],
-                                         be_array=True,
-                                         exceptions=['n'])
-        if alarm_status != 'n':
-            controller['alarm_status'] = self.adjustListLength(
-                    alarm_status, number_of_data, "OFF", "Alarm status")
-        # Lower warning levels:
-        text = ("Controller '%s': Lower WARNING level(s): (float(s)):" % name)
-        warning_low = self.getUserInput(text,
-                                        input_type=[int, float],
-                                        be_array=True,
-                                        exceptions=['n'])
-        if warning_low != 'n':
-            controller['warning_low'] = self.adjustListLength(
-                    warning_low, number_of_data, 0, "Lower warning levels")
-        # Higher warning levels:
-        text = ("Controller '%s': Higher WARNING level(s): (float(s)):" % name)
-        warning_high = self.getUserInput(text,
-                                         input_type=[int, float],
-                                         be_array=True,
-                                         exceptions=['n'])
-        if warning_high != 'n':
-            controller['warning_high'] = self.adjustListLength(
-                    warning_high, number_of_data, 0, "Higher warning levels")
-        # Lower alarm levels:
-        text = ("Controller '%s': Lower ALARM level(s): (float(s)):" % name)
-        alarm_low = self.getUserInput(text,
-                                      input_type=[int, float],
-                                      be_array=True,
-                                      exceptions=['n'])
-        if alarm_low != 'n':
-            controller['alarm_low'] = self.adjustListLength(
-                    alarm_low, number_of_data, 0, "Lower alarm levels")
-        # Higher alarm levels:
-        text = ("Controller '%s': Higher ALARM level(s): (float(s)):" % name)
-        alarm_high = self.getUserInput(text,
-                                       input_type=[int, float],
-                                       be_array=True,
-                                       exceptions=['n'])
-        if alarm_high != 'n':
-            controller['alarm_high'] = self.adjustListLength(
-                    alarm_high, number_of_data, 0, "Higher alarm levels")
+                print('Can\'t change %s here' % which)
+            which = self.getUserInput('Parameter:', input_type=[str],be_in=controller.keys(),exceptions=['n'])
 
-        for ii, al_stat in enumerate(controller['alarm_status']):
-            try:
-                if al_stat == 'ON' and not (alarm_low[ii] <= warning_low[ii] < warning_high[ii] <= alarm_high[ii]):
-                    print("Warning: Invalid alarm/warning levels %d. "
-                          "Set alarm status %d to 'OFF' by default" % (ii, ii))
-                    controller['alarm_status'][ii] = 'OFF'
-            except Exception as e:
-                print("Warning: Can not compare alarm/warning levels %d. "
-                      "Error %s. Set alarm status %d to 'OFF' by default" %
-                      (ii, e, ii))
-                controller['alarm_status'][ii] = 'OFF'
-        # Update first half
-        print("Updating inputs...")
-        alarm_low = controller['alarm_low']
-        alarm_high = controller['alarm_high']
-        alarm_status = controller['alarm_status']
-        warning_low = controller['warning_low']
-        warning_high = controller['warning_high']
-        status = controller['status']
+        if changes:
+            updates = {'$set' : {key, controller[key]} for key in changes}
+            if self.updateDatabase('config','controllers',updates):
+                self.logger.error('Could not update controller %s' % name)
 
-        update_str1 = ("UPDATE config SET STATUS = '%s', "
-                       "ALARM_STATUS = ARRAY%s, WARNING_LOW = ARRAY%s, "
-                       "WARNING_HIGH = ARRAY%s, ALARM_LOW = ARRAY%s, "
-                       "ALARM_HIGH = ARRAY%s WHERE CONTROLLER = '%s'" %
-                       (status, str(alarm_status), str(warning_low),
-                        str(warning_high), str(alarm_low), str(alarm_high),
-                        name))
-        if self.interactWithDatabase(update_str1) == -1:
-            print("Could not update first half. Database interaction error.")
-        else:
-            print("Successfully updated first half.")
-        # Jump over second half if not change_all = True
-        if not change_all:
-            print("The new parameters are:\n")
-            for key in controller.keys():
-                print("{:>16}: {} ".format(key, str(controller[key])))
-            print(60 * '-')
-            self.addSettingToConfigHistory(controller)
-            self.refreshConfigBackup()
-            return
-        # Second half -uu only
-        # Readout interval:
-        text = ("Controller '%s': Readout Interval "
-                "(in seconds, integer):" % name)
-        readout_interval = self.getUserInput(text,
-                                             input_type=[int],
-                                             limits=[1, 86400],
-                                             exceptions=['n'])
-        if readout_interval != 'n':
-            controller['readout_interval'] = readout_interval
-        # Alarm recurrence:
-        text = ("Controller '%s': Recurrence (# of times in a row that data "
-                "needs to exceed the alarm/warning limit before alarm/warning "
-                "is sent, integer):" % name)
-        recurrence = self.getUserInput(text,
-                                       input_type=[int],
-                                       be_array=True,
-                                       limits=[1, 99],
-                                       exceptions=['n'])
-        if recurrence != 'n':
-            controller['recurrence'] = self.adjustListLength(
-                    recurrence, number_of_data, 1, "Recurrence")
-        # Description:
-        text = ("Controller '%s': Description of data value(s)/"
-                "Info(s)/Unit(s)/ect.:" % name)
-        description = self.getUserInput(text,
-                                        input_type=[str],
-                                        be_array=True,
-                                        string_length=[None, 50],
-                                        exceptions=['n'])
-        if description != 'n':
-            controller['description'] = self.adjustListLength(
-                    description, number_of_data, '', "Description")
-        # Addresses:
-        text = "Controller '%s': Connection type (LAN/SER/0))" % name
-        connection_type = self.getUserInput(text,
-                                            input_type=[str],
-                                            be_in=['LAN', 'SER', 0, '0'],
-                                            exceptions=['n'])
-        if connection_type != 'n':
-            controller['addresses'][0] = connection_type
-        text = ("Controller '%s': Addresses (["
-                "First address((IP Address/Product ID/0),"
-                "Second address(Port/Vendor ID/0)]):" % name)
-        addresses = self.getUserInput(text,
-                                      input_type=[str],
-                                      string_length=[None, 20],
-                                      be_array=True,
-                                      exceptions=['n'])
-        if addresses != 'n':
-            controller['addresses'][1:] = self.adjustListLength(
-                    addresses, 2, '', "Addresses ([Address1,Address2])")
-
-        # Additional paramters:
-        text = "Controller '%s': Additional parameters:" % name
-        additional_parameters = self.getUserInput(text,
-                                                  input_type=[str],
-                                                  be_array=True,
-                                                  exceptions=['n'])
-        if additional_parameters != 'n':
-            controller['additional_parameters'] = additional_parameters
-        # Update second part:
-        readout_interval = controller['readout_interval']
-        recurrence = controller['recurrence']
-        description = controller['description']
-        number_of_data = controller['number_of_data']
-        addresses = controller['addresses']
-        additional_parameters = controller['additional_parameters']
-        print("Updating second half of input...")
-        update_str2 = ("UPDATE config SET READOUT_INTERVAL = %d, "
-                       "ALARM_RECURRENCE = ARRAY%s, DESCRIPTION = ARRAY%s, "
-                       "NUMBER_OF_DATA = %d, ADDRESSES = ARRAY%s, "
-                       "ADDITIONAL_PARAMETERS = ARRAY%s "
-                       "WHERE CONTROLLER = '%s'" %
-                       (readout_interval, str(recurrence), str(description),
-                        number_of_data, str(addresses),
-                        str(additional_parameters), name))
-        if self.interactWithDatabase(update_str2) == -1:
-            print("Could not update second half. Database interaction error.")
-            return
-        # Summarize new settings
-        print("Successfully updated second half.\n\n"
-              "The new parameters are:\n")
-        for key in controller:
+        print(60 * '-')
+        print('New controller settings:')
+        for i, key in enumerate(controller.keys()):
+            if i == int(len(controller)):
+                print()
             print("{:>16}: {}".format(key, str(controller[key])))
         print(60 * '-')
         self.addSettingToConfigHistory(controller)
@@ -1113,28 +705,6 @@ class DobermanDB(object):
             return -1
         self.logger.info("Successfully deleted all data from Data_%s." % name)
 
-    def getConfigColumnNames(self):
-        '''
-        Returns a list of the column names in the config table
-        '''
-        return self.getColumnNames('config')
-
-    def getColumnNames(self, table):
-        '''
-        Returns a list of column names from the specified table
-        '''
-        if table not in self.getAllTableNames():
-            print('Table %s doesn\'t exist?' % table)
-            print('Tables: %s' % self.getAllTableNames())
-            return -1
-        column_str = ("SELECT column_name FROM information_schema.columns "
-                      "WHERE table_name='%s';" % table)
-        output = self.interactWithDatabase(column_str, readoutput=True)
-        if output in [0, '']:
-            return []
-        columns = [row[0] for row in output]
-        return columns
-
     def recreateTableDefaultSettings(self, force_to=False):
         """
         (Re)Creates the Doberman general (default) settings
@@ -1162,7 +732,7 @@ class DobermanDB(object):
         default_list = [["Warning_Repetition", "10", "Min. time [min] between two warnings."],
                         ["Alarm_Repetition", "5", "Min. time [min] between two alarms."],
                         ["Testrun", "2", "Time [min] after start until a alarm/warning can be sent."],
-                        ["Loglevel", "20", "Logging output level (10=Default, 20=Info,...)."],
+                        ["Loglevel", "20", "Logging output level (10=Debug, 20=Info,...)."],
                         ["Importtimeout", "10", "Max. time [s] to import a plugin."],
                         ["Occupied_ttyUSB", "[]", "Predefined Occupied ttyUSB ports."],
                         ["Queue_size", "150", "Critical queue size to report error."]]
@@ -1222,16 +792,6 @@ class DobermanDB(object):
             print(ii, ": ", item)
         return
 
-    def getAllTableNames(self):
-        """
-        Returns a list of all tables in the database.
-        """
-        check_str = ("select relname from pg_class where relkind='r' "
-                     "and relname !~ '^(pg_|sql_)'")
-        table_list = self.interactWithDatabase(check_str, readoutput=True)
-        tables = [t[0] for t in table_list]
-        return tables
-
     def getDefaultSettings(self, name=None):
         """
         Reads default Doberman settings from database.
@@ -1261,31 +821,6 @@ class DobermanDB(object):
                 self.logger.error("Can not read defaut settings. %s" % e)
                 return -1
         return settings
-
-    def recreateTableContact(self):
-        """
-        (Re)Creates the contact table
-          which is used for alarm/warning distribution
-        """
-        y, Y = 'y', 'Y'
-        n, N = 'n', 'N'
-        text = ("Are you sure you want to clear and recreate table 'contact'? "
-                "All saved contacts will be lost. (y/n)?")
-        drop_contacts = self.getUserInput(text,
-                                          input_type=[str],
-                                          be_in=[y, Y, n, N])
-        if drop_contacts not in ['Y', 'y']:
-            return
-        drop_str = "DROP TABLE IF EXISTS contact"
-        create_str = ("CREATE TABLE contact (_id SERIAL PRIMARY KEY, "
-                      "NAME TEXT, STATUS TEXT, "
-                      "MAILADDRESS TEXT, PHONE TEXT)")
-        if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
-            self.logger.warning("Can not crate 'contact' table in database.")
-            return -1
-        else:
-            self.logger.info("Successfully (re)crated table contact")
-            return 0
 
     def readContacts(self,status=None):
         """
@@ -1521,7 +1056,7 @@ class DobermanDB(object):
         else:
             return False
 
-    def writeDataToDatabase(self, name, mes_time, data, status):
+    def writeDataToDatabase(self, name, when, time, data, status):
         """
 `       Writes data to the database
         Status:
@@ -1553,6 +1088,7 @@ class DobermanDB(object):
         writeData_str = ("INSERT INTO Data_%s  (DATETIME, DATA, STATUS) "
                          "VALUES ('%s'::timestamp, ARRAY%s, ARRAY%s)" % (
                              name, str(mes_time), str(data), str(status)))
+        self.
         if self.interactWithDatabase(writeData_str) == -1:
             if not self.checkDataTable(name):
                 if self.createDataTable(name) == -1:
@@ -1573,6 +1109,24 @@ class DobermanDB(object):
     def getConfig(self, name=None):
         """
         This function retruns the config data.
+        Controller format:
+        {'name' : controller_name,
+         'status' : 'ON'/'OFF',
+         'alarm_status' : ['ON','OFF'],
+         'warning_low' : [0.0, 0.0],
+         'warning_high' : [1.0, 1.0],
+         'alarm_low' : [0.0, 0.0],
+         'alarm_high' : [1.0, 1.0],
+         'readout_interval' : 5,
+         'alarm_recurrence' : 10,
+         'description' : ['one sensor', 'different sensor'],
+         'number_of_data' : 2,
+         'addresses' : {'type' : 'SER',
+                        'vendorID' : '2303',
+                        'productID' : '067b'
+                       },
+         'additional_parameters' : ''
+        }
         """
         config = self.readConfig()
         if config in ['', -1, -2]:
@@ -1600,12 +1154,11 @@ class DobermanDB(object):
         new_config = self.getConfig()
         if new_config in [-1, -2, -3]:
             return -1
-        new_names = list(new_config.keys()) #[entry[0] for entry in new_config]
-        old_names = list(old_config.keys()) #[entry[0] for entry in old_config]
+        new_names = list(new_config.keys())
+        old_names = list(old_config.keys())
         for name in old_names:
             if name not in new_names:
                 new_config[name] = old_config[name].copy()
-                #new_config.append([entry for entry in old_config if entry[0] == name][0])
         return new_config
 
     def getData(self, name, limit=1, datetimestamp=None):
@@ -1614,6 +1167,7 @@ class DobermanDB(object):
         '''
         limit = self.__limitMapper__(limit)
         if datetimestamp is None:
+
             getData_str = ("SELECT * FROM Data_%s ORDER BY DATETIME DESC "
                            "LIMIT %s;" % (str(name), str(limit)))
         else:
@@ -1715,33 +1269,10 @@ class DobermanDB(object):
         for key in all_settings:
             if key in existing_names:
                 settings = all_settings[key]
-                job = ("UPDATE config SET STATUS = '%s', "
-                       "ALARM_STATUS = ARRAY%s, WARNING_LOW = ARRAY%s, "
-                       "WARNING_HIGH = ARRAY%s, ALARM_LOW = ARRAY%s, "
-                       "ALARM_HIGH = ARRAY%s, READOUT_INTERVAL = %d, "
-                       "ALARM_RECURRENCE = ARRAY%s, DESCRIPTION = ARRAY%s, "
-                       "NUMBER_OF_DATA = %d, ADDRESSES = ARRAY%s, "
-                       "ADDITIONAL_PARAMETERS = ARRAY%s "
-                       "WHERE CONTROLLER = '%s'" %
-                       (settings['status'], settings['alarm_status'], settings['warning_low'],
-                           settings['warning_high'], settings['alarm_low'], settings['alarm_high'],
-                           settings['readout_interval'], settings['alarm_recurrence'],
-                        settings['description'], settings['number_of_data'], settings['addresses'],
-                        settings['additional_parameters'], settings['controller']))
+                ret = self.updateDatabase('config','controllers',settings, {'name' : key})
             else:
-                job = ("INSERT INTO config (CONTROLLER, STATUS, ALARM_STATUS, "
-                       "WARNING_LOW, WARNING_HIGH, ALARM_LOW, ALARM_HIGH, "
-                       "READOUT_INTERVAL, ALARM_RECURRENCE, DESCRIPTION, "
-                       "NUMBER_OF_DATA, ADDRESSES , ADDITIONAL_PARAMETERS) "
-                       "VALUES ('%s', '%s', ARRAY%s, ARRAY%s, ARRAY%s, ARRAY%s"
-                       ", ARRAY%s, %d, ARRAY%s, ARRAY%s, %d, ARRAY%s, ARRAY%s)"
-                       % (settings['controller'], settings['status'], settings['alarm_status'],
-                           settings['warning_low'],
-                          settings['warning_high'], settings['alarm_low'], settings['alarm_high'],
-                          settings['readout_interval'],
-                          settings['alarm_recurrence'], settings['description'], settings['number_of_data'],
-                          settings['addresses'], settings['additional_parameters']))
-            if self.interactWithDatabase(job) == -1:
+                ret = self.insertIntoDatabase('config','controllers',settings)
+            if ret:
                 self.logger.warning("Can not update config from file '%s'." %
                                     filename)
                 raise IOError("Dababase interaction error!" % filename)
