@@ -1,4 +1,5 @@
 from Doberman.Controller import SerialController
+import logging
 
 
 class Teledyne(SerialController):
@@ -6,6 +7,7 @@ class Teledyne(SerialController):
     Teledyne flow controller
     """
     def __init__(self, opts):
+        self.logger = logging.getLogger(__name__)
         self._basecommand = 'a{command}'
         self.device_address = 'a'  # changeable, but default is a
         self.__msg_end = '\r\n'
@@ -28,16 +30,8 @@ class Teledyne(SerialController):
                 self.device_address, resp['data']))
             return -2
         self.logger.info('Connected to %s correctly' % self.name)
-        try:
-            with open(self.ttypath, 'a+') as f:
-                f.write(" %i | %s" % (self.ttyUSB, self.name))
-        except Exception as e:
-            self.logger.warning('Could not add ttyusb to file! Error %s' % e)
-        else:
-            self.occupied_ttyUSB.append(self.ttyUSB)
-        finally:
-            return 0
-        return -3
+        self.add_ttyUSB()
+        return 0
 
     def Readout(self):
         command = self._basecommand.format(command = self.commands['read'])

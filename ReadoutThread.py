@@ -35,6 +35,8 @@ class ReadoutThread(threading.Thread):
         vals = self.controller.Readout()
         if vals['data'] is not None and not isinstance(vals['data'], (list, tuple)):
             vals['data'] = [vals['data']]
+        if not isinstance(vals['retcode'], (list, tuple)):
+            vals['retcode'] = [vals['retcode']]
         upstream = [self.controller.name, datetime.datetime.now(),
                     vals['data'],vals['retcode']]
         self.queue.put(upstream)
