@@ -1,4 +1,5 @@
 from Doberman.Controller import SerialController
+import logging
 
 
 class smartec_uti(SerialController):
@@ -7,9 +8,9 @@ class smartec_uti(SerialController):
     """
 
     def __init__(self, opts):
-        additional_params = opts.additional_parameters.split(',')
-        self.c_ref = int(additional_params[0])
-        self.mode = int(additional_parameters[1])
+        self.logger = logging.getLogger(__name__)
+        self.c_ref = opts.additional_params['c_ref']
+        self.mode = opts.additional_params['mode']
         self.commands = {
                 'greet' : '@',
                 'setSlow' : 's',
@@ -33,15 +34,8 @@ class smartec_uti(SerialController):
             return -1
         else:
             self.logger.info('Connected to %s correctly' % self.name)
-            try:
-                with open(self.ttypath, 'a+') as f:
-                    f.write(" %i | %s" % (self.ttyUSB, self.name))
-            except Exception as e:
-                self.logger.warning('Could not add ttyusb to file! Error %s' % e)
-            else:
-                self.occupied_ttyUSB.append(self.ttyUSB)
-            finally:
-                return 0
+            self.add_ttyUSB()
+            return 0
         return -3
 
     def Readout(self):

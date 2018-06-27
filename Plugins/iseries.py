@@ -1,4 +1,5 @@
 from Doberman.Controller import SerialController
+import logging
 
 
 class iseries(SerialController):
@@ -7,6 +8,7 @@ class iseries(SerialController):
     """
 
     def __init__(self, opts):
+        self.logger = logging.getLogger(__name__)
         self.__msg_start = '*'
         self.__msg_end = '\r\n'
         commands = {
@@ -39,15 +41,8 @@ class iseries(SerialController):
             return -1
         if info['data'] == self._ID:
             self.logger.info('Connected to %s correctly' % self.name)
-            try:
-                with open(self.ttypath, 'a+') as f:
-                    f.write(" %i | %s" % (self.ttyUSB, self.name))
-            except Exception as e:
-                self.logger.warning('Could not add ttyusb to file! Error %s' % e)
-            else:
-                self.occupied_ttyUSB.append(self.ttyUSB)
-            finally:
-                return 0
+            self.add_ttyUSB()
+            return 0
         else:
             self.logger.warning('Controller ID not correct! Should be %s, not %s' % self._ID, info['data'])
             self.__connected = False
