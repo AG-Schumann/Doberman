@@ -15,15 +15,18 @@ class Plugin(object):
         self.logger = logging.getLogger(__name__)
         self.logger.debug('Starting...')
         self.name = opts.name
-        
-        spec = PathFiner.find_spec(name, opts.plugin_paths)
+        plugin_name = self.name
+        if plugin_name[-1] in map(str, range(10)): # catches 'smartec_uti1' etc
+            plugin_name = plugin_name[:-1]
+
+        spec = PathFiner.find_spec(plugin_name, opts.plugin_paths)
         if spec is None:
-            raise FileNotFoundError('Could not find a controller named %s' % self.name)
-        
+            raise FileNotFoundError('Could not find a controller named %s' % plugin_name)
+
         try:
-            self.controller = getattr(spec.loader.load_module(), name)(opts)
+            self.controller = getattr(spec.loader.load_module(), plugin_name)(opts)
         except Exception as e:
-            raise FileNotFoundError('Could not load controller %s: %s' % (name, e))
+            raise FileNotFoundError('Could not load controller %s: %s' % (plugin_name, e))
 
         self.writeThread = ReadoutThread(opts, self.logger, self.controller)
 
@@ -62,4 +65,5 @@ class Plugin(object):
 
     def __exit__(self):
         self.close()
+        return
 
