@@ -13,7 +13,8 @@ class Controller(object):
     __msg_end = ''
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(__name__)
+        if not hasattr(self, logger):
+            self.logger = logging.getLogger(__name__)
         self.name = opts.name
         for key, value in opts.address.items():
             setattr(self, key, value)
@@ -40,7 +41,8 @@ class Controller(object):
     def Readout(self):
         """
         Main readout function. Should be implemented for individual controller
-        to call SendRecv with the measurement message
+        to call SendRecv with the measurement message. This function is called
+        by the readout thread
         """
         raise NotImplementedError()
 
@@ -75,8 +77,8 @@ class SerialController(Controller):
 
     def __init__(self, opts):
         self.ttyUSB = -1
-        super().__init__(opts)
         self.ttypath = os.path.join(opts.path, "ttyUSB_assignment.txt")
+        super().__init__(opts)
         return
 
     def get_ttyUSB(self, vendorID, productID, serialID):
@@ -87,7 +89,7 @@ class SerialController(Controller):
             self.productID, self.vendorID, self.serialID))
         proc = Popen('dmesg | grep %s | tail -n 1' % self.serialID, shell=True, stdout=PIPE, stderr=PIPE)
         try:
-            out, err = proc.communicate(timeout=10)
+            out, err = proc.communicate(timeout=10) # TODO this by itself won't work ? Needs additional call
         except TimeoutExpired:
             proc.kill()
             out, err = proc.communicate()
@@ -96,6 +98,18 @@ class SerialController(Controller):
             return -1
         tty_ID = out.decode()[-2] # [-1] is \n
         return int(tty_ID)
+
+    def add_ttyUSB(self):
+        if self.ttyUSB == -1:
+            self.logger.error('No ttySUB value, not storing')
+            return -1
+        self.occupied_ttyUSB.append(value)
+        try:
+            with open(self.ttypath, 'a+') as f:
+                f.write(' %i | %s\n' % (self.ttyUSB, self.name))
+        except Exception as e:
+            self.logger.warning('Could not add ttyUSB to file! Error %s' % e)
+        return 0
 
     def _getControl(self):
         self.ttyUSB = self.get_ttyUSB(self.vendorID, self.productID, self.serialID)
@@ -132,7 +146,7 @@ class SerialController(Controller):
             self.__device.write(message.encode())
             time.sleep(0.3)
             if self.__device.in_waiting:
-                ret['data'] = self.__device.read(self.__device.in_waiting).decode()
+                ret['data'] = self.__device.read(self.__device.in_waiting).decode().rstrip()
         except serial.SerialException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -1
@@ -146,7 +160,9 @@ class LANController(Controller):
     Class for LAN-connected controllers
     """
 
-    def __init__(self, opts, **kwargs):
+
+    def __init__(self, opts):
+
         super().__init__(opts)
         return
 
@@ -163,7 +179,6 @@ class LANController(Controller):
             except socket.error as e:
                 self.logger.error('Didn\'t find anything at %s:%i. Trying again in 5 seconds...' % (self.ip, self.port))
                 sock.close()
-                sock = None
                 time.sleep(5)
             else:
                 self.__connected = True
