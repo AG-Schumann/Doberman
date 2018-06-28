@@ -1,2 +1,1 @@
-host='localhost' dbname='Doberman' user='doberman' password='h5jlm42' options='-c statement_timeout=10000'
-
+{'host' : 'localhost', 'port' : 13178}

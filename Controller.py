@@ -16,6 +16,8 @@ class Controller(object):
         if not hasattr(self, logger):
             self.logger = logging.getLogger(__name__)
         self.name = opts.name
+        for key, value in opts.address.items():
+            setattr(self, key, value)
         self.__connected = False
         self.__device = self._getControl()
         if self.checkController():
@@ -74,9 +76,6 @@ class SerialController(Controller):
     occupied_ttyUSB = []
 
     def __init__(self, opts):
-        self.productID = opts.address.productID
-        self.vendorID = opts.address.vendorID
-        self.serialID = opts.address.serial
         self.ttyUSB = -1
         self.ttypath = os.path.join(opts.path, "ttyUSB_assignment.txt")
         super().__init__(opts)
@@ -161,9 +160,9 @@ class LANController(Controller):
     Class for LAN-connected controllers
     """
 
+
     def __init__(self, opts):
-        self.address = opts.address.ip
-        self.port = opts.address.port
+
         super().__init__(opts)
         return
 
@@ -176,9 +175,9 @@ class LANController(Controller):
         for _ in range(num_tries):
             try:
                 sock.settimeout(5)  # keeps things going
-                sock.connect((self.address, self.port))
+                sock.connect((self.ip, self.port))
             except socket.error as e:
-                self.logger.error('Didn\'t find anything at %s:%i. Trying again in 5 seconds...' % (self.address, self.port))
+                self.logger.error('Didn\'t find anything at %s:%i. Trying again in 5 seconds...' % (self.ip, self.port))
                 sock.close()
                 time.sleep(5)
             else:

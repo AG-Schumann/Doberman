@@ -96,25 +96,17 @@ class Doberman(object):
 
     def importPlugin(self, controller):
         '''
-        Adds the path to the plugin and imports it.
+        Imports a plugin
         '''
         # converting config entries into opts. values
 
-        name = controller['controller']
         opts = options()
-        opts.loginterval = controller['readout_interval']
-        opts.addresses = controller['addresses']
-        # for backwards compatibility
-        if controller['addresses'][0] == 'LAN':
-            opts.ipaddress = plugin['addresses'][1]
-            opts.port = plugin['addresses'][2]
-        elif plugin['addresses'][0] == 'SER':
-            opts.productID = plugin['addresses'][1]
-            opts.vendorID = plugin['addresses'][2]
+        for key, value in controller.items():
+            setattr(opts, key, value)
 
-        opts.additional_parameters = plugin['additional_parameters']
         opts.queue = self.queue
-        opts.name = name
+        opts.path = os.getcwd()
+        opts.plugin_paths = self.plugin_paths
 
         # Try to import libraries
         try:
@@ -152,7 +144,6 @@ class Doberman(object):
         if self._config == "EMPTY":
             return -1
         for name, plugin in self.imported_plugins.items()
-
             # Try to start the plugin.
             self.logger.debug("Trying to start device '%s' ..." % name)
             started = False
@@ -404,9 +395,9 @@ class observationThread(threading.Thread):
                         msg = 'Lost connection to %s? Status %i is %i' % (name, i, status[i])
                         num_recip = self.sendMessage(name, when, msg, 'warning', i)
                         self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                  reason='NC',alarm_type='W',
-                                                  number_of_recipients=num_recip)
+                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
+                            'status' : status[i], 'data' : data[i], 'reason' : 'NC',
+                            'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
                         self.recurrence_counter[name][i] += 1
                         if self.recurrence_counter[name][i] >= device['recurrence']:
@@ -435,16 +426,15 @@ class observationThread(threading.Thread):
                     self.logger.debug('Alarm status %i from %s is OFF, skipping...' % (i, name))
             time_diff = (when - self.lastMeasurementTime[name]).total_seconds()
             if time_diff > 2*readout_interval:
-                msg = '%s last send data %.1f sec ago instead of %i' % (
+                msg = '%s last sent data %.1f sec ago instead of %i' % (
                     name, time_diff, readout_interval)
                 self.logger.warning(msg)
-                num_recip = self.sendMessage(name, when, msg, 'warning', i)
-                self.DDB.addAlarmToHistory(name, i, when, data, status, reason='TD',
-                                          alarm_type='W',number_of_recipients=num_recip)
+                num_recip = self.sendMessage(name, when, msg, 'warning')
+                self.DDB.addAlarmToHistory({'name' : name, 'when' : when, 'status' : status,
+                    'data' : data, 'reason' : 'TD', 'howbad' : 1, 'num_recip' : num_recip})
             self.lastMeasurementTime[name] = when  # when will then be now?
         except Exception as e:
-            self.logger.critical("Can not check data values and status! "
-                                 "Device: %s. Error: %s" % (name, e))
+            self.logger.critical("Can not check data values and status from %s. Error: %s" % (name, e))
             return -2
         return 0
 
