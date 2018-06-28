@@ -11,12 +11,11 @@ import _thread
 from _thread import start_new_thread
 import sys
 from argparse import ArgumentParser
-import importlib
-import importlib.machinery
 import signal
 import atexit
 import Plugin
 
+__version__ = 2.0.0
 
 class options(object):
     pass
@@ -146,7 +145,7 @@ class Doberman(object):
             return -1
         for name, plugin in self.imported_plugins.items()
             # Try to start the plugin.
-            self.logger.debug("Trying to start  device '%s' ..." % name)
+            self.logger.debug("Trying to start device '%s' ..." % name)
             started = False
             self.started = False
             start_new_thread(self.startPlugin, plugin)
@@ -174,8 +173,7 @@ class Doberman(object):
             print("\n--Enabled contacts, status:")
 
             for contact in self.DDB.getContacts():
-                if contact[1] in ['ON', 'TEL', 'MAIL']:
-                    print("  %s, %s" % (str(contact[0]), str(contact[1])))
+                print("  %s, %s" % (contact['name'], contact['status']))
 
             print("\n--Loaded connection details for alarms:")
             if self.alarmDistr.mailconnection_details:
@@ -199,7 +197,7 @@ class Doberman(object):
             return running_controllers
         else:
             self.logger.critical("No controller was started (Failed to import: "
-                                 "%s, Failed to start: %s controllers)" %
+                                 "%s, Failed to start: %s)" %
                                  (str(len(self.failed_import)),
                                   str(len(failed_controllers))))
             return -1
@@ -288,15 +286,14 @@ class observationThread(threading.Thread):
         self.waitingTime = 5
         self.DDB = DobermanDB.DobermanDB(opts)
         self.alarmDistr = alarmDistribution.alarmDistribution(opts)
-        self.lastMeasurementTime = {(name, datetime.datetime.now())
+        self.lastMeasurementTime = {name : datetime.datetime.now()
                                     for name in self._config}
-        self.lastAlarmTime = {(name, datetime.datetime.now())
+        self.lastAlarmTime = {name : datetime.datetime.now()
                                for name in self._config}
-        self.lastWarningTime = {(name, datetime.datetime.now())
+        self.lastWarningTime = {name : datetime.datetime.now()
                                  for name in self._config}
-        self.sentAlarms = []
-        self.sentWarnings = []
-        self.recurrence_counter = self.initializeRecurrenceCounter()
+        self.recurrence_counter = {name : [0]*val['number_of_data']
+                                    for name, val in self._config.items()}
         self.critical_queue_size = DDB.getDefaultSettings(name="Queue_size")
         if self.critical_queue_size < 5:
             self.critical_queue_size = 150
@@ -321,10 +318,8 @@ class observationThread(threading.Thread):
                 if len(job) < 2:
                     self.logger.warning("Unknown job: %s" % str(job))
                     continue
-                self.logger.info("Processing data from '%s': %s" %
-                                 (str(job[0])))
+                self.logger.info("Processing data from %s" % job[0])
                 self.processData(job)
-            self.checkTimeDifferences()
             if self.queue.empty():
                 self.critical_queue_size = DDB.getDefaultSettings(name="Queue_size")
                 if self.critical_queue_size < 5:
@@ -341,8 +336,10 @@ class observationThread(threading.Thread):
         Checks the data format and then passes it to the database and
         the data check.
         """
-        self.checkData(*chunk)
-        self.writeData(*chunk)
+        if self.checkData(*chunk):
+            return -1
+        if self.writeData(*chunk)
+            return -2
 
     def updateConfig(self):
         """
@@ -353,10 +350,10 @@ class observationThread(threading.Thread):
         if new_config == -1:
             self.logger.warning("Could not update settings. Plugin settings (config) "
                                 "loading failed. Continue with old settings...")
-            return
+            return -1
         self._config = new_config
 
-    def writeData(self, name, logtime, data=[0], status=[-2]):
+    def writeData(self, name, logtime, data, status):
         """
         Writes data to a database/file
         Status:
@@ -369,6 +366,8 @@ class observationThread(threading.Thread):
         self.log.debug('Writing data from %s to database...' % name)
         if self.DDB.writeDataToDatabase(name, logtime, data, status):
             self.logger.error('Could not write data from %s to database' % name)
+            return -1
+        return 0
 
     def checkData(self, name, when, data, status):
         """
@@ -377,8 +376,7 @@ class observationThread(threading.Thread):
         try:
             device = self._config[name]
         except KeyError:
-            self.logger.error("No controller called %s. "
-                              "Can not check data." % name)
+            self.logger.error("No controller called %s. Can not check data." % name)
             return -1
         al_stat = device['alarm_status']
         wlow = device['warning_low']
@@ -401,25 +399,31 @@ class observationThread(threading.Thread):
                             'status' : status[i], 'data' : data[i], 'reason' : 'NC',
                             'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
-                        msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
-                            i, name, desc[i], data[i], alow[i], ahigh[i])
-                        num_recip = self.sendMessage(name, when, msg, 'alarm', i)
-                        self.logger.critical(msg)
-                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
-                            'status' : status[i], 'data' : data[i], 'reason' : 'alarm',
-                            'howbad' : 2, 'num_recip' : num_recip})
+                        self.recurrence_counter[name][i] += 1
+                        if self.recurrence_counter[name][i] >= device['recurrence']:
+                            msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
+                                i, name, desc[i], data[i], alow[i], ahigh[i])
+                            num_recip = self.sendMessage(name, when, msg, 'alarm', i)
+                            self.logger.critical(msg)
+                            self.DDB.addAlarmToHistory(name, i, when, data, status,
+                                                      reason='AL',alarm_type='A',
+                                                      number_of_recipients=num_recip)
+                            self.recurrence_counter[name][i] = 0
                     elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
-                        msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
-                            i, name, desc[i], data[i], wlow[i], whigh[i])
-                        num_recip = self.sendMessage(name, when, msg, 'warning', i)
-                        self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
-                            'status' : status[i], 'data' : data[i], 'reason' : 'warning',
-                            'howbad' : 1, 'num_recip' : num_recip})
+                        self.recurrence_counter[name][i] += 1
+                        if self.recurrence_counter[name][i] >= device['recurrence']:
+                            msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
+                                i, name, desc[i], data[i], wlow[i], whigh[i])
+                            num_recip = self.sendMessage(name, when, msg, 'warning', i)
+                            self.logger.warning(msg)
+                            self.DDB.addAlarmToHistory(name, i, when, data, status,
+                                                      reason='WA',alarm_type='W',
+                                                      number_of_recipients=num_recip)
+                            self.recurrence_counter[name][i] = 0
                     else:
-                        self.logger.debug('Reading %i from %s nominal' % (i, name))
+                        self.logger.debug('Reading %i from %s (%s) nominal' % (i, name, desc[i]))
                 else:
-                    self.logger.debug('Alarm status %i from %s is off, skipping...' % (i, name))
+                    self.logger.debug('Alarm status %i from %s is OFF, skipping...' % (i, name))
             time_diff = (when - self.lastMeasurementTime[name]).total_seconds()
             if time_diff > 2*readout_interval:
                 msg = '%s last sent data %.1f sec ago instead of %i' % (
@@ -431,6 +435,8 @@ class observationThread(threading.Thread):
             self.lastMeasurementTime[name] = when  # when will then be now?
         except Exception as e:
             self.logger.critical("Can not check data values and status from %s. Error: %s" % (name, e))
+            return -2
+        return 0
 
     def sendMessage(self, name, when, msg, howbad, index=0):
         """
@@ -461,26 +467,26 @@ class observationThread(threading.Thread):
                     name, time_since, mintime))
                 return [-2,-2]
         # who to send to?
-        sms_recipients = [contact[3] for contact in self.DDB.getContacts()
-                          if contact[1] in ['ON','TEL']]
-        mail_recipients = [contact[2] for contact in self.DDB.getContacts()
-                           if contact[1] in ['ON','TEL']]
+        sms_recipients = [contact['sms'] for contact in self.DDB.getContacts()
+                          if contact['status'] == 'ON']
+        mail_recipients = [contact['email'] for contact in self.DDB.getContacts()
+                           if contact['status'] == 'ON']
         sent_sms = False
         sent_mail = False
         if sms_recipients and howbad == 'alarm':
             if self.alarmDistr.sendSMS(sms_recipients, msg) == -1:
                 self.logger.error('Could not send SMS, trying mail...')
-                additional_mail_recipients = [contact[2] for contact
+                additional_mail_recipients = [contact['email'] for contact
                                               in self.DDB.getContacts()
-                                              if contact[3] in sms_recipients
-                                              if len(contact[2]) > 5
-                                              if contact[2] not in mail_recipients]
+                                              if contact['sms'] in sms_recipients
+                                              if len(contact['email']) > 5
+                                              if contact['email'] not in mail_recipients]
                 mail_recipients = mail_recipients + additional_mail_recipients
                 sms_recipients = []
                 if not mail_recipients:
                     self.logger.error('No one to email :(')
             else:
-                self.logger.error('Send SMS to %s' % sms_recipients)
+                self.logger.error('Sent SMS to %s' % sms_recipients)
                 sent_sms = True
                 self.lastAlarmTime[name] = now
         if mail_recipients:
@@ -563,30 +569,18 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--debug", dest="loglevel",
                         type=int, help="switch to loglevel debug",
                         default=loglevel_default)
-    # default occupied ttyUSB ports needs to be transformed as stored as string
-    default_ports = [d[1] for d in defaults if d[0] == 'Occupied_ttyUSB'][0]
-    if default_ports == '[]':
-        default_ports = []
-    else:
-        default_ports = [int(port) for port in default_ports.strip('[').strip(']').split(',')]
-    parser.add_argument("-o", "--occupied_USB_ports",
-                        dest="occupied_ttyUSB",
-                        nargs='*',
-                        type=int,
-                        help="Force program to NOT search ttyUSBx (x=int).",
-                        default=default_ports)
     parser.add_argument("-ar", "--alarm_recurrence_time",
                         dest="alarm_recurrence",
                         type=int,
                         help=("Time in minutes until the same Plugin can send "
                               "an alarm (SMS/Email) again. Default = 5 min."),
-                        default=[int(d[1]) for d in defaults if d[0] == 'Alarm_Repetition'][0])
+                        default=5)
     parser.add_argument("-wr", "--warning_repetition_time",
                         dest="warning_repetition",
                         type=int,
                         help=("Time in minutes until the same Plugin can send "
                               "a warning (Email) again. Default = 10 min."),
-                        default=[int(d[1]) for d in defaults if d[0] == 'Warning_Repetition'][0])
+                        default=10)
     # CHANGE OPTIONS
     parser.add_argument("-n", "--new",
                         action="store_true",
@@ -594,20 +588,10 @@ if __name__ == '__main__':
                         help="(Re)Create tables config (Plugin settings), "
                              "config_history and contacts.",
                         default=False)
-    parser.add_argument("-a", "--add",
-                        action="store_true",
-                        dest="add",
-                        help="Add controller",
-                        default=False)
     parser.add_argument("-u", "--update",
                         action="store_true",
                         dest="update",
                         help="Update main settings of a controller.",
-                        default=False)
-    parser.add_argument("-uu", "--update_all",
-                        action="store_true",
-                        dest="update_all",
-                        help="Update all settings of a controller.",
                         default=False)
     parser.add_argument("-r", "--remove",
                         action="store_true",
@@ -618,7 +602,7 @@ if __name__ == '__main__':
                         action="store_true",
                         dest="contacts",
                         help="Manage contacts "
-                             "(add new contact, change or delete contact).",
+                             "(add, change or delete contact).",
                         default=False)
     parser.add_argument("-ud", "--update_defaults",
                         action="store_true",
@@ -634,6 +618,10 @@ if __name__ == '__main__':
                         help="Reading the Plugin settings from the file "
                              "instead of database and store the file settings "
                              "to the database.")
+    parser.add_argument("-v", "--version",
+                       dest="version",
+                       action="store_true",
+                       help="Print version and exit")
     opts = parser.parse_args()
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
@@ -654,10 +642,8 @@ if __name__ == '__main__':
     opts.logger = logger
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
-        if opts.add:
-            DDB.addControllerByKeyboard()
-        if opts.update or opts.update_all:
-            DDB.changeControllerByKeyboard(opts.update_all)
+        if opts.update:
+            DDB.changeControllerByKeyboard()
         if opts.remove:
             DDB.removeControllerFromConfig()
         if opts.contacts:

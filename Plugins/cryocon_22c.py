@@ -1,4 +1,5 @@
 from Doberman.Controller import LANController
+import logging
 
 
 class cryocon_22c(LANController):
@@ -6,6 +7,7 @@ class cryocon_22c(LANController):
     Cryogenic controller
     """
     def __init__(self, opts):
+        self.logger = logging.getLogger(__name__)
         self.__msg_end = '\n'
         self.commands = { # these are not case sensitive
                 'identify' : '*idn?',

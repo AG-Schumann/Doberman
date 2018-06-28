@@ -17,7 +17,7 @@ class alarmDistribution(object):
         """
         Loading connections to Mail and SMS.
         """
-        self.logger = opts.logger
+        self.logger = logging.getLogger(__name__)
         self.mailconnection_details = self.getMailConnectionDetails()
         self.smsconnection_details = self.getSMSConnectionDetails()
         if not self.mailconnection_details:
@@ -273,32 +273,3 @@ class alarmDistribution(object):
         print 'Return data: %s' % str(send_ret)
         '''
 
-if __name__ == '__main__':
-    parser = ArgumentParser(usage='%(prog)s [options] \n\n Slow control')
-    parser.add_argument("-d", "--debug", dest="loglevel",
-                        type=int, help="switch to loglevel debug", default=10)
-    opts = parser.parse_args()
-
-    logger = logging.getLogger()
-    if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print(("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 10" % opts.loglevel))
-    logger.setLevel(int(opts.loglevel))
-    chlog = logging.StreamHandler()
-    chlog.setLevel(int(opts.loglevel))
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:%'
-                                  '(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
-    opts.logger = logger
-    message = "This is a testmail"
-    subject = "Mail program test"
-    toaddr = ["slowcontrol.cryolab@gmail.com"]
-    Cc = None
-    Bcc = None
-    logger.info("Sending Testmail with:\n    Toaddress:'%s'\n    Cc:'%s'\n    "
-                "Bcc:'%s'\n    Subject:'%s'\n    Text:'%s'" %
-                (str(toaddr), str(Cc), str(Bcc), subject, message,))
-    aD = alarmDistribution(opts)
-    aD.sendEmail(toaddr, subject, message, Cc, Bcc)
-    sys.exit(0)
