@@ -43,11 +43,13 @@ class cryocon_22c(LANController):
             return 0
 
     def Readout(self):
-        resp = []
+        vals = []
+        stats = []
         for com in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']:
             val = self.SendRecv(self.commands[com])
             if val['retcode']:
-                return {'retcode' : -1, 'data' : resp}
+                resp.append(-1)
+                stats.append(-1)
             else:
                 try:
                     if 'SP' in com:
@@ -56,10 +58,12 @@ class cryocon_22c(LANController):
                         resp.append(float(val['data'].replace('%','')))
                     else:
                         resp.append(float(val['data']))
+                    stats.append(0)
                 except ValueError:
                     resp.append(-1.0)
+                    stats.append(-2)
                 except Exception as e:
                     self.logger.error('Could not read device! Error: %s' % e)
                     return {'retcode' : -2, 'data' : None}
-        return {'retcode' : 0, 'data' : resp}
+        return {'retcode' : stats, 'data' : vals}
 
