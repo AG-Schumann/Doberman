@@ -97,25 +97,17 @@ class Doberman(object):
 
     def importPlugin(self, controller):
         '''
-        Adds the path to the plugin and imports it.
+        Imports a plugin
         '''
         # converting config entries into opts. values
 
-        name = controller['controller']
         opts = options()
-        opts.loginterval = controller['readout_interval']
-        opts.addresses = controller['addresses']
-        # for backwards compatibility
-        if controller['addresses'][0] == 'LAN':
-            opts.ipaddress = plugin['addresses'][1]
-            opts.port = plugin['addresses'][2]
-        elif plugin['addresses'][0] == 'SER':
-            opts.productID = plugin['addresses'][1]
-            opts.vendorID = plugin['addresses'][2]
-        
-        opts.additional_parameters = plugin['additional_parameters']
+        for key, value in controller.items():
+            setattr(opts, key, value)
+
         opts.queue = self.queue
-        opts.name = name
+        opts.path = os.getcwd()
+        opts.plugin_paths = self.plugin_paths
 
         # Try to import libraries
         try:
@@ -153,7 +145,6 @@ class Doberman(object):
         if self._config == "EMPTY":
             return -1
         for name, plugin in self.imported_plugins.items()
-            
             # Try to start the plugin.
             self.logger.debug("Trying to start  device '%s' ..." % name)
             started = False
@@ -297,8 +288,7 @@ class observationThread(threading.Thread):
         self.waitingTime = 5
         self.DDB = DobermanDB.DobermanDB(opts)
         self.alarmDistr = alarmDistribution.alarmDistribution(opts)
-        self.logFile_writer = logFileWriter(logger)
-        self.lastMeasurementTime = {(name, datetime.datetime.now()) 
+        self.lastMeasurementTime = {(name, datetime.datetime.now())
                                     for name in self._config}
         self.lastAlarmTime = {(name, datetime.datetime.now())
                                for name in self._config}
@@ -366,7 +356,7 @@ class observationThread(threading.Thread):
             return
         self._config = new_config
 
-    def writeData(self, name, logtime, data=0, status=-2):
+    def writeData(self, name, logtime, data=[0], status=[-2]):
         """
         Writes data to a database/file
         Status:
@@ -407,41 +397,40 @@ class observationThread(threading.Thread):
                         msg = 'Lost connection to %s? Status %i is %i' % (name, i, status[i])
                         num_recip = self.sendMessage(name, when, msg, 'warning', i)
                         self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                  reason='NC',alarm_type='W',
-                                                  number_of_recipients=num_recip)
+                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
+                            'status' : status[i], 'data' : data[i], 'reason' : 'NC',
+                            'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
                         msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
                             i, name, desc[i], data[i], alow[i], ahigh[i])
                         num_recip = self.sendMessage(name, when, msg, 'alarm', i)
                         self.logger.critical(msg)
-                        self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                  reason='AL',alarm_type='A',
-                                                  number_of_recipients=num_recip)
+                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
+                            'status' : status[i], 'data' : data[i], 'reason' : 'alarm',
+                            'howbad' : 2, 'num_recip' : num_recip})
                     elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
                         msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
                             i, name, desc[i], data[i], wlow[i], whigh[i])
                         num_recip = self.sendMessage(name, when, msg, 'warning', i)
                         self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                  reason='WA',alarm_type='W',
-                                                  number_of_recipients=num_recip)
+                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
+                            'status' : status[i], 'data' : data[i], 'reason' : 'warning',
+                            'howbad' : 1, 'num_recip' : num_recip})
                     else:
                         self.logger.debug('Reading %i from %s nominal' % (i, name))
                 else:
                     self.logger.debug('Alarm status %i from %s is off, skipping...' % (i, name))
             time_diff = (when - self.lastMeasurementTime[name]).total_seconds()
             if time_diff > 2*readout_interval:
-                msg = '%s last send data %.1f sec ago instead of %i' % (
+                msg = '%s last sent data %.1f sec ago instead of %i' % (
                     name, time_diff, readout_interval)
                 self.logger.warning(msg)
-                num_recip = self.sendMessage(name, when, msg, 'warning', i)
-                self.DDB.addAlarmToHistory(name, i, when, data, status, reason='TD',
-                                          alarm_type='W',number_of_recipients=num_recip)
+                num_recip = self.sendMessage(name, when, msg, 'warning')
+                self.DDB.addAlarmToHistory({'name' : name, 'when' : when, 'status' : status,
+                    'data' : data, 'reason' : 'TD', 'howbad' : 1, 'num_recip' : num_recip})
             self.lastMeasurementTime[name] = when  # when will then be now?
         except Exception as e:
-            self.logger.critical("Can not check data values and status! "
-                                 "Device: %s. Error: %s" % (name, e))
+            self.logger.critical("Can not check data values and status from %s. Error: %s" % (name, e))
 
     def sendMessage(self, name, when, msg, howbad, index=0):
         """
@@ -507,144 +496,6 @@ class observationThread(threading.Thread):
         if not any([sent_mail, sent_sms]):
             self.logger.critical('Unable to send message!')
         return [len(sms_recipients), len(mail_recipients)]
-        
-
-    def getAdditionalInfos(self, name, index=None):
-        """
-        Reads for a device if aviable:
-        - Latest 10 Data entries
-        - Alarm/Warning Levels
-        - Readout interval
-        """
-        # General parameters
-        add_infos = ("\n\n\n----------\n"
-                     "General Doberman slow control settings:\n"
-                     " - Minimum time between to messages:\n"
-                     "     - Warnings: %s min.\n"
-                     "     - Alarms:   %s min."
-                     % (str(self.opts.warning_repetition),
-                        str(self.opts.alarm_recurrence)))
-        # Doberman has no Data stored, so return.
-        if name == "Doberman":
-            return add_infos
-        # Important config parameters
-        add_infos += ("\n\n----------")
-        if not isinstance(index, int):
-            index = 'All'
-        if index != 'All':
-            try:
-                config = [dev[index] for dev in self._config if dev[0] == name]
-            except Exception as e:
-                index = 'All'
-                self.logger.warning("Can not get settings (config) of '%s[%s]'. "
-                                    "Error: %s. Trying to read all config from"
-                                    " this device..." % (name, str(index, e)))
-        try:
-            if index == 'All':
-                config = [dev for dev in self._config if dev[0] == name]
-            config = [dev for dev in self._config if dev[0] == name]
-            if config:
-                config = config[0]
-                if index != 'All':
-                    add_infos += ("\nSettings for '%s[%s]':\n"
-                                  " - Warning Low:   %9.4f\n"
-                                  " - Warning High:  %9.4f\n"
-                                  " - Alarm Low:     %9.4f\n"
-                                  " - Alarm High:    %9.4f\n"
-                                  " - Recurrence param.: %2d\n"
-                                  " - Readout Interval: %d s\n"
-                                  " - Additional param.: %s"
-                                  % (name, str(index),
-                                     config[3][index], config[4][index],
-                                     config[5][index], config[6][index],
-                                     config[8][index], config[7],
-                                     str(config[12])))
-                else:
-                    add_infos += ("\nSettings for '%s[%s]':\n"
-                                  " - Warning Low:   %s\n"
-                                  " - Warning High:  %s\n"
-                                  " - Alarm Low:     %s\n"
-                                  " - Alarm High:    %s\n"
-                                  " - Recurrence param.: %s\n"
-                                  " - Readout Interval: %d s\n"
-                                  " - Additional param.: %s"
-                                  % (name, str(index),
-                                     str(config[3]), str(config[4]),
-                                     str(config[5]), str(config[6]),
-                                     str(config[8]), config[7],
-                                     str(config[12])))
-        except Exception as e:
-            self.logger.warning("Can not get additional Infos for '%s[%s]'. "
-                                "Error %s." % (name, str(index), e))
-        try:
-            # Latest Data
-            latest_data = self.DDB.getData(name, limit=10, datetimestamp=None)
-            if latest_data != -1:
-                add_infos += ("\n\n----------\n"
-                              "Data evolution of the last 10 measurements "
-                              "for '%s[%s]'." % (name, str(index)))
-                for jj in range(len(latest_data[0][1])):
-                    if index == "All":
-                        add_infos += "\n\n   ---- Channel %d ----  " % jj
-                    else:
-                        if index != jj:
-                            continue
-                    add_infos += "\n   Value  (Status) | Datetime"
-                    for ii, ldata in enumerate(latest_data):
-                        add_infos += "\n  %9.4f   (%2d) |   %s" % (
-                            ldata[1][jj], ldata[2][jj],
-                            str(ldata[0].strftime('%Y-%m-%d %H-%M-%S')))
-        except Exception as e:
-            self.logger.warning("Can not get latest data for '%s[%s]'. "
-                                "Error %s." % (name, str(index), e))
-        try:
-            # Latest Alarms
-            latest_alarms = self.DDB.getLatestAlarms(name=name, limit=20)
-            if latest_alarms and latest_alarms != -1:
-                explanation = [["TD", "Time diff."], ["AH", "Alarm high"],
-                               ["AL", "Alarm low"], ["WH", "Warning high"],
-                               ["WL", "Warning low"], ["W", "Warning"],
-                               ["A", "Alarm"], ["S", "Silent"],
-                               ["-1", "No connection"]]
-                if index == 'All':
-                    add_infos += ("\n\n----------\n"
-                                  "Latest alarms for '%s':" % name)
-                else:
-                    add_infos += ("\n\n----------\n"
-                                  "Latest alarms for '%s[%s]' "
-                                  "(incl. some important alarms from other "
-                                  "channels):" % (name, str(index)))
-                add_infos += ("\n Channel |      Datetime        |"
-                              "  Data  (Status)  "
-                              "|    Reason    |   Type    | "
-                              "Number of recipients [SMS, Mail]")
-                for ii, lalarm in enumerate(latest_alarms):
-                    if lalarm[0] < self.__startTime or lalarm[8] == "Y":
-                        if ii == 0:
-                            add_infos += "\n   None"
-                        break
-                    if lalarm[2].rstrip() not in ["All", str(index)]:
-                        if lalarm[5] not in ["TD", "-1"]:
-                            continue
-                    reason = [expl[1] for expl in explanation if expl[0] == lalarm[5]]
-                    if not reason:
-                        reason = "Status %2d" % int(lalarm[4])
-                    else:
-                        reason = reason[0]
-                    time_str = str(lalarm[0].strftime('%Y-%m-%d %H-%M-%S'))
-                    al_type = [expl[1] for expl in explanation if expl[0] == lalarm[6]][0]
-                    add_infos += ("\n    %s  |  %s  | %8.4f   (%s)    |  %s  |   %s   "
-                                  "|       %s  " % (lalarm[2], time_str,
-                                                  lalarm[3], str(lalarm[4]),
-                                                  reason, al_type,
-                                                  str(lalarm[7])))
-            else:
-                self.logger.warning("Can not get latest alarms for '%s[%s]'. "
-                                    "Reading Error." % (name, str(index)))
-        except Exception as e:
-            self.logger.warning("Can not get latest alarms for '%s[%s]'. "
-                                "Error %s." % (name, str(index), e))
-        return add_infos
 
 class timeout:
     '''
