@@ -1,4 +1,0 @@
- * run dmesg to get vendorID, productID and serialID
- * modify utiSerial.py: insert correct (vendorID and productID) serialID ...
- * test file 'which_tty_controller' (check with output of 'dmesg' and look for line like 'FTDI USB Serial Device converter now attached to ttyUSB4')
- * run 'python Doberman.py -uu' to add config new Plugin (insert again proper vendorID, productID)
