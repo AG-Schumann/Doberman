@@ -105,7 +105,7 @@ class Doberman(object):
             setattr(opts, key, value)
 
         opts.queue = self.queue
-        opts.path = os.getcwd()
+        opts.path = self.path
         opts.plugin_paths = self.plugin_paths
 
         # Try to import libraries
@@ -357,11 +357,11 @@ class observationThread(threading.Thread):
         """
         Writes data to a database/file
         Status:
-         0 = OK,
-         -1 = no connection,
-          -2 = No error status available,
-          1-9 = warning
-          > 9 = alarm
+        0 = OK,
+        -1 = no connection,
+        -2 = communication error,
+        1 = warning
+        2 = alarm
         """
         self.log.debug('Writing data from %s to database...' % name)
         if self.DDB.writeDataToDatabase(name, logtime, data, status):
@@ -400,6 +400,7 @@ class observationThread(threading.Thread):
                             'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
                         self.recurrence_counter[name][i] += 1
+                        status[i] = 2
                         if self.recurrence_counter[name][i] >= device['recurrence']:
                             msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
                                 i, name, desc[i], data[i], alow[i], ahigh[i])
@@ -410,6 +411,7 @@ class observationThread(threading.Thread):
                                                       number_of_recipients=num_recip)
                             self.recurrence_counter[name][i] = 0
                     elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
+                        status[i] = 1
                         self.recurrence_counter[name][i] += 1
                         if self.recurrence_counter[name][i] >= device['recurrence']:
                             msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (

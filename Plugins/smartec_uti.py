@@ -53,11 +53,14 @@ class smartec_uti(SerialController):
             self.logger.debug('UTI measured %s' % values)
             if div: # evals to (value[cde] - valuea)/(valueb - valuea)
                 resp = [(v-c_off)/div*self.c_ref for v in values[2:]]
+                stat = [0] * len(values[2:])
             else:
                 resp = [-1]*len(values[2:])
+                stat = [-2]*len(values[2:])
             self.logger.debug('UTI evaluates to %s' % resp)
 
             val['data'] = resp
+            val['retcode'] = stat
         except Exception as e:
             self.logger.error('LM error: %s' % e)
             val['retcode'] = -3

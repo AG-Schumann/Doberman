@@ -29,8 +29,8 @@ class DobermanDB(object):
             self.logger.warning("Can not load database connection details. "
                                 "Trying default details. Error %s" % e)
             conn_details = {'host' : 'localhost', 'port' : 13178}
-        try:
-            self._connect(**conn_details)
+
+        self._connect(**conn_details)
         # load config details
         self._config = self.getConfig()
 
@@ -51,7 +51,7 @@ class DobermanDB(object):
     def _connect(cls, host, port, username, password):
         if cls.client:
             return
-        cls.client = pymongo.MongoClient(host=host, port=port, username=username, password=password)
+        cls.client = pymongo.MongoClient(host=host, port=port)#, username=username, password=password)
 
     def _check(self, db_name, collection_name):
         """
@@ -61,6 +61,7 @@ class DobermanDB(object):
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
         elif collection_name not in self.client[db_name].collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
+            self.client[db_name].create_collection(collection_name)
         return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
@@ -223,6 +224,7 @@ class DobermanDB(object):
         self.logger.info("Contacts backup file dates from %s" %
                 (contactsBackup.splitlines()[0].split(": ")[1]))
         c_backup = {}
+        contactsBackup = contactsBackup[1:]  # strips first line with date
         for blob in contactsBackup.split('#')[:-1]:
             try:
                 c = eval(blob)
@@ -246,7 +248,6 @@ class DobermanDB(object):
         """
         Adds the current setting of a controller to the config history
         """
-        now = datetime.datetime.now()
         if self.insertIntoDatabase("logging","config_hist",
                 controller.update({'when' : datetime.datetime.now()})):
             self.logger.warning('Could not add %s to config history' % controller['name'])
@@ -274,13 +275,13 @@ class DobermanDB(object):
                                 "Database interaction error.")
             return -1
 
-        column_names = self.getConfigColumnNames()
         config_dict = {}
         if name=='all':
             # list of dicts
             for row in controller:
                 controller_name = row['name']
                 config_dict[controller_name] = row
+            return config_dicg
         else:
             return controller
         return config_dict
@@ -567,7 +568,7 @@ class DobermanDB(object):
             return
         y, Y = 'y', 'Y'
         n, N = 'n', 'N'
-        existing_names = list(self._config.keys()) #[dev[0] for dev in self._config]
+        existing_names = list(self._config.keys())
         # Ask for controller to delete and confirmation.
         text = ("\nEnter the name of the controller you would like to remove "
                 "from config:")
@@ -575,35 +576,33 @@ class DobermanDB(object):
                                  input_type=[str],
                                  be_in=existing_names)
         text = ("Do you really want to remove %s from the config table? (y/n) "
-                "This can not be reverted." % name)
+                "THIS CANNOT BE UNDONE." % name)
         confirmation = self.getUserInput(text,
                                          input_type=[str],
                                          be_in=[y, Y, n, N])
         if confirmation not in [y, Y]:
             return 0
         # Delete from the database
-        delete_str = ("DELETE FROM config WHERE CONTROLLER = '%s'" % name)
-        if self.interactWithDatabase(delete_str) == -1:
-            self.logger.warning("Can not remove '%s' from config. Database "
+        if self.deleteFromDatabase('config','controllers',{'name' : name}):
+            self.logger.warning("Can not remove %s from config. Database "
                                 "interaction error." % name)
             return -1
         self.logger.info(
-            "Successfully removed '%s' from the config table." % name)
+            "Successfully removed %s from the config table." % name)
         # Ask for deleting data table as well.
-        text = ("\nDo you also want to delete the data table of '%s'? (y/n)? "
-                "All stored data in 'Data_%s' will be lost." % (name, name))
+        text = ("\nDo you also want to delete the data table of %s? (y/n)? "
+                "All stored data will be lost." % (name))
         drop_table = self.getUserInput(text,
                                        input_type=[str],
                                        be_in=[y, Y, n, N])
         if drop_table not in [y, Y]:
             return 0
         # Delete data table in the database.
-        delete_str = "TRUNCATE Data_%s" % name
-        if self.interactWithDatabase(delete_str) == -1:
+        if self.deleteFromDatabase('data', name):
             self.logger.warning(
-                "Can not delete Data_%s. Database interaction error." % name)
+                "Can not delete data from %s. Database interaction error." % name)
             return -1
-        self.logger.info("Successfully deleted all data from Data_%s." % name)
+        self.logger.info("Successfully deleted all data from %s." % name)
 
     def recreateTableDefaultSettings(self, force_to=False):
         """
@@ -619,28 +618,23 @@ class DobermanDB(object):
                                            be_in=[y, Y, n, N])
             if user_input not in ['Y', 'y']:
                 return
-        drop_str = "DROP TABLE IF EXISTS default_settings"
-        create_str = ("CREATE TABLE IF NOT EXISTS default_settings "
-                      "(_id SERIAL PRIMARY KEY, "
-                      "PARAMETER TEXT, VALUE TEXT, DESCRIPTION TEXT)")
-        if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
-            self.logger.warning("Can not crate 'default_settings' "
-                                "table in database.")
-            return -1
+        self.deleteFromDatabase('config', collection_name='default_settings')
+        default_settings = None
         # Fill with standard defaults:
-        # load from file?
-        default_list = [["Warning_Repetition", "10", "Min. time [min] between two warnings."],
-                        ["Alarm_Repetition", "5", "Min. time [min] between two alarms."],
-                        ["Testrun", "2", "Time [min] after start until a alarm/warning can be sent."],
-                        ["Loglevel", "20", "Logging output level (10=Debug, 20=Info,...)."],
-                        ["Importtimeout", "10", "Max. time [s] to import a plugin."],
-                        ["Queue_size", "150", "Critical queue size to report error."]]
-        for item in default_list:
-            add_str = ("INSERT INTO default_settings (PARAMETER, VALUE, DESCRIPTION) "
-                       " VALUES ('%s', '%s', '%s')" % (item[0], item[1], item[2]))
-            if self.interactWithDatabase(add_str) == -1:
-                self.logger.error("Can not add '%s' to "
-                                  "'default_settings' table." % item[0])
+        with open('default_settings.txt','r') as f:
+            default_settings = f.read()
+        if not default_settings:
+            self.logger.error('Could not read default settings from file!')
+            return -1
+        try:
+            default_settings = eval(default_settings)
+        except Exception as e:
+            self.logger.error('Could not parse default settings: %s' % e)
+            return -1
+        if self.insertIntoDatabase('config','default_settings',default_settings):
+            self.logger.error("Error recreating default_settings in database")
+            return -1
+        return 0
 
     def updateDefaultSettings(self):
         """
@@ -651,24 +645,19 @@ class DobermanDB(object):
             return -1
         q, Q = 'q', 'q'
         print("\nThe following Doberman settings are stored:")
-        for ii, item in enumerate(settings):
-            print(ii, ": ", item)
+        for k, v in settings.items():
+            print('%s: %s' % (k, v))
         while True:
-            text= ("\nEnter number of entry you would like to change or 'q' "
+            text= ("\nEnter name of entry you would like to change or 'q' "
                    "to quit.")
-            user_input = self.getUserInput(text,
-                                           input_type=[int],
-                                           be_in=list(range(len(settings))),
-                                           exceptions = [q, Q])
-            if user_input == q:
+            key = self.getUserInput(text,
+                                    input_type=[str],
+                                    be_in=list(settings.keys()),
+                                    exceptions = [q, Q])
+            if key in [q, Q]:
                 break
-            ii = user_input
-            text = ("Enter new value for %s (%s)." % (settings[ii][0], settings[ii][2]))
-            if settings[ii][0] == "Occupied_ttyUSB":
-                be_array = True
-                input_type = [int]
-                be_in = None
-            elif settings[ii][0] == "Loglevel":
+            text = ("Enter new value for %s (%s)." % (user_input))
+            if user_input == "loglevel":
                 input_type = [int]
                 be_in = [0, 10, 20, 30, 40, 50]
                 be_array = False
@@ -676,46 +665,40 @@ class DobermanDB(object):
                 input_type = [int]
                 be_in = None
                 be_array = False
-            user_input = self.getUserInput(text,
-                                           input_type=input_type,
-                                           be_in=be_in,
-                                           be_array=be_array)
-            update_str = ("UPDATE default_settings SET VALUE = '%s' WHERE "
-                          "PARAMETER = '%s'" % (str(user_input),
-                                                settings[ii][0]))
-            if self.interactWithDatabase(update_str) != -1:
-                self.logger.info("Updated %s." % settings[ii][0])
-        print("Quitting... New settings are:")
+            value = self.getUserInput(text,
+                                      input_type=input_type,
+                                      be_in=be_in,
+                                      be_array=be_array)
+            if self.updateDatabase('config','default_settings',cuts={'parameter' : key},
+                    update = {'$set' : {'value' : value}}):
+                self.logger.error('Could not update %s' % key)
+            else:
+                self.logger.info("Updated %s." % key)
+        print("New settings are:")
         newsettings = self.getDefaultSettings()
-        for ii, item in enumerate(list(newsettings)):
-            print(ii, ": ", item)
+        for k,v in newsettings.items():
+            print('%s: %s' % (k,v))
         return
 
     def getDefaultSettings(self, name=None):
         """
         Reads default Doberman settings from database.
-        Returns as list with [Parameter, Value] both as strings
-        Reading with name only works for int!
+        Returns a dict
         """
-        if "default_settings" not in str(self.getAllTableNames()):
-            print("Default settings do not exist. "
-                  "Trying to crate...")
-            self.recreateTableDefaultSettings()
-        get_str = "SELECT * from default_settings"
-        settings = self.interactWithDatabase(get_str, readoutput=True)
-        if settings == -1:
-            self.logger.warning("Unable to read default settings.")
+        cursor = self.readFromDatabase('config','default_settings')
+        if cursor.count() == 0:
+            self.logger.warning('Unable to read default settings')
             return -1
+        settings = {}
+        for row in cursor:
+            settings[row['parameter']] = row['value']
         if not name:
             return settings
         else:
             try:
-                settings = [int(s[1]) for s in settings if s[0] == name][0]
-            except IndexError as e:
-                self.logger.error("Can not read default settings. %s "
-                                  "Refreshing default settings... "
-                                  "All values are set back to default." %e)
-                self.recreateTableDefaultSettings(force_to=True)
+                settings = settings[name]
+            except KeyError as e:
+                self.logger.error("Can not read default setting %s: %s" % (name, e))
             except Exception as e:
                 self.logger.error("Can not read defaut settings. %s" % e)
                 return -1
@@ -726,17 +709,19 @@ class DobermanDB(object):
         Reads contacts from database.
         """
         if not status:
-            contacts = readFromDatabase('config','contacts')
+            cursor = readFromDatabase('config','contacts')
         else:
-            contacts = readFromDatabase('config','contacts', cuts={'status' : status})
-        if not contacts:
-            self.logger.warning(
-                "No contacts found (with status %s)" % str(status))
+            cursor = readFromDatabase('config','contacts', cuts={'status' : status})
+        if cursor.count() == 0:
+            self.logger.warning("No contacts found (with status %s)" % str(status))
             contacts = {}
         elif contacts == -1:
             self.logger.warning("Can not read from contact table in database. "
                                 "Database interaction error.")
             return -1
+        contacts = []
+        for row in cursor:
+            contacts.append(row)
         return contacts
 
     def getContacts(self, status=None):
@@ -746,7 +731,7 @@ class DobermanDB(object):
         If no connection to database, it reads from the backup.
         """
         contacts = self.readContacts(status)
-        if contacts == -1:
+        if not contacts or contacts == -1:
             contacts = self.getContactsFromBackup(status)
             if contacts == -1:
                 return -1

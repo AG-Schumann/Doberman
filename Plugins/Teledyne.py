@@ -35,7 +35,8 @@ class Teledyne(SerialController):
 
     def Readout(self):
         command = self._basecommand.format(command = self.commands['read'])
-        return self.SendRecv(command)
+        resp = self.SendRecv(command)
+        return resp
 
     def SendRecv(self, command):
         """

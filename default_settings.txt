@@ -1,0 +1,7 @@
+[
+{'parameter' : 'alarm_repetition', 'value' :  5, 'description' : 'Min. time [min] between two alarms.'},
+{'parameter' : 'testrun', 'value' : 2, 'description' : 'Time [min] after start untl an alarm/warning can be sent.'},
+{'parameter' : 'loglevel', 'value' : 20, 'description' : 'Logging output level (10=Default, 20=Info,...).'},
+{'parameter' : 'import_timeout', 'value' : 10, 'description' : 'Max. time [s] to import a plugin.'},
+{'parameter' : 'queue_size', 'value' : 150, 'description' : 'Critical queue size to report error.'}
+]
