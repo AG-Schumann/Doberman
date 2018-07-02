@@ -1,4 +1,4 @@
-from Doberman.Controller import SerialController
+from ControllerBase import SerialController
 import logging
 
 
@@ -9,6 +9,7 @@ class smartec_uti(SerialController):
 
     def __init__(self, opts):
         self.logger = logging.getLogger(__name__)
+        self.logger.debug('C\'tor starting')
         self.c_ref = opts.additional_params['c_ref']
         self.mode = opts.additional_params['mode']
         self.commands = {
@@ -22,7 +23,10 @@ class smartec_uti(SerialController):
                 'measure' : 'm',
                 'powerDown' : 'p', # if you use this, you need to plug-cycle the board
                 }
-        super().__init__(opts)
+        self._msg_start = '*'
+        self._msg_end = '\r\n'
+        super().__init__(opts, self.logger)
+        self.logger.debug('c\'tor ending')
 
     def checkController(self):
         val = self.SendRecv(self.commands['greet'])
@@ -30,7 +34,7 @@ class smartec_uti(SerialController):
         val = self.SendRecv(self.commands['setMode%i' % self.mode])
         if val['retcode']:
             self.logger.error('UTI not answering correctly')
-            self.__connected = False
+            self._connected = False
             return -1
         else:
             self.logger.info('Connected to %s correctly' % self.name)

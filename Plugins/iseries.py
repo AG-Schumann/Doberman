@@ -1,4 +1,4 @@
-from Doberman.Controller import SerialController
+from ControllerBase import SerialController
 import logging
 
 
@@ -9,8 +9,8 @@ class iseries(SerialController):
 
     def __init__(self, opts):
         self.logger = logging.getLogger(__name__)
-        self.__msg_start = '*'
-        self.__msg_end = '\r\n'
+        self._msg_start = '*'
+        self._msg_end = '\r\n'
         commands = {
                 'hardReset' : 'Z02',
                 'getID' : 'R05',
@@ -37,7 +37,7 @@ class iseries(SerialController):
         info = self.SendRecv(self.commands['getID'])
         if info['retcode']:
             self.logger.warning('Not answering correctly...')
-            self.__connected = False
+            self._connected = False
             return -1
         if info['data'] == self._ID:
             self.logger.info('Connected to %s correctly' % self.name)
@@ -45,7 +45,7 @@ class iseries(SerialController):
             return 0
         else:
             self.logger.warning('Controller ID not correct! Should be %s, not %s' % self._ID, info['data'])
-            self.__connected = False
+            self._connected = False
             return -2
         return -3
 

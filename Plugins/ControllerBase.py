@@ -3,28 +3,31 @@ import logging
 import serial
 import os.path
 import socket
+import time
 
 
 class Controller(object):
     """
     Generic controller class. Defines the interface with Doberman
     """
-    __msg_start = ''
-    __msg_end = ''
+    _msg_start = ''
+    _msg_end = ''
 
-    def __init__(self, opts):
-        if not hasattr(self, logger):
-            self.logger = logging.getLogger(__name__)
+    def __init__(self, opts, logger):
         self.name = opts.name
+        self.logger = logger
+        self.logger.debug('c\'tor starting')
         for key, value in opts.address.items():
+            self.logger.debug('%s: %s' % (key, value))
             setattr(self, key, value)
-        self.__connected = False
-        self.__device = self._getControl()
+        self._connected = False
+        self._device = self._getControl()
         if self.checkController():
             self.logger.error('Something went wrong here...')
+        self.logger.debug('c\'tor ending')
 
     def connected(self):
-        return self.__connected
+        return self._connected
 
     def _getControl(self):
         """
@@ -55,8 +58,9 @@ class Controller(object):
         raise NotImplementedError()
 
     def close(self):
-        self.__connected = False
-        self.__device.close()
+        self.logger.debug('Shutting down %s' % self.name)
+        self._connected = False
+        self._device.close()
         return
 
     def __del__(self):
@@ -75,11 +79,13 @@ class SerialController(Controller):
     """
     occupied_ttyUSB = []
 
-    def __init__(self, opts):
+    def __init__(self, opts, logger):
         self.ttyUSB = -1
-        self.ttypath = os.path.join(opts.path, "ttyUSB_assignment.txt")
-        super().__init__(opts)
-        return
+        self.ttypath = os.path.join(opts.path, "settings", "ttyUSB_assignment.txt")
+        self.logger = logger
+        self.logger.debug('c\'tor starting')
+        super().__init__(opts, logger)
+        self.logger.debug('c\'tor ending')
 
     def get_ttyUSB(self, vendorID, productID, serialID):
         '''
@@ -89,7 +95,18 @@ class SerialController(Controller):
             self.productID, self.vendorID, self.serialID))
         proc = Popen('dmesg | grep %s | tail -n 1' % self.serialID, shell=True, stdout=PIPE, stderr=PIPE)
         try:
-            out, err = proc.communicate(timeout=10) # TODO this by itself won't work ? Needs additional call
+            out, err = proc.communicate(timeout=10)
+        except TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        if len(err) or not len(out):
+            self.logger.error('Could not find USB device, stdout: %s, stderr: %s' % (out.decode(), err.decode()))
+            return -1
+        usb_number = out.decode().split()[3]  # '3-14.1:' or something
+        proc = Popen('dmesg | grep %s | grep -o ttyUSB[0-9] | tail -n 1' % usb_number,
+                shell=True, stdout=PIPE, stderr=PIPE)
+        try:
+            out, err = proc.communicate(timeout=10)
         except TimeoutExpired:
             proc.kill()
             out, err = proc.communicate()
@@ -101,9 +118,9 @@ class SerialController(Controller):
 
     def add_ttyUSB(self):
         if self.ttyUSB == -1:
-            self.logger.error('No ttySUB value, not storing')
+            self.logger.error('No ttyUSB value, not storing')
             return -1
-        self.occupied_ttyUSB.append(value)
+        self.occupied_ttyUSB.append(self.ttyUSB)
         try:
             with open(self.ttypath, 'a+') as f:
                 f.write(' %i | %s\n' % (self.ttyUSB, self.name))
@@ -116,7 +133,7 @@ class SerialController(Controller):
         if self.ttyUSB == -1:
             self.logger.error('Could not find device')
             return None
-        num_tries = 3
+        num_tries = 2
         for _ in range(num_tries):
             try:
                 dev = serial.Serial(
@@ -130,23 +147,23 @@ class SerialController(Controller):
                 self.logger.error('Error while connecting to device: %s. Trying again in 5 seconds...' % e)
                 time.sleep(5)
             else:
-                self.__connected = True
+                self._connected = True
                 self.logger.info('Successfully connected to device')
                 return dev
         return None
 
     def SendRecv(self, message):
         ret = {'retcode' : 0, 'data' : None}
-        if not self.__connected:
+        if not self._connected:
             self.logger.error('No controller connected, can\'t send message %s' % message)
             ret['retcode'] = -2
             return ret
         try:
-            message = self.__msg_start + str(message) + self.__msg_end
-            self.__device.write(message.encode())
+            message = self._msg_start + str(message) + self._msg_end
+            self._device.write(message.encode())
             time.sleep(0.3)
-            if self.__device.in_waiting:
-                ret['data'] = self.__device.read(self.__device.in_waiting).decode().rstrip()
+            if self._device.in_waiting:
+                ret['data'] = self._device.read(self._device.in_waiting).decode().rstrip()
         except serial.SerialException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -1
@@ -164,7 +181,6 @@ class LANController(Controller):
     def __init__(self, opts):
 
         super().__init__(opts)
-        return
 
     def _getControl(self):
         """
@@ -181,7 +197,7 @@ class LANController(Controller):
                 sock.close()
                 time.sleep(5)
             else:
-                self.__connected = True
+                self._connected = True
                 self.logger.info('Successfully connected to device')
                 return sock
         return None
@@ -189,14 +205,14 @@ class LANController(Controller):
     def SendRecv(self, message):
         ret = {'retcode' : 0, 'data' : None}
 
-        if not self.__connected:
+        if not self._connected:
             self.logger.error('No controller connected, can\'t send message %s' % message)
             ret['retcode'] = -2
             return ret
         message = str(message).rstrip()
-        message = self.__msg_start + message + self.__msg_end
+        message = self._msg_start + message + self._msg_end
         try:
-            self.__device.sendall(message.encode())
+            self._device.sendall(message.encode())
         except socket.error as e:
             self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -1
@@ -204,7 +220,7 @@ class LANController(Controller):
         time.sleep(0.01)
 
         try:
-            ret['data'] = self.__device.recv(1024).decode().rstrip()
+            ret['data'] = self._device.recv(1024).decode().rstrip()
         except socket.error as e:
             self.logger.fatal('Could not receive data from controller. Error: %s' % e)
             ret['retcode'] = -1

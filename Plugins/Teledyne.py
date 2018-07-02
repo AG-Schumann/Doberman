@@ -1,4 +1,4 @@
-from Doberman.Controller import SerialController
+from ControllerBase import SerialController
 import logging
 
 
@@ -10,20 +10,20 @@ class Teledyne(SerialController):
         self.logger = logging.getLogger(__name__)
         self._basecommand = 'a{command}'
         self.device_address = 'a'  # changeable, but default is a
-        self.__msg_end = '\r\n'
+        self._msg_end = '\r\n'
         self.commands = {
                 'getAddress' : 'add?',
                 'read' : 'r',
                 'getSetpointMode' : 'spm?',
                 'getUnit' : 'uiu?',
                 }
-        super().__init__(opts)
+        super().__init__(opts, logger)
 
     def checkController(self):
         resp = self.SendRecv(self.commands['getAddress'])
         if resp['retval']:
             self.logger.error('Error checking controller')
-            self.__connected = False
+            self._connected = False
             return -1
         if self.device_address != resp['data']:
             self.logger.error('Addresses don\'t match somehow, expected %s got %s' % (
@@ -45,8 +45,8 @@ class Teledyne(SerialController):
         Sample output for a Read command (without \\r and split on \\n):
         ['*a*:r  ; ', 'READ:-0.007;0', '!a!o!']
         """
-        message = self.__msg_start + self._basecommand.format(address = self.device_address,
-                    command = command) + self.__msg_end
+        message = self._msg_start + self._basecommand.format(address = self.device_address,
+                    command = command) + self._msg_end
         val = super().SendRecv(command)
         if val['retcode']:
             return val
