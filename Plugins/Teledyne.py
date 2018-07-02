@@ -62,7 +62,7 @@ class Teledyne(SerialController):
             return val
 
         echo = reply[0].rstrip('; ')
-        if echo != '*{c}*:%s' % (self.device_address, command):
+        if echo != '*{c}*:{s}'.format(c=self.device_address, s=command):
             self.logger.error('Didn\'t echo the right command: %s' % echo)
             val['retcode'] = -5
             return val
@@ -75,9 +75,8 @@ class Teledyne(SerialController):
 
         data = reply[1].split(':')
         self.logger.debug('Got %s data' % data)
-        if data[0] == 'ADDR':
-            val['data'] = data[1].lstrip()
-        elif data[0] == 'READ':
+        if data[0] == 'READ':
             val['data'] = float(data[1].split(';')[0])
-
+        elif data[0] == 'ADDR':
+            val['data'] = data[1].lstrip()
         return val

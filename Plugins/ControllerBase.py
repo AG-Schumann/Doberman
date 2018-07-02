@@ -4,6 +4,7 @@ import serial
 import os.path
 import socket
 import time
+import re  # EVERBODY STAND BACK
 
 
 class Controller(object):
@@ -102,7 +103,12 @@ class SerialController(Controller):
         if len(err) or not len(out):
             self.logger.error('Could not find USB device, stdout: %s, stderr: %s' % (out.decode(), err.decode()))
             return -1
-        usb_number = out.decode().split()[3]  # '3-14.1:' or something
+        pattern = r'usb (?P<which>[^:]+):'
+        res = re.search(pattern, out.decode())
+        if not res:
+            self.logger.error('Could not parse dmesg output!')
+            return -2
+        usb_number = res.group('which')  # '3-14.1:' or something
         proc = Popen('dmesg | grep %s | grep -o ttyUSB[0-9] | tail -n 1' % usb_number,
                 shell=True, stdout=PIPE, stderr=PIPE)
         try:
