@@ -1,3 +1,4 @@
+import ControllerBase
 from ControllerBase import LANController
 import logging
 

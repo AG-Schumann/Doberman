@@ -1,3 +1,4 @@
+import ControllerBase
 from ControllerBase import SerialController
 import logging
 

@@ -48,7 +48,7 @@ class Doberman(object):
         self._config = self.DDB.getConfig()
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
 
-        self.plugin_paths = ['./']
+        self.plugin_paths = ['./Plugins']
         self.imported_plugins = self.importAllPlugins()
         self._running_controllers = self.startAllControllers()
         if self._running_controllers == -1:  # No controller was started
