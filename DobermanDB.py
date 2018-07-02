@@ -4,7 +4,7 @@ import logging
 from argparse import ArgumentParser
 import _thread
 import datetime
-import pymongoi
+import pymongo
 import os.path
 import time
 from ast import literal_eval

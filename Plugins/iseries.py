@@ -9,6 +9,7 @@ class iseries(SerialController):
 
     def __init__(self, opts):
         self.logger = logging.getLogger(__name__)
+        self.device_id = opts.additional_params['device_id']
         self._msg_start = '*'
         self._msg_end = '\r\n'
         commands = {
@@ -39,15 +40,15 @@ class iseries(SerialController):
             self.logger.warning('Not answering correctly...')
             self._connected = False
             return -1
-        if info['data'] == self._ID:
+        if self.device_id in info['data']:
             self.logger.info('Connected to %s correctly' % self.name)
             self.add_ttyUSB()
             return 0
         else:
-            self.logger.warning('Controller ID not correct! Should be %s, not %s' % self._ID, info['data'])
+            self.logger.warning('Controller ID not correct! Should be %s, not %s' % self.device_id, info['data'])
             self._connected = False
             return -2
         return -3
 
-    def Readout(self):
+    def Readout(self): # TODO strip echo'd command
         return self.SendRecv(self.commands['getDisplayedValue'])
