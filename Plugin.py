@@ -1,10 +1,10 @@
 import time
 import logging
 from ReadoutThread import ReadoutThread
-import Controller
 import importlib
 import importlib.machinery
 from importlib.machinery import PathFinder
+
 
 class Plugin(object):
     """
@@ -13,13 +13,13 @@ class Plugin(object):
     def __init__(self, opts):
 
         self.logger = logging.getLogger(__name__)
-        self.logger.debug('Starting...')
         self.name = opts.name
+        self.logger.debug('Starting %s...' % self.name)
         plugin_name = self.name
         if plugin_name[-1] in map(str, range(10)): # catches 'smartec_uti1' etc
             plugin_name = plugin_name[:-1]
 
-        spec = PathFiner.find_spec(plugin_name, opts.plugin_paths)
+        spec = PathFinder.find_spec(plugin_name, opts.plugin_paths)
         if spec is None:
             raise FileNotFoundError('Could not find a controller named %s' % plugin_name)
 
@@ -37,8 +37,8 @@ class Plugin(object):
         """
         yesno = False
         try:
-            self.writeThread.start()
             self.writeThread.running = True
+            self.writeThread.start()
             while True:
                 self.logger.debug("Main program still alive...")
                 if yesno:
