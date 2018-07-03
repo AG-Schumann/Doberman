@@ -14,7 +14,7 @@ class ReadoutThread(threading.Thread):
         self.controller = controller
 
         if 5 <= opts.readout_interval and opts.readout_interval < 1000:
-            self.ReadoutInterval = self.opts.readout_interval
+            self.ReadoutInterval = opts.readout_interval
             self.logger.info("Readout interval set to %i sec." % self.ReadoutInterval)
         else:
             self.logger.error("Invalid readout interval. Using default 30 sec.")
