@@ -533,29 +533,17 @@ class DBLogger(logging.Handler):
     """
     Logs to the database instead of to disk. Keeps disk as backup
     """
-    def __init__(self, db, tablename='logs'):
+    def __init__(self, db):
         logging.Handler.__init__(self)
         self.db = db
-        self.table_name = tablename
+        self.db_name = 'logging'
+        self.collection_name = 'logs'
         backup_filename = time.strftime('%Y-%m-%d.log', time.localtime(time.time()))
         self.backup_logger = logging.handlers.TimedRotatingFileHanlder(
             os.path.join(os.getcwd(), 'log', backup_filename),
             when='midnight')
-        sql = ("CREATE TABLE IF NOT EXISTS %s ("
-            "_logno INT NOT NULL AUTO_INCREMENT,"
-            "time TIMESTAMP NOT NULL,"
-            "level VARCHAR(12),"
-            "module VARCHAR(32),"
-            "function VARCHAR(32),"
-            "line INT,"
-            "msg TEXT,"
-            "PRIMARY KEY ( _logno ));" % self.table_name)
-        if self.db.interactWithDatabase(sql):
-            self.use_backup = True
-        else:
-            self.use_backup = False
 
-    def emit(self, record):
+        def emit(self, record):
         if self.use_backup:
             self.backup_logger.emit(record)
             return
@@ -566,9 +554,7 @@ class DBLogger(logging.Handler):
                     funcname = record.funcName,
                     lineno = record.lineno,
                     table = self.table_name)
-        sql = ("INSERT INTO {table} (time, level, module, function, line, msg) VALUES "
-                "'{when}','{level}','{module}','{funcname}',{lineno},'{msg}')")
-        if self.db.interactWithDatabase(sql.format(**rec)):
+        if self.db.insertIntoDatabase(self.db_name, self.collection_name, rec):
             self.backup_logger.emit(record)
 
 
