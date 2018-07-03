@@ -558,6 +558,50 @@ class DBLogger(logging.Handler):
             self.backup_logger.emit(record)
 
 
+
+class DBLogger(logging.Handler):
+    """
+    Logs to the database instead of to disk. Keeps disk as backup
+    """
+    def __init__(self, db, tablename='logs'):
+        logging.Handler.__init__(self)
+        self.db = db
+        self.table_name = tablename
+        backup_filename = time.strftime('%Y-%m-%d.log', time.localtime(time.time()))
+        self.backup_logger = logging.handlers.TimedRotatingFileHanlder(
+            os.path.join(os.getcwd(), 'log', backup_filename),
+            when='midnight')
+        sql = ("CREATE TABLE IF NOT EXISTS %s ("
+            "_logno INT NOT NULL AUTO_INCREMENT,"
+            "time TIMESTAMP NOT NULL,"
+            "level VARCHAR(12),"
+            "module VARCHAR(32),"
+            "function VARCHAR(32),"
+            "line INT,"
+            "msg TEXT,"
+            "PRIMARY KEY ( _logno ));" % self.table_name)
+        if self.db.interactWithDatabase(sql):
+            self.use_backup = True
+        else:
+            self.use_backup = False
+
+    def emit(self, record):
+        if self.use_backup:
+            self.backup_logger.emit(record)
+            return
+        rec = dict(when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created)),
+                    msg = record.msg.strip(),
+                    level = record.levelname,
+                    module = record.module,
+                    funcname = record.funcName,
+                    lineno = record.lineno,
+                    table = self.table_name)
+        sql = ("INSERT INTO {table} (time, level, module, function, line, msg) VALUES "
+                "'{when}','{level}','{module}','{funcname}',{lineno},'{msg}')")
+        if self.db.interactWithDatabase(sql.format(**rec)):
+            self.backup_logger.emit(record)
+
+
 if __name__ == '__main__':
 
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
@@ -611,7 +655,6 @@ if __name__ == '__main__':
                         type=int,
                         help=("Time in minutes until the same Plugin can send "
                               "a warning (Email) again. Default = 10 min."),
-                        default=10)
                         default=defaults['Warning_Repetition'])
     # CHANGE OPTIONS
     parser.add_argument("-n", "--new",

@@ -1,7 +1,6 @@
 import time
 import logging
 from ReadoutThread import ReadoutThread
-import Controller
 import importlib
 import importlib.machinery
 from importlib.machinery import PathFinder
@@ -37,8 +36,8 @@ class Plugin(object):
         """
         yesno = False
         try:
-            self.writeThread.start()
             self.writeThread.running = True
+            self.writeThread.start()
             while True:
                 self.logger.debug("Main program still alive...")
                 if yesno:
