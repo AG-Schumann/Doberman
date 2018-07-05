@@ -21,7 +21,7 @@ class DobermanDB(object):
     def __init__(self, opts):
         self.logger = logging.getLogger(__name__)
         self.opts = opts
-        self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
+        #self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
         # Load database connection details
         try:
             with open(os.path.join('settings','Database_connectiondetails.txt'), 'r') as f:

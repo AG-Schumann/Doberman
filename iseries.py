@@ -8,11 +8,10 @@ class iseries(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(__name__)
-        self.device_id = opts.additional_params['device_id']
+        self.logger = logging.getLogger(opts.name)
         self._msg_start = '*'
         self._msg_end = '\r\n'
-        commands = {
+        self.commands = {
                 'hardReset' : 'Z02',
                 'getID' : 'R05',
                 'getAddress' : 'R21',
@@ -32,23 +31,26 @@ class iseries(SerialController):
                 'getAlarm1Low' : 'R12',
                 'getAlarm2Low' : 'R15',
                 }
-        super().__init__(opts)
+        super().__init__(opts, self.logger)
 
     def checkController(self):
-        info = self.SendRecv(self.commands['getID'])
+        info = self.SendRecv(self.commands['getAddress'])
         if info['retcode']:
             self.logger.warning('Not answering correctly...')
             self._connected = False
-            return -1
+            return False
         if self.device_id in info['data']:
             self.logger.info('Connected to %s correctly' % self.name)
-            self.add_ttyUSB()
-            return 0
+            return True
         else:
-            self.logger.warning('Controller ID not correct! Should be %s, not %s' % self.device_id, info['data'])
+            self.logger.warning('Controller ID not correct! Expected %s, got %s' % self.device_id, info['data'])
             self._connected = False
-            return -2
-        return -3
+            return False
+        return False
 
-    def Readout(self): # TODO strip echo'd command
-        return self.SendRecv(self.commands['getDisplayedValue'])
+    def Readout(self):
+        val = self.SendRecv(self.commands['getDisplayedValue'])
+        cmd_len = len(self.commands['getDisplayedValue']) + len(self._msg_start)
+        val['data'] = float(val['data'][cmd_len:])
+        return val
+
