@@ -1,4 +1,3 @@
-import ControllerBase
 from ControllerBase import SerialController
 import logging
 
@@ -9,7 +8,7 @@ class Teledyne(SerialController):
     """
     def __init__(self, opts):
         self.logger = logging.getLogger(__name__)
-        self._basecommand = 'a{command}'
+        self._basecommand = '{addr}{cmd}'
         self.device_address = 'a'  # changeable, but default is a
         self._msg_end = '\r\n'
         self.commands = {
@@ -18,25 +17,24 @@ class Teledyne(SerialController):
                 'getSetpointMode' : 'spm?',
                 'getUnit' : 'uiu?',
                 }
-        super().__init__(opts, logger)
+        super().__init__(opts, self.logger)
 
     def checkController(self):
         resp = self.SendRecv(self.commands['getAddress'])
-        if resp['retval']:
+        if resp['retcode']:
             self.logger.error('Error checking controller')
             self._connected = False
-            return -1
+            return False
         if self.device_address != resp['data']:
-            self.logger.error('Addresses don\'t match somehow, expected %s got %s' % (
+            self.logger.error('Addresses don\'t match, expected %s got %s' % (
                 self.device_address, resp['data']))
-            return -2
+            return False
         self.logger.info('Connected to %s correctly' % self.name)
         self.add_ttyUSB()
-        return 0
+        return True
 
     def Readout(self):
-        command = self._basecommand.format(command = self.commands['read'])
-        resp = self.SendRecv(command)
+        resp = self.SendRecv(self.commands['read'])
         return resp
 
     def SendRecv(self, command):
@@ -46,9 +44,7 @@ class Teledyne(SerialController):
         Sample output for a Read command (without \\r and split on \\n):
         ['*a*:r  ; ', 'READ:-0.007;0', '!a!o!']
         """
-        message = self._msg_start + self._basecommand.format(address = self.device_address,
-                    command = command) + self._msg_end
-        val = super().SendRecv(command)
+        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command))
         if val['retcode']:
             return val
         if not val['data']:

@@ -14,6 +14,10 @@ from argparse import ArgumentParser
 import signal
 import atexit
 from Plugin import Plugin
+import psutil
+import importlib
+import importlib.machinery
+from importlib.machinery import PathFinder
 
 __version__ = '2.0.0'
 
@@ -45,10 +49,14 @@ class Doberman(object):
 
         self.DDB = DobermanDB.DobermanDB(opts)
 
+        last_tty_update_time = self.DDB.readFromDatabase('config','default_settings',
+                {'parameter' : 'tty_update'})['value']
+        if datetime.datetime.fromtimestamp(psutil.boot_time()) > last_tty_update_time:
+            self.refreshTTY()
         self._config = self.DDB.getConfig()
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
 
-        self.plugin_paths = ['./Plugins']
+        self.plugin_paths = ['.']
         self.imported_plugins = self.importAllPlugins()
         self._running_controllers = self.startAllControllers()
         if self._running_controllers == -1:  # No controller was started
@@ -56,6 +64,67 @@ class Doberman(object):
             return
         self.observationThread = observationThread(
             self.opts, self._config, self._running_controllers)
+
+    def refreshTTY(self):
+        """
+        Brute-force matches sensors to ttyUSB assignments by trying
+        all possible combinations, and updates the database
+        """
+        self.logger.info('Refreshing ttyUSB mapping...')
+        proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
+        try:
+            out, err = proc.communicate(timeout=5)
+        except TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        if not len(out) or len(err):
+            raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
+        ttyUSBs = out.decode().splitlines()
+        sensors = dict(name : None for name in sensor_names)
+        matched = {'sensors' : [], 'ttys' : []}
+        for sensor in sensor_names:
+            if sensor[-1] in list(map(str,range(10))):
+                plugin_name = sensor[:-1]
+            else:
+                plugin_name = sensor
+            spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
+            opts = options()
+            vals = self.DDB.readFromDatabase('config','controllers',{'name' : sensor},onlyone=True)
+            for k,v in vals['address']:
+                setattr(opts, k, v)
+            if 'additional_params' in vals:
+                for k,v in vals['additional_params']:
+                    setattr(opts, k, v)
+            if spec is None:
+                raise FileNotFoundError('Could not find a controller named %s' % sensor)
+            try:
+                controller = getattr(spec.loader.load_module(), sensor)(opts)
+            except Exception as e:
+                raise FileNotFoundError('Could not load controller %s: %s' % (sensor, e))
+            else:
+                sensors[sensor] = controller
+
+        for tty in TTYs:
+            tty_num = int(tty.split('USB')[-1])
+            self.logger.debug('Checking %s' % tty)
+            for name, sensor in sensors.items():
+                if name in matched['sensors']:
+                    continue
+                if sensor._getControl(tty_num):
+                    if sensor.checkController():
+                        self.logger.debug('Matched to %s' % name)
+                        matched['sensors'].append(name)
+                        matched['ttys'].append(tty_num)
+                        self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                        sensor.close()
+                        break
+                    else:
+                        self.logger.debug('Not %s' % name)
+                        sensor.close()
+                else:
+                    self.logger.debug('Couldn\'t connect to %s??' % name)
+        self.DDB.updateDatabase('config','default_settings', {'parameter' : 'tty_update'}, {'$set' : {'value' : datetime.datetime.now()}})
+        return
 
     def importAllPlugins(self):
         '''
@@ -79,8 +148,7 @@ class Doberman(object):
             name = controller['name']
             status = controller['status']
             if status != 'ON':
-                self.logger.debug("Plugin '%s' is not imported as its status"
-                                    " is '%s'", name, status)
+                self.logger.debug("Not importing %s as its status is %s", name, status)
                 continue
             else:
                 plugin = self.importPlugin(controller)
@@ -530,7 +598,6 @@ class timeout:
     def __exit__(self, type, value, traceback):
         signal.alarm(0)
 
-
 def deleteLockFile(lockfilePath):
     os.remove(lockfilePath)
 
@@ -540,12 +607,12 @@ if __name__ == '__main__':
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logging.getLogger()
     logger.setLevel(20)
-    chlog = logging.StreamHandler()
-    chlog.setLevel(20)
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
+    #chlog = logging.StreamHandler()
+    #chlog.setLevel(20)
+    logging.basicConfig(format='%(levelname)s:%(asctime)s:%(name)s:'
                                   '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
+    #chlog.setFormatter(formatter)
+    #logger.addHandler(chlog)
     opts = logger
     DDB = DobermanDB.DobermanDB(opts)
     defaults = DDB.getDefaultSettings()
@@ -634,19 +701,19 @@ if __name__ == '__main__':
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
     # Loglevel option
-    logger.removeHandler(chlog)
-    logger = logging.getLogger()
+    #logger.removeHandler(chlog)
+    #logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
         print("ERROR: Given log level %i not allowed. "
               "Fall back to default value of " % loglevel_default)
         opts.loglevel = loglevel_default
     logger.setLevel(int(opts.loglevel))
-    chlog = logging.StreamHandler()
-    chlog.setLevel(int(opts.loglevel))
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
-                                  '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
+    #chlog = logging.StreamHandler()
+    #chlog.setLevel(int(opts.loglevel))
+    #formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
+    #                              '%(funcName)s:%(lineno)d:%(message)s')
+    #chlog.setFormatter(formatter)
+    #logger.addHandler(chlog)
     opts.logger = logger
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
