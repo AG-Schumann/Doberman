@@ -53,7 +53,7 @@ class Plugin(object):
             self.close()
 
     def close(self):
-        self.logger.debug("Closing...")
+        self.logger.debug("Closing %s..." % self.name)
         self.writeThread.running = False
         self.writeThread.Tevent.set()
         self.controller.close()

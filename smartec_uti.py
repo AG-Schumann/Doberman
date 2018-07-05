@@ -11,7 +11,6 @@ class smartec_uti(SerialController):
 
     def __init__(self, opts):
         self.logger = logging.getLogger(__name__)
-        self.logger.debug('C\'tor starting')
         self.commands = {
                 'greet' : '@',
                 'setSlow' : 's',
@@ -26,14 +25,13 @@ class smartec_uti(SerialController):
         self._msg_start = '*'
         self._msg_end = '\r\n'
         super().__init__(opts, self.logger)
-        self.logger.debug('c\'tor ending')
 
-    def checkController(self):
+    def isThisMe(self, dev):
         """
         The smartec serial protocol is very poorly designed, so we have to use
         dmesg to see if we found the right controller
         """
-        ttyUSB = int(self._device.port.split('USB')[-1])
+        ttyUSB = int(dev.port.split('USB')[-1])
         proc = Popen('dmesg | grep ttyUSB%i | tail -n 1' % ttyUSB,
                 shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -48,9 +46,9 @@ class smartec_uti(SerialController):
         pattern = r'usb (?P<which>[^:]+):'
         match = re.search(pattern, out.decode())
         if not match:
-            self.logger.error('Could not find controller')
+            #self.logger.error('Could not find controller')
             return False
-        proc = Popen('dmesg | grep %s: SerialNumber | tail -n 1' % match.group('which'),
+        proc = Popen('dmesg | grep \'%s: SerialNumber\' | tail -n 1' % match.group('which'),
                 shell=True, stdout=PIPE, stderr=PIPE)
         try:
             out, err = proc.communicate(timeout=5)
@@ -61,13 +59,8 @@ class smartec_uti(SerialController):
             self.logger.error('Could not check controller! stdout: %s, stderr: %s' % (
                 out.decode(), err.decode()))
         if self.serialID in out.decode():
-            self.SendRecv(self.commands['setSlow'])
-            self.SendRecv(self.commands['setMode%i' % self.mode])
-            self.logger.info('Connected correctly')
             return True
-        else:
-            self.logger.info('Wrong controller')
-            return False
+        return False
 
     def Readout(self):
         val = self.SendRecv(self.commands['measure'])

@@ -19,32 +19,28 @@ class Teledyne(SerialController):
                 }
         super().__init__(opts, self.logger)
 
-    def checkController(self):
-        resp = self.SendRecv(self.commands['getAddress'])
+    def isThisMe(self, dev):
+        resp = self.SendRecv(self.commands['getAddress'], dev)
         if resp['retcode']:
             self.logger.error('Error checking controller')
             self._connected = False
             return False
         if self.device_address != resp['data']:
-            self.logger.error('Addresses don\'t match, expected %s got %s' % (
-                self.device_address, resp['data']))
             return False
-        self.logger.info('Connected to %s correctly' % self.name)
-        self.add_ttyUSB()
         return True
 
     def Readout(self):
         resp = self.SendRecv(self.commands['read'])
         return resp
 
-    def SendRecv(self, command):
+    def SendRecv(self, command, dev):
         """
         The Teledyne has a more complex communication protocol, so we reimplement this
         method here to parse the output
         Sample output for a Read command (without \\r and split on \\n):
         ['*a*:r  ; ', 'READ:-0.007;0', '!a!o!']
         """
-        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command))
+        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command), dev)
         if val['retcode']:
             return val
         if not val['data']:
@@ -71,9 +67,10 @@ class Teledyne(SerialController):
             return val
 
         data = reply[1].split(':')
-        self.logger.debug('Got %s data' % data)
+        #self.logger.debug('Got %s data' % data)
         if data[0] == 'READ':
             val['data'] = float(data[1].split(';')[0])
         elif data[0] == 'ADDR':
             val['data'] = data[1].lstrip()
         return val
+

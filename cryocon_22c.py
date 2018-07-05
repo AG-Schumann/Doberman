@@ -22,25 +22,8 @@ class cryocon_22c(LANController):
                 }
         super().__init__(opts, self.logger)
 
-    def checkController(self):
-        val = self.SendRecv(self.commands['identify'])
-        if val['retcode']:
-            self.logger.error('Could not check controller identity')
-            return -1
-        self.logger.debug('Device answered %s' % val['data'])
-        try:
-            mfg, model, srl, fw = val['data'].split(',')
-        except ValueError:
-            self.logger.error('Controller didn\'t send expected response: %s' % val['data'])
-            return -2
-        if mfg != 'Cryo-con' and model != '22C':
-            self.logger.error('Didn\'t connect to the correct device? Mfg %s, model %s' % (mfg, model))
-            return -2
-        else:
-            #self.SendRecv(self.commands['SetTempAUnits'])
-            #self.SendRecv(self.commands['SetTempBUnits'])
-            self.logger.info('Connected to controller successfully')
-            return 0
+    def isThisMe(self, dev):
+        return True  # don't have the same problems with LAN controllers
 
     def Readout(self):
         resp = []

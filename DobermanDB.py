@@ -692,7 +692,10 @@ class DobermanDB(object):
             return -1
         settings = {}
         for row in cursor:
-            settings[row['parameter']] = int(row['value'])
+            if row['parameter'] == 'tty_update':
+                settings[row['parameter']] = row['value']
+            else:
+                settings[row['parameter']] = int(row['value'])
         if not name:
             return settings
         else:
@@ -847,8 +850,8 @@ class DobermanDB(object):
          'alarm_recurrence' : 10,
          'description' : ['one sensor', 'different sensor'],
          'number_of_data' : 2,
-         'addresses' : {'vendorID' : '2303',
-                        'productID' : '067b'
+         'addresses' : {'serialID' : '2303',
+                        'ttyUSB' : '-1'
                        },
          'additional_parameters' : ''
         }

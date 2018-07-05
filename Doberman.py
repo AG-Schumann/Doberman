@@ -18,6 +18,8 @@ import psutil
 import importlib
 import importlib.machinery
 from importlib.machinery import PathFinder
+from subprocess import Popen, PIPE, TimeoutExpired
+import serial
 
 __version__ = '2.0.0'
 
@@ -49,14 +51,18 @@ class Doberman(object):
 
         self.DDB = DobermanDB.DobermanDB(opts)
 
-        last_tty_update_time = self.DDB.readFromDatabase('config','default_settings',
-                {'parameter' : 'tty_update'})['value']
-        if datetime.datetime.fromtimestamp(psutil.boot_time()) > last_tty_update_time:
+        self.plugin_paths = ['.']
+        last_tty_update_time = self.DDB.getDefaultSettings('tty_update')
+        boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
+        self.logger.debug('tty settings last set %s, boot time %s' % (
+            last_tty_update_time, boot_time))
+        if boot_time > last_tty_update_time:
             self.refreshTTY()
+        else:
+            self.logger.debug('Not updating tty settings')
         self._config = self.DDB.getConfig()
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
 
-        self.plugin_paths = ['.']
         self.imported_plugins = self.importAllPlugins()
         self._running_controllers = self.startAllControllers()
         if self._running_controllers == -1:  # No controller was started
@@ -80,50 +86,61 @@ class Doberman(object):
         if not len(out) or len(err):
             raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
         ttyUSBs = out.decode().splitlines()
-        sensors = dict(name : None for name in sensor_names)
+        cursor = self.DDB.readFromDatabase('config','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+        sensor_config = {}
+        for row in cursor:
+            sensor_config[row['name']] = row
+        sensor_names = list(sensor_config.keys())
+        sensors = {name: None for name in sensor_names}
         matched = {'sensors' : [], 'ttys' : []}
         for sensor in sensor_names:
-            if sensor[-1] in list(map(str,range(10))):
-                plugin_name = sensor[:-1]
-            else:
-                plugin_name = sensor
-            spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
             opts = options()
-            vals = self.DDB.readFromDatabase('config','controllers',{'name' : sensor},onlyone=True)
-            for k,v in vals['address']:
-                setattr(opts, k, v)
-            if 'additional_params' in vals:
-                for k,v in vals['additional_params']:
-                    setattr(opts, k, v)
-            if spec is None:
-                raise FileNotFoundError('Could not find a controller named %s' % sensor)
-            try:
-                controller = getattr(spec.loader.load_module(), sensor)(opts)
-            except Exception as e:
-                raise FileNotFoundError('Could not load controller %s: %s' % (sensor, e))
-            else:
-                sensors[sensor] = controller
+            for key, value in sensor_config[sensor].items():
+                setattr(opts, key, value)
+            plugin_name = sensor
+            opts.initialize = False
+            if plugin_name[-1] in map(str, range(10)): # catches 'smartec_uti1' etc
+                plugin_name = plugin_name[:-1]
 
-        for tty in TTYs:
+            spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
+            if spec is None:
+                raise FileNotFoundError('Could not find a controller named %s' % plugin_name)
+            try:
+                controller = getattr(spec.loader.load_module(), plugin_name)(opts)
+            except Exception as e:
+                raise FileNotFoundError('Could not load controller %s: %s' % (plugin_name, e))
+            sensors[sensor] = controller
+
+        dev = serial.Serial()
+        for tty in ttyUSBs:
             tty_num = int(tty.split('USB')[-1])
             self.logger.debug('Checking %s' % tty)
+            dev.port = tty
+            try:
+                dev.open()
+            except serial.SerialException as e:
+                self.logger.error('Could not connect to %s: %s' % (tty, e))
+                continue
             for name, sensor in sensors.items():
                 if name in matched['sensors']:
                     continue
-                if sensor._getControl(tty_num):
-                    if sensor.checkController():
-                        self.logger.debug('Matched to %s' % name)
-                        matched['sensors'].append(name)
-                        matched['ttys'].append(tty_num)
-                        self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
-                        sensor.close()
-                        break
-                    else:
-                        self.logger.debug('Not %s' % name)
-                        sensor.close()
-                else:
-                    self.logger.debug('Couldn\'t connect to %s??' % name)
-        self.DDB.updateDatabase('config','default_settings', {'parameter' : 'tty_update'}, {'$set' : {'value' : datetime.datetime.now()}})
+                if sensor.isThisMe(dev):
+                    self.logger.debug('Matched %s to %s' % (tty_num, name))
+                    matched['sensors'].append(name)
+                    matched['ttys'].append(tty_num)
+                    self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                    dev.close()
+                    break
+                self.logger.debug('Not %s' % name)
+                time.sleep(0.5)  # devices are slow.....
+            dev.close()
+
+        if len(matched['sensors']) != len(sensors):
+            self.logger.error('Didn\'t find the expected number of sensors!')
+        else:
+            self.DDB.updateDatabase('config','default_settings',
+                    {'parameter' : 'tty_update'},
+                    {'$set' : {'value' : datetime.datetime.now()}})
         return
 
     def importAllPlugins(self):
@@ -176,6 +193,7 @@ class Doberman(object):
         opts.queue = self.queue
         opts.path = self.path
         opts.plugin_paths = self.plugin_paths
+        opts.initialize = True
 
         # Try to import libraries
         try:

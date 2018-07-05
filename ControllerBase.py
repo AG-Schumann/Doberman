@@ -21,11 +21,10 @@ class Controller(object):
             for key, value in opts.additional_params.items():
                 setattr(self, key, value)
         self._connected = False
-        if opts.initialize:
-            if self._getControl() and self.checkController():
-                pass
-            else:
-                self.logger.error('Something went wrong during initialization...')
+        if opts.initialize and self._getControl():
+            pass
+        else:
+            self.logger.error('Something went wrong during initialization...')
 
     def connected(self):
         return self._connected
@@ -36,7 +35,7 @@ class Controller(object):
         """
         raise NotImplementedError()
 
-    def checkController(self):
+    def isThisMe(self, dev):
         """
         Makes sure the connected controller is the correct one
         """
@@ -50,7 +49,7 @@ class Controller(object):
         """
         raise NotImplementedError()
 
-    def SendRecv(self, message):
+    def SendRecv(self, message, dev=None):
         """
         General controller interface. Returns a dict with retcode -1 if controller not connected,
         -2 if there is an exception, (larger numbers also possible) and whatever data was read. Adds _msg_start and _msg_end
@@ -59,7 +58,7 @@ class Controller(object):
         raise NotImplementedError()
 
     def close(self):
-        self.logger.debug('Shutting down %s' % self.name)
+        #self.logger.debug('Shutting down %s' % self.name)
         self._connected = False
         self._device.close()
         return
@@ -87,22 +86,26 @@ class SerialController(Controller):
         self._device.timeout=3
         super().__init__(opts, logger)
 
-    def _getControl(self, ttyUSB=None):
-        if self.ttyUSB == -1 and ttyUSB is None:
+    def _getControl(self):
+        if self.ttyUSB == -1:
             self.logger.error('Could not find device: no ttyUSB')
             return False
-        self._device.port = '/dev/ttyUSB%i' % (self.ttyUSB if not ttyUSB else ttyUSB)
-        self._device.open()
+        self._device.port = '/dev/ttyUSB%i' % (self.ttyUSB)
+        try:
+            self._device.open()
+        except serial.SerialException as e:
+            self.logger.error('Problem opening %s: %s' % (self._device.port, e))
+            return False
         if not self._device.is_open:
             self.logger.error('Error while connecting to device')
             return False
         else:
             self._connected = True
-            self.logger.info('Successfully connected to device')
             return True
         return False
 
-    def SendRecv(self, message):
+    def SendRecv(self, message, dev=None):
+        device = dev if dev else self._device
         ret = {'retcode' : 0, 'data' : None}
         if not self._connected:
             self.logger.error('No controller connected, can\'t send message %s' % message)
@@ -110,10 +113,10 @@ class SerialController(Controller):
             return ret
         try:
             message = self._msg_start + str(message) + self._msg_end
-            self._device.write(message.encode())
+            device.write(message.encode())
             time.sleep(0.3)
-            if self._device.in_waiting:
-                ret['data'] = self._device.read(self._device.in_waiting).decode().rstrip()
+            if device.in_waiting:
+                ret['data'] = device.read(device.in_waiting).decode().rstrip()
         except serial.SerialException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
@@ -150,7 +153,7 @@ class LANController(Controller):
                 return True
         return False
 
-    def SendRecv(self, message):
+    def SendRecv(self, message, dev=None):
         ret = {'retcode' : 0, 'data' : None}
 
         if not self._connected:
