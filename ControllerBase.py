@@ -22,7 +22,7 @@ class Controller(object):
                 setattr(self, key, value)
         self._connected = False
         if opts.initialize and self._getControl():
-            pass
+            time.sleep(0.2)
         else:
             self.logger.error('Something went wrong during initialization...')
 
