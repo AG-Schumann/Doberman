@@ -33,14 +33,14 @@ class Teledyne(SerialController):
         resp = self.SendRecv(self.commands['read'])
         return resp
 
-    def SendRecv(self, command, dev):
+    def SendRecv(self, command):
         """
         The Teledyne has a more complex communication protocol, so we reimplement this
         method here to parse the output
         Sample output for a Read command (without \\r and split on \\n):
         ['*a*:r  ; ', 'READ:-0.007;0', '!a!o!']
         """
-        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command), dev)
+        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command))
         if val['retcode']:
             return val
         if not val['data']:

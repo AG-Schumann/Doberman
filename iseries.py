@@ -48,10 +48,12 @@ class iseries(SerialController):
 
     def Readout(self):
         val = self.SendRecv(self.commands['getDisplayedValue'])
+        if not val['data']:
+            self.logger.error('No data??')
         if self.commands['getDisplayedValue'] not in val['data']:
             self.logger.error('Device didn\'t echo correct command')
             val['data'] = -1
             return val
-        val['data'] = float(val['data'].split(self.commands['getDisplayedValue'][-1]))
+        val['data'] = float(val['data'].split(self.commands['getDisplayedValue'])[-1])
         return val
 
