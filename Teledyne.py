@@ -33,7 +33,7 @@ class Teledyne(SerialController):
         resp = self.SendRecv(self.commands['read'])
         return resp
 
-    def SendRecv(self, command, dev):
+    def SendRecv(self, command, dev=None):
         """
         The Teledyne has a more complex communication protocol, so we reimplement this
         method here to parse the output
