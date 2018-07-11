@@ -26,9 +26,14 @@ class smartec_uti(SerialController):
         self._msg_start = ''
         self._msg_end = '\r\n'
         super().__init__(opts, self.logger)
+
+    def _getControl(self):
+        if not super()._getControl():
+            return False
         self.SendRecv(self.commands['greet'])
         self.SendRecv(self.commands['setSlow'])
         self.SendRecv(self.commands['setMode%s' % int(self.mode)])
+        return True
 
     def isThisMe(self, dev):
         """

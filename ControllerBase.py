@@ -115,14 +115,14 @@ class SerialController(Controller):
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(0.3)
+            time.sleep(0.5)
             if device.in_waiting:
                 ret['data'] = device.read(device.in_waiting).decode().rstrip()
         except serial.SerialException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
             return ret
-        time.sleep(0.1)
+        time.sleep(0.2)
         return ret
 
 
