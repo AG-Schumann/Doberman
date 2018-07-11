@@ -57,7 +57,9 @@ class Doberman(object):
         self.logger.debug('tty settings last set %s, boot time %s' % (
             last_tty_update_time, boot_time))
         if boot_time > last_tty_update_time:
-            self.refreshTTY()
+            if not self.refreshTTY():
+                self.logger.fatal('Could not assign tty ports!')
+                return
         else:
             self.logger.debug('Not updating tty settings')
         self._config = self.DDB.getConfig()
@@ -132,15 +134,18 @@ class Doberman(object):
                     break
                 self.logger.debug('Not %s' % name)
                 time.sleep(0.5)  # devices are slow.....
+            else:
+                self.logger.error('Could not assign %s!' % tty)
             dev.close()
 
         if len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
+            return False
         else:
             self.DDB.updateDatabase('config','default_settings',
                     {'parameter' : 'tty_update'},
                     {'$set' : {'value' : datetime.datetime.now()}})
-        return
+        return True
 
     def importAllPlugins(self):
         '''

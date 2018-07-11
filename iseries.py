@@ -50,6 +50,7 @@ class iseries(SerialController):
         val = self.SendRecv(self.commands['getDisplayedValue'])
         if not val['data']:
             self.logger.error('No data??')
+            return val
         if self.commands['getDisplayedValue'] not in val['data']:
             self.logger.error('Device didn\'t echo correct command')
             val['data'] = -1
