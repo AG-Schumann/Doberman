@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 import _thread
 import datetime
 import pymongo
+import os.path
 import time
 from ast import literal_eval
 import alarmDistribution  # for test mail sending when address was changed
@@ -17,20 +18,20 @@ class DobermanDB(object):
 
     client = None
 
-    def __init__(self, opts, logger):
-        self.logger = logger
+    def __init__(self, opts):
+        self.logger = logging.getLogger(__name__)
         self.opts = opts
-        self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
+        #self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
         # Load database connection details
         try:
-            with open('Database_connectiondetails.txt', 'r') as f:
+            with open(os.path.join('settings','Database_connectiondetails.txt'), 'r') as f:
                 conn_details = eval(f.read())
         except Exception as e:
             self.logger.warning("Can not load database connection details. "
                                 "Trying default details. Error %s" % e)
             conn_details = {'host' : 'localhost', 'port' : 13178}
-        try:
-            self._connect(**conn_details)
+
+        self._connect(**conn_details)
         # load config details
         self._config = self.getConfig()
 
@@ -48,10 +49,10 @@ class DobermanDB(object):
         return
 
     @classmethod
-    def _connect(cls, host, port, username, password):
+    def _connect(cls, host, port, username=None, password=None):
         if cls.client:
             return
-        cls.client = pymongo.MongoClient(host=host, port=port, username=username, password=password)
+        cls.client = pymongo.MongoClient(host=host, port=port)#, username=username, password=password)
 
     def _check(self, db_name, collection_name):
         """
@@ -61,6 +62,7 @@ class DobermanDB(object):
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
         elif collection_name not in self.client[db_name].collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
+            self.client[db_name].create_collection(collection_name)
         return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
@@ -81,7 +83,7 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts=None, onlyone=False, projection={}):
+    def readFromDatabase(self, db_name, collection_name, cuts=None, onlyone=False, projection={'_id' : 0}):
         """
         Finds one or more documents that pass the specified cuts
         """
@@ -91,18 +93,16 @@ class DobermanDB(object):
         else:
             return collection.find(cuts, projection)
 
-    def updateDatabase(self, db_name, collection_name, cuts, updates, onlyone=True):
+    def updateDatabase(self, db_name, collection_name, cuts={}, updates={}, onlyone=True):
         """
         Updates documents that meet pass the specified cuts
         """
         collection = self._check(db_name, collection_name)
         if onlyone:
-            ret = collection.update(cuts, updates)
+            ret = collection.update_one(cuts, updates)
         else:
-            ret = collection.update(cuts, updates, {'multi' : True})
-        self.logger.debug('Updated %i documents in %s/%s' % (ret['nModified'], db_name, collection_name))
-        if ret['ok'] != 1:
-            return 1
+            ret = collection.update_many(cuts, updates)
+        self.logger.debug('Updated %i documents in %s/%s' % (ret.modified_count, db_name, collection_name))
         return 0
 
     def deleteFromDatabase(self, db_name, collection_name=None, which_document=None):
@@ -140,7 +140,7 @@ class DobermanDB(object):
         Writes the current config from the Database to the file configBackup.txt
         """
         try:
-            with open('configBackup.txt', 'w') as f:
+            with open(os.path.join('settings','configBackup.txt'), 'w') as f:
                 f.write("# Backup file of the config table in DobermanDB. "
                         "Updated: %s\n" % str(datetime.datetime.now()))
                 self.logger.info("Writing new config to configBackup.txt...")
@@ -157,7 +157,7 @@ class DobermanDB(object):
         Only use this if no connection to the database exists.
         """
         try:
-            with open(filename, 'r') as f:
+            with open(os.path.join('settings',filename), 'r') as f:
                 self.logger.info("Reading config from %s..." % filename)
                 configBackup = f.read()
         except Exception as e:
@@ -193,7 +193,7 @@ class DobermanDB(object):
                 self.logger.warning("Could not load contacts. Can not "
                                     "write contactsBackup.txt.")
                 return -1
-            with open('contactsBackup.txt', 'w') as f:
+            with open(os.path.join('settings','contactsBackup.txt'), 'w') as f:
                 f.write("# Backup file of the contacts table in DobermanDB. "
                         "Updated: %s" % str(datetime.datetime.now()))
                 for _,contact in self._contacts.items():
@@ -210,7 +210,7 @@ class DobermanDB(object):
         Only use this if no connection to the database exists.
         """
         try:
-            with open('contactsBackup.txt', 'r') as f:
+            with open(os.path.join('settings','contactsBackup.txt'), 'r') as f:
                 self.logger.info("Reading config from contactsBackup.txt...")
                 contactsBackup = f.read()
         except Exception as e:
@@ -223,6 +223,7 @@ class DobermanDB(object):
         self.logger.info("Contacts backup file dates from %s" %
                 (contactsBackup.splitlines()[0].split(": ")[1]))
         c_backup = {}
+        contactsBackup = contactsBackup[1:]  # strips first line with date
         for blob in contactsBackup.split('#')[:-1]:
             try:
                 c = eval(blob)
@@ -246,7 +247,6 @@ class DobermanDB(object):
         """
         Adds the current setting of a controller to the config history
         """
-        now = datetime.datetime.now()
         if self.insertIntoDatabase("logging","config_hist",
                 controller.update({'when' : datetime.datetime.now()})):
             self.logger.warning('Could not add %s to config history' % controller['name'])
@@ -269,18 +269,18 @@ class DobermanDB(object):
             else:
                 self.logger.warning("No controller with name '%s' "
                                     "found in DB" % str(name))
-        elif controller_config == -1:
+        elif controller == -1:
             self.logger.warning("Can not read from config table in DobermanDB. "
                                 "Database interaction error.")
             return -1
 
-        column_names = self.getConfigColumnNames()
         config_dict = {}
         if name=='all':
             # list of dicts
             for row in controller:
                 controller_name = row['name']
                 config_dict[controller_name] = row
+            return config_dict
         else:
             return controller
         return config_dict
@@ -508,13 +508,13 @@ class DobermanDB(object):
         while which != 'n':
             if which == 'status':
                 text = 'Controller %s: Status (ON/OFF):' % name
-                status = self.getUserInput(text, input_type=[str], be_in['ON','OFF','n'])
+                status = self.getUserInput(text, input_type=[str], be_in=['ON','OFF','n'])
                 if status != 'n':
                     controller['status'] = status
                     changes.append(which)
             elif which == 'alarm_status':
                 text = 'Controller %s: alarm status (ON/OFF, ON/OFF...):' % name
-                val = self.getUserInput(text, input_type=[str], be_in['ON','OFF'],
+                val = self.getUserInput(text, input_type=[str], be_in=['ON','OFF'],
                         be_array=True,exceptions=['n'])
                 if val != 'n':
                     controller[which] = self.adjustListLength(val, controller['number_of_data'], 'OFF', which)
@@ -528,23 +528,23 @@ class DobermanDB(object):
                     changes.append(which)
             elif which == 'readout_interval':
                 text = 'Controller %s readout interval (int):' % name
-                val = self.getUserInput(text, input_type[int, float], limits=[1, 86400], exceptions=['n'])
+                val = self.getUserInput(text, input_type=[int, float], limits=[1, 86400], exceptions=['n'])
                 if val != 'n':
                     controller[which] = val
                     changes.append(which)
             elif which == 'alarm_recurrence':
                 text = 'Controller %s alarm recurrence (# consecutive values past limits before issuing warning/alarm' % name
-                val = self.getUserInput(text, input_type[int], limits=[1,99], exceptions=['n'])
+                val = self.getUserInput(text, input_type=[int], limits=[1,99], exceptions=['n'])
                 if val != 'n':
                     controller[which] = self.adjustListLength(val, controller['number_of_data'], 1, which)
                     changes.append(which)
             else:
                 print('Can\'t change %s here' % which)
-            which = self.getUserInput('Parameter:', input_type=[str],be_in=controller.keys(),exceptions=['n'])
+            which = self.getUserInput('Parameter:', input_type=[str],be_in=list(controller.keys()),exceptions=['n'])
 
         if changes:
             updates = {'$set' : {key, controller[key]} for key in changes}
-            if self.updateDatabase('config','controllers',cuts={'name' : name}, updates):
+            if self.updateDatabase('config','controllers',cuts={'name' : name}, updates=updates):
                 self.logger.error('Could not update controller %s' % name)
 
         print(60 * '-')
@@ -567,7 +567,7 @@ class DobermanDB(object):
             return
         y, Y = 'y', 'Y'
         n, N = 'n', 'N'
-        existing_names = list(self._config.keys()) #[dev[0] for dev in self._config]
+        existing_names = list(self._config.keys())
         # Ask for controller to delete and confirmation.
         text = ("\nEnter the name of the controller you would like to remove "
                 "from config:")
@@ -575,35 +575,33 @@ class DobermanDB(object):
                                  input_type=[str],
                                  be_in=existing_names)
         text = ("Do you really want to remove %s from the config table? (y/n) "
-                "This can not be reverted." % name)
+                "THIS CANNOT BE UNDONE." % name)
         confirmation = self.getUserInput(text,
                                          input_type=[str],
                                          be_in=[y, Y, n, N])
         if confirmation not in [y, Y]:
             return 0
         # Delete from the database
-        delete_str = ("DELETE FROM config WHERE CONTROLLER = '%s'" % name)
-        if self.interactWithDatabase(delete_str) == -1:
-            self.logger.warning("Can not remove '%s' from config. Database "
+        if self.deleteFromDatabase('config','controllers',{'name' : name}):
+            self.logger.warning("Can not remove %s from config. Database "
                                 "interaction error." % name)
             return -1
         self.logger.info(
-            "Successfully removed '%s' from the config table." % name)
+            "Successfully removed %s from the config table." % name)
         # Ask for deleting data table as well.
-        text = ("\nDo you also want to delete the data table of '%s'? (y/n)? "
-                "All stored data in 'Data_%s' will be lost." % (name, name))
+        text = ("\nDo you also want to delete the data table of %s? (y/n)? "
+                "All stored data will be lost." % (name))
         drop_table = self.getUserInput(text,
                                        input_type=[str],
                                        be_in=[y, Y, n, N])
         if drop_table not in [y, Y]:
             return 0
         # Delete data table in the database.
-        delete_str = "TRUNCATE Data_%s" % name
-        if self.interactWithDatabase(delete_str) == -1:
+        if self.deleteFromDatabase('data', name):
             self.logger.warning(
-                "Can not delete Data_%s. Database interaction error." % name)
+                "Can not delete data from %s. Database interaction error." % name)
             return -1
-        self.logger.info("Successfully deleted all data from Data_%s." % name)
+        self.logger.info("Successfully deleted all data from %s." % name)
 
     def recreateTableDefaultSettings(self, force_to=False):
         """
@@ -619,28 +617,23 @@ class DobermanDB(object):
                                            be_in=[y, Y, n, N])
             if user_input not in ['Y', 'y']:
                 return
-        drop_str = "DROP TABLE IF EXISTS default_settings"
-        create_str = ("CREATE TABLE IF NOT EXISTS default_settings "
-                      "(_id SERIAL PRIMARY KEY, "
-                      "PARAMETER TEXT, VALUE TEXT, DESCRIPTION TEXT)")
-        if self.interactWithDatabase(drop_str, additional_actions=[create_str]) == -1:
-            self.logger.warning("Can not crate 'default_settings' "
-                                "table in database.")
-            return -1
+        self.deleteFromDatabase('config', collection_name='default_settings')
+        default_settings = None
         # Fill with standard defaults:
-        # load from file?
-        default_list = [["Warning_Repetition", "10", "Min. time [min] between two warnings."],
-                        ["Alarm_Repetition", "5", "Min. time [min] between two alarms."],
-                        ["Testrun", "2", "Time [min] after start until a alarm/warning can be sent."],
-                        ["Loglevel", "20", "Logging output level (10=Debug, 20=Info,...)."],
-                        ["Importtimeout", "10", "Max. time [s] to import a plugin."],
-                        ["Queue_size", "150", "Critical queue size to report error."]]
-        for item in default_list:
-            add_str = ("INSERT INTO default_settings (PARAMETER, VALUE, DESCRIPTION) "
-                       " VALUES ('%s', '%s', '%s')" % (item[0], item[1], item[2]))
-            if self.interactWithDatabase(add_str) == -1:
-                self.logger.error("Can not add '%s' to "
-                                  "'default_settings' table." % item[0])
+        with open(os.path.join('settings','default_settings.txt'),'r') as f:
+            default_settings = f.read()
+        if not default_settings:
+            self.logger.error('Could not read default settings from file!')
+            return -1
+        try:
+            default_settings = eval(default_settings)
+        except Exception as e:
+            self.logger.error('Could not parse default settings: %s' % e)
+            return -1
+        if self.insertIntoDatabase('config','default_settings',default_settings):
+            self.logger.error("Error recreating default_settings in database")
+            return -1
+        return 0
 
     def updateDefaultSettings(self):
         """
@@ -651,24 +644,19 @@ class DobermanDB(object):
             return -1
         q, Q = 'q', 'q'
         print("\nThe following Doberman settings are stored:")
-        for ii, item in enumerate(settings):
-            print(ii, ": ", item)
+        for k, v in settings.items():
+            print('%s: %s' % (k, v))
         while True:
-            text= ("\nEnter number of entry you would like to change or 'q' "
+            text= ("\nEnter name of entry you would like to change or 'q' "
                    "to quit.")
-            user_input = self.getUserInput(text,
-                                           input_type=[int],
-                                           be_in=list(range(len(settings))),
-                                           exceptions = [q, Q])
-            if user_input == q:
+            key = self.getUserInput(text,
+                                    input_type=[str],
+                                    be_in=list(settings.keys()),
+                                    exceptions = [q, Q])
+            if key in [q, Q]:
                 break
-            ii = user_input
-            text = ("Enter new value for %s (%s)." % (settings[ii][0], settings[ii][2]))
-            if settings[ii][0] == "Occupied_ttyUSB":
-                be_array = True
-                input_type = [int]
-                be_in = None
-            elif settings[ii][0] == "Loglevel":
+            text = ("Enter new value for %s (%s)." % (user_input))
+            if user_input == "loglevel":
                 input_type = [int]
                 be_in = [0, 10, 20, 30, 40, 50]
                 be_array = False
@@ -676,46 +664,43 @@ class DobermanDB(object):
                 input_type = [int]
                 be_in = None
                 be_array = False
-            user_input = self.getUserInput(text,
-                                           input_type=input_type,
-                                           be_in=be_in,
-                                           be_array=be_array)
-            update_str = ("UPDATE default_settings SET VALUE = '%s' WHERE "
-                          "PARAMETER = '%s'" % (str(user_input),
-                                                settings[ii][0]))
-            if self.interactWithDatabase(update_str) != -1:
-                self.logger.info("Updated %s." % settings[ii][0])
-        print("Quitting... New settings are:")
+            value = self.getUserInput(text,
+                                      input_type=input_type,
+                                      be_in=be_in,
+                                      be_array=be_array)
+            if self.updateDatabase('config','default_settings',cuts={'parameter' : key},
+                    update = {'$set' : {'value' : value}}):
+                self.logger.error('Could not update %s' % key)
+            else:
+                self.logger.info("Updated %s." % key)
+        print("New settings are:")
         newsettings = self.getDefaultSettings()
-        for ii, item in enumerate(list(newsettings)):
-            print(ii, ": ", item)
+        for k,v in newsettings.items():
+            print('%s: %s' % (k,v))
         return
 
     def getDefaultSettings(self, name=None):
         """
         Reads default Doberman settings from database.
-        Returns as list with [Parameter, Value] both as strings
-        Reading with name only works for int!
+        Returns a dict
         """
-        if "default_settings" not in str(self.getAllTableNames()):
-            print("Default settings do not exist. "
-                  "Trying to crate...")
-            self.recreateTableDefaultSettings()
-        get_str = "SELECT * from default_settings"
-        settings = self.interactWithDatabase(get_str, readoutput=True)
-        if settings == -1:
-            self.logger.warning("Unable to read default settings.")
+        cursor = self.readFromDatabase('config','default_settings')
+        if cursor.count() == 0:
+            self.logger.warning('Unable to read default settings')
             return -1
+        settings = {}
+        for row in cursor:
+            if row['parameter'] == 'tty_update':
+                settings[row['parameter']] = row['value']
+            else:
+                settings[row['parameter']] = int(row['value'])
         if not name:
             return settings
         else:
             try:
-                settings = [int(s[1]) for s in settings if s[0] == name][0]
-            except IndexError as e:
-                self.logger.error("Can not read default settings. %s "
-                                  "Refreshing default settings... "
-                                  "All values are set back to default." %e)
-                self.recreateTableDefaultSettings(force_to=True)
+                settings = settings[name]
+            except KeyError as e:
+                self.logger.error("Can not read default setting %s: %s" % (name, e))
             except Exception as e:
                 self.logger.error("Can not read defaut settings. %s" % e)
                 return -1
@@ -726,17 +711,19 @@ class DobermanDB(object):
         Reads contacts from database.
         """
         if not status:
-            contacts = readFromDatabase('config','contacts')
+            cursor = self.readFromDatabase('config','contacts')
         else:
-            contacts = readFromDatabase('config','contacts', cuts={'status' : status})
-        if not contacts:
-            self.logger.warning(
-                "No contacts found (with status %s)" % str(status))
+            cursor = self.readFromDatabase('config','contacts', cuts={'status' : status})
+        if cursor.count() == 0:
+            self.logger.warning("No contacts found (with status %s)" % str(status))
             contacts = {}
-        elif contacts == -1:
+        elif cursor == -1:
             self.logger.warning("Can not read from contact table in database. "
                                 "Database interaction error.")
             return -1
+        contacts = []
+        for row in cursor:
+            contacts.append(row)
         return contacts
 
     def getContacts(self, status=None):
@@ -746,7 +733,7 @@ class DobermanDB(object):
         If no connection to database, it reads from the backup.
         """
         contacts = self.readContacts(status)
-        if contacts == -1:
+        if not contacts or contacts == -1:
             contacts = self.getContactsFromBackup(status)
             if contacts == -1:
                 return -1
@@ -787,15 +774,15 @@ class DobermanDB(object):
                     "It can be 'ON' (all notifications), "
                     "'OFF' (no notifications), 'MAIL' (only by email), "
                     "'TEL' (only by phone)." % name)
-            status = self.getUserInput(text,
-                                       input_type=[str],
-                                       be_in=['ON', 'OFF', 'MAIL', 'TEL', 'n'])
-            if status != 'n':
-                original_contact['status'] = status
-                if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']},
-                        update={'$set' : {'status' : status}}):
-                    self.logger.error()
-                    return -1
+        status = self.getUserInput(text,
+                                    input_type=[str],
+                                    be_in=['ON', 'OFF', 'MAIL', 'TEL', 'n'])
+        if status != 'n':
+            original_contact['status'] = status
+            if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']},
+                    update={'$set' : {'status' : status}}):
+                self.logger.error()
+                return -1
         return 0
 
     def sendMailTest(self, name, address, status):
@@ -836,11 +823,11 @@ class DobermanDB(object):
           >9 = Alarm
         """
 
-        if self.insertIntoDatabase('data', name, {'when' : time, 'data' : data, 'status' : status}):
+        if self.insertIntoDatabase('data', name, {'when' : when, 'data' : data, 'status' : status}):
             self.logger.warning("Can not write data from %s to Database. "
                                 "Database interaction error." % name)
             return -1
-        if logger.getEffectiveLevel() > 15:
+        if self.logger.getEffectiveLevel() > 15:
             self.logger.info("Stored %i values from %s" % (len(data), name))
         else:
             self.logger.debug("Stored values from %s: %s" % (name, data))
@@ -861,8 +848,8 @@ class DobermanDB(object):
          'alarm_recurrence' : 10,
          'description' : ['one sensor', 'different sensor'],
          'number_of_data' : 2,
-         'addresses' : {'vendorID' : '2303',
-                        'productID' : '067b'
+         'addresses' : {'serialID' : '2303',
+                        'ttyUSB' : '-1'
                        },
          'additional_parameters' : ''
         }
@@ -952,97 +939,3 @@ class DobermanDB(object):
                 raise IOError("Dababase interaction error!")
         return
 
-
-if __name__ == '__main__':
-    parser = ArgumentParser(
-        usage='%(prog)s [options] \n\n Program to access Doberman database.')
-    parser.add_argument("-d", "--debug",
-                        dest="loglevel",
-                        type=int,
-                        help="Switch to loglevel debug.",
-                        default=20)
-    parser.add_argument("-n", "--new",
-                        action="store_true",
-                        dest="new",
-                        help="(Re)Create table config (plugin settings), "
-                             "config_history and contact.",
-                        default=False)
-    parser.add_argument("-a", "--add",
-                        action="store_true",
-                        dest="add",
-                        help="Add controller",
-                        default=False)
-    parser.add_argument("-u", "--update",
-                        action="store_true",
-                        dest="update",
-                        help="Update main settings of a controller.",
-                        default=False)
-    parser.add_argument("-uu", "--update_all",
-                        action="store_true",
-                        dest="update_all",
-                        help="Update all settings of a controller.",
-                        default=False)
-    parser.add_argument("-r", "--remove",
-                        action="store_true",
-                        dest="remove",
-                        help="Remove an existing controller from the settings.",
-                        default=False)
-    parser.add_argument("-c", "--contacts",
-                        action="store_true",
-                        dest="contacts",
-                        help="Manage contacts "
-                             "(add new contact, change or delete contact).",
-                        default=False)
-    parser.add_argument("-ud", "--update_defaults",
-                        action="store_true",
-                        dest="defaults",
-                        help="Update default Doberman settings "
-                             "(e.g. loglevel, importtimeout,...).",
-                        default=False)
-    opts = parser.parse_args()
-
-    logger = logging.getLogger()
-    if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of 10" % opts.loglevel)
-    logger.setLevel(int(opts.loglevel))
-
-    chlog = logging.StreamHandler()
-    chlog.setLevel(int(opts.loglevel))
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
-                                  '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
-    opts.logger = logger
-
-    DDB = DobermanDB(opts, logger)
-    try:
-        if opts.add:
-            DDB.addControllerByKeyboard()
-        opts.add = False
-
-        if opts.update or opts.update_all:
-            DDB.changeControllerByKeyboard(opts.update_all)
-        opts.update = False
-
-        if opts.remove:
-            DDB.removeControllerFromConfig()
-        opts.update = False
-
-        if opts.contacts:
-            DDB.updateContactsByKeyboard()
-        opts.contacts = False
-
-        if opts.defaults:
-            DDB.updateDefaultSettings()
-
-    except KeyboardInterrupt:
-        print("\nUser input aborted! Check if your input changed anything.")
-
-    if opts.new:
-        DDB.recreateTableConfigHistory()
-        DDB.recreateTableAlarmHistory()
-        DDB.recreateTableConfig()
-        DDB.recreateTableContact()
-        DDB.recreateTableDefaultSettings()
-    opts.new = False

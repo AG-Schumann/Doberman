@@ -1,4 +1,4 @@
-from Doberman.Controller import LANController
+from ControllerBase import LANController
 import logging
 
 
@@ -7,8 +7,8 @@ class cryocon_22c(LANController):
     Cryogenic controller
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(__name__)
-        self.__msg_end = '\n'
+        self.logger = logging.getLogger(opts.name)
+        self._msg_end = '\n'
         self.commands = { # these are not case sensitive
                 'identify' : '*idn?',
                 'getTempA' : 'input? a:units k',
@@ -20,34 +20,19 @@ class cryocon_22c(LANController):
                 'setTempAUnits' : 'input a:units k',
                 'settempBUnits' : 'input b:units k',
                 }
-        super().__init__(opts)
+        super().__init__(opts, self.logger)
 
-    def checkController(self):
-        val = self.SendRecv(self.commands['identify'])
-        if val['retcode']:
-            self.logger.error('Could not check controller identity')
-            return -1
-        self.logger.debug('Device answered %s' % val['data'])
-        try:
-            mfg, model, srl, fw = val['data'].split(',')
-        except ValueError:
-            self.logger.error('Controller didn\'t send expected response: %s' % val['data'])
-            return -2
-        if mfg != 'Cryo-con' and model != '22C':
-            self.logger.error('Didn\'t connect to the correct device? Mfg %s, model %s' % (mfg, model))
-            return -2
-        else:
-            self.SendRecv(self.commands['SetTempAUnits'])
-            self.SendRecv(self.commands['SetTempBUnits'])
-            self.logger.info('Connected to controller successfully')
-            return 0
+    def isThisMe(self, dev):
+        return True  # don't have the same problems with LAN controllers
 
     def Readout(self):
         resp = []
+        stats = []
         for com in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']:
             val = self.SendRecv(self.commands[com])
             if val['retcode']:
-                return {'retcode' : -1, 'data' : resp}
+                resp.append(-1)
+                stats.append(val['retcode'])
             else:
                 try:
                     if 'SP' in com:
@@ -56,10 +41,12 @@ class cryocon_22c(LANController):
                         resp.append(float(val['data'].replace('%','')))
                     else:
                         resp.append(float(val['data']))
+                    stats.append(0)
                 except ValueError:
                     resp.append(-1.0)
+                    stats.append(-2)
                 except Exception as e:
                     self.logger.error('Could not read device! Error: %s' % e)
                     return {'retcode' : -2, 'data' : None}
-        return {'retcode' : 0, 'data' : resp}
+        return {'retcode' : stats, 'data' : resp}
 
