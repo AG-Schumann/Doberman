@@ -13,9 +13,15 @@ import sys
 from argparse import ArgumentParser
 import signal
 import atexit
-import Plugin
+from Plugin import Plugin
+import psutil
+import importlib
+import importlib.machinery
+from importlib.machinery import PathFinder
+from subprocess import Popen, PIPE, TimeoutExpired
+import serial
 
-__version__ = 2.0.0
+__version__ = '2.0.0'
 
 class options(object):
     pass
@@ -40,14 +46,23 @@ class Doberman(object):
         self.logger = logging.getLogger(__name__)
 
         self.queue = queue.Queue(0)
+        opts.queue = self.queue
         self.path = os.getcwd()  # Gets path to the folder of this file
 
         self.DDB = DobermanDB.DobermanDB(opts)
 
+        self.plugin_paths = ['.']
+        last_tty_update_time = self.DDB.getDefaultSettings('tty_update')
+        boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
+        self.logger.debug('tty settings last set %s, boot time %s' % (
+            last_tty_update_time, boot_time))
+        if boot_time > last_tty_update_time:
+            self.refreshTTY()
+        else:
+            self.logger.debug('Not updating tty settings')
         self._config = self.DDB.getConfig()
         self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
 
-        self.plugin_search_paths = ['./Plugins']
         self.imported_plugins = self.importAllPlugins()
         self._running_controllers = self.startAllControllers()
         if self._running_controllers == -1:  # No controller was started
@@ -55,6 +70,77 @@ class Doberman(object):
             return
         self.observationThread = observationThread(
             self.opts, self._config, self._running_controllers)
+
+    def refreshTTY(self):
+        """
+        Brute-force matches sensors to ttyUSB assignments by trying
+        all possible combinations, and updates the database
+        """
+        self.DDB.updateDatabase('config','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
+        self.logger.info('Refreshing ttyUSB mapping...')
+        proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
+        try:
+            out, err = proc.communicate(timeout=5)
+        except TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        if not len(out) or len(err):
+            raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
+        ttyUSBs = out.decode().splitlines()
+        cursor = self.DDB.readFromDatabase('config','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+        sensor_config = {}
+        for row in cursor:
+            sensor_config[row['name']] = row
+        sensor_names = list(sensor_config.keys())
+        sensors = {name: None for name in sensor_names}
+        matched = {'sensors' : [], 'ttys' : []}
+        for sensor in sensor_names:
+            opts = options()
+            for key, value in sensor_config[sensor].items():
+                setattr(opts, key, value)
+            plugin_name = sensor.rstrip('0123456789')
+            opts.initialize = False
+
+            spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
+            if spec is None:
+                raise FileNotFoundError('Could not find a controller named %s' % plugin_name)
+            try:
+                controller = getattr(spec.loader.load_module(), plugin_name)(opts)
+            except Exception as e:
+                raise FileNotFoundError('Could not load controller %s: %s' % (plugin_name, e))
+            sensors[sensor] = controller
+
+        dev = serial.Serial()
+        for tty in ttyUSBs:
+            tty_num = int(tty.split('USB')[-1])
+            self.logger.debug('Checking %s' % tty)
+            dev.port = tty
+            try:
+                dev.open()
+            except serial.SerialException as e:
+                self.logger.error('Could not connect to %s: %s' % (tty, e))
+                continue
+            for name, sensor in sensors.items():
+                if name in matched['sensors']:
+                    continue
+                if sensor.isThisMe(dev):
+                    self.logger.debug('Matched %s to %s' % (tty_num, name))
+                    matched['sensors'].append(name)
+                    matched['ttys'].append(tty_num)
+                    self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                    dev.close()
+                    break
+                self.logger.debug('Not %s' % name)
+                time.sleep(0.5)  # devices are slow.....
+            dev.close()
+
+        if len(matched['sensors']) != len(sensors):
+            self.logger.error('Didn\'t find the expected number of sensors!')
+        else:
+            self.DDB.updateDatabase('config','default_settings',
+                    {'parameter' : 'tty_update'},
+                    {'$set' : {'value' : datetime.datetime.now()}})
+        return
 
     def importAllPlugins(self):
         '''
@@ -75,14 +161,13 @@ class Doberman(object):
         imported_plugins = {}
         for device in self._config:
             controller = self._config[device]
-            name = controller['controller']
+            name = controller['name']
             status = controller['status']
             if status != 'ON':
-                self.logger.debug("Plugin '%s' is not imported as its status"
-                                    " is '%s'", name, status)
+                self.logger.debug("Not importing %s as its status is %s", name, status)
                 continue
             else:
-                plugin = self.importPlugin(device)
+                plugin = self.importPlugin(controller)
                 if plugin not in [-1, -2]:
                     imported_plugins[device] = plugin
                 else:
@@ -105,16 +190,17 @@ class Doberman(object):
             setattr(opts, key, value)
 
         opts.queue = self.queue
-        opts.path = os.getcwd()
+        opts.path = self.path
         opts.plugin_paths = self.plugin_paths
+        opts.initialize = True
 
         # Try to import libraries
         try:
             plugin = Plugin(opts)
         except Exception as e:
-            self.logger.error("Can not add '%s'. %s " % (name, e))
+            self.logger.error("Can not add '%s'. %s " % (controller['name'], e))
             return -1
-        self.logger.debug("Imported plugin '%s'" % name)
+        self.logger.debug("Imported plugin '%s'" % controller['name'])
         return plugin
 
     def startPlugin(self, plugin):
@@ -143,12 +229,12 @@ class Doberman(object):
             return -1
         if self._config == "EMPTY":
             return -1
-        for name, plugin in self.imported_plugins.items()
+        for name, plugin in self.imported_plugins.items():
             # Try to start the plugin.
             self.logger.debug("Trying to start device '%s' ..." % name)
             started = False
             self.started = False
-            start_new_thread(self.startPlugin, plugin)
+            start_new_thread(self.startPlugin, (plugin,))
             time.sleep(0.5)  # Makes sure the plugin has time to react.
             if self.started:
                 running_controllers.append(name)
@@ -238,7 +324,7 @@ class Doberman(object):
         try:
             for plugin in self.imported_plugins:
                 try:
-                    getattr(plugin, "close")()
+                    getattr(self.imported_plugins[plugin], "close")()
                 except Exception as e:
                     self.logger.warning("Can not close plugin '%s' properly. "
                                         "Error: %s" % (plugin, e))
@@ -283,7 +369,7 @@ class observationThread(threading.Thread):
         self.stopped = False
         threading.Thread.__init__(self)
         self.Tevent = threading.Event()
-        self.waitingTime = 5
+        self.waitingTime = 6
         self.DDB = DobermanDB.DobermanDB(opts)
         self.alarmDistr = alarmDistribution.alarmDistribution(opts)
         self.lastMeasurementTime = {name : datetime.datetime.now()
@@ -292,13 +378,15 @@ class observationThread(threading.Thread):
                                for name in self._config}
         self.lastWarningTime = {name : datetime.datetime.now()
                                  for name in self._config}
-        self.recurrence_counter = {name : [0]*val['number_of_data']
+        self.recurrence_counter = {name : [0]*int(val['number_of_data'])
                                     for name, val in self._config.items()}
-        self.critical_queue_size = DDB.getDefaultSettings(name="Queue_size")
+        self.critical_queue_size = DDB.getDefaultSettings(name="queue_size")
         if self.critical_queue_size < 5:
             self.critical_queue_size = 150
 
     def run(self):
+        self.logger.debug('Observation thread starting')
+        ohshit = False
         while not self.stopped:
             while not self.queue.empty():
                 # Makes sure that the processing doesn't get too much behind.
@@ -311,8 +399,9 @@ class observationThread(threading.Thread):
                                "to the queue!" % str(self.critical_queue_size))
                     self.logger.error(message)
                     self.critical_queue_size = self.critical_queue_size * 1.5
-                    self.waitingTime = self.waitingTime / 2
-                    self.sendWarning(name="Doberman", message=message, index=None)
+                    self.waitingTime /= 2
+                    self.sendMessage(name="Doberman", msg=message, index=None, howbad='warning')
+                    ohshit = True
                 # Do the work
                 job = self.queue.get()
                 if len(job) < 2:
@@ -320,8 +409,10 @@ class observationThread(threading.Thread):
                     continue
                 self.logger.info("Processing data from %s" % job[0])
                 self.processData(job)
-            if self.queue.empty():
-                self.critical_queue_size = DDB.getDefaultSettings(name="Queue_size")
+            if ohshit and self.queue.empty():
+                ohshit = False
+                self.waiting_time *= 2
+                self.critical_queue_size = DDB.getDefaultSettings(name="queue_size")
                 if self.critical_queue_size < 5:
                     self.critical_queue_size = 150
                 self.logger.debug("Queue empty. Updating Plugin settings (config)...")
@@ -338,7 +429,7 @@ class observationThread(threading.Thread):
         """
         if self.checkData(*chunk):
             return -1
-        if self.writeData(*chunk)
+        if self.writeData(*chunk):
             return -2
 
     def updateConfig(self):
@@ -357,13 +448,13 @@ class observationThread(threading.Thread):
         """
         Writes data to a database/file
         Status:
-         0 = OK,
-         -1 = no connection,
-          -2 = No error status available,
-          1-9 = warning
-          > 9 = alarm
+        0 = OK,
+        -1 = no connection,
+        -2 = communication error,
+        1 = warning
+        2 = alarm
         """
-        self.log.debug('Writing data from %s to database...' % name)
+        self.logger.debug('Writing data from %s to database...' % name)
         if self.DDB.writeDataToDatabase(name, logtime, data, status):
             self.logger.error('Could not write data from %s to database' % name)
             return -1
@@ -400,6 +491,7 @@ class observationThread(threading.Thread):
                             'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
                         self.recurrence_counter[name][i] += 1
+                        status[i] = 2
                         if self.recurrence_counter[name][i] >= device['recurrence']:
                             msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
                                 i, name, desc[i], data[i], alow[i], ahigh[i])
@@ -410,6 +502,7 @@ class observationThread(threading.Thread):
                                                       number_of_recipients=num_recip)
                             self.recurrence_counter[name][i] = 0
                     elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
+                        status[i] = 1
                         self.recurrence_counter[name][i] += 1
                         if self.recurrence_counter[name][i] >= device['recurrence']:
                             msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
@@ -522,7 +615,6 @@ class timeout:
     def __exit__(self, type, value, traceback):
         signal.alarm(0)
 
-
 def deleteLockFile(lockfilePath):
     os.remove(lockfilePath)
 
@@ -532,18 +624,18 @@ if __name__ == '__main__':
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logging.getLogger()
     logger.setLevel(20)
-    chlog = logging.StreamHandler()
-    chlog.setLevel(20)
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
+    #chlog = logging.StreamHandler()
+    #chlog.setLevel(20)
+    logging.basicConfig(format='%(levelname)s:%(asctime)s:%(name)s:'
                                   '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
+    #chlog.setFormatter(formatter)
+    #logger.addHandler(chlog)
     opts = logger
-    DDB = DobermanDB.DobermanDB(opts, logger)
+    DDB = DobermanDB.DobermanDB(opts)
     defaults = DDB.getDefaultSettings()
     # START PARSING ARGUMENTS
     # RUN OPTIONS
-    import_default = DDB.getDefaultSettings(name='Importtimeout')
+    import_default = DDB.getDefaultSettings(name='import_timeout')
     if import_default < 1:
         import_default = 1
     parser.add_argument("-i",
@@ -552,7 +644,7 @@ if __name__ == '__main__':
                         type=int,
                         help="Set the timout for importing plugins.",
                         default=import_default)
-    testrun_default = DDB.getDefaultSettings(name='Testrun')
+    testrun_default = DDB.getDefaultSettings(name='testrun')
     parser.add_argument("-t", "--testrun",
                         dest='testrun',
                         nargs='?',
@@ -563,7 +655,7 @@ if __name__ == '__main__':
                               "for the time value given "
                               "(in minutes. e.g. -t=5: first 5 min) "
                               "or forever if no value is given."))
-    loglevel_default = DDB.getDefaultSettings(name='Loglevel')
+    loglevel_default = DDB.getDefaultSettings(name='loglevel')
     if loglevel_default%10 != 0:
         loglevel_default = 20
     parser.add_argument("-d", "--debug", dest="loglevel",
@@ -626,19 +718,19 @@ if __name__ == '__main__':
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
     # Loglevel option
-    logger.removeHandler(chlog)
-    logger = logging.getLogger()
+    #logger.removeHandler(chlog)
+    #logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
         print("ERROR: Given log level %i not allowed. "
               "Fall back to default value of " % loglevel_default)
         opts.loglevel = loglevel_default
     logger.setLevel(int(opts.loglevel))
-    chlog = logging.StreamHandler()
-    chlog.setLevel(int(opts.loglevel))
-    formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
-                                  '%(funcName)s:%(lineno)d:%(message)s')
-    chlog.setFormatter(formatter)
-    logger.addHandler(chlog)
+    #chlog = logging.StreamHandler()
+    #chlog.setLevel(int(opts.loglevel))
+    #formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
+    #                              '%(funcName)s:%(lineno)d:%(message)s')
+    #chlog.setFormatter(formatter)
+    #logger.addHandler(chlog)
     opts.logger = logger
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
@@ -661,7 +753,7 @@ if __name__ == '__main__':
         DDB.recreateTableAlarmHistory()
         DDB.recreateTableConfig()
         DDB.recreateTableContact()
-    if opts.add or opts.update or opts.update_all or opts.remove or opts.contacts or opts.new or opts.defaults:
+    if opts.update or opts.remove or opts.contacts or opts.new or opts.defaults:
         text = ("Database updated. "
                 "Do you want to start the Doberman slow control now (Y/N)?")
         answer = DDB.getUserInput(text, input_type=[str], be_in=[Y, y, N, n])
@@ -697,12 +789,6 @@ if __name__ == '__main__':
         print("ERROR: Importtimeout to small. "
               "Fall back to default value of %d s" % import_default)
         opts.importtimeout = import_default
-    # Occupied ttyUSB option -o
-    with open("ttyUSB_assignement.txt", "w") as f:
-        # Note that this automatically overwrites the old file.
-        f.write("# ttyUSB | Device\n")
-        for occupied_tty in opts.occupied_ttyUSB:
-            f.write("    %d    |'Predefined unknown device'\n" % occupied_tty)
     # Filereading option -f
     if opts.filereading:
         print("WARNING: opt -f enabled: Reading Plugin Config from file"

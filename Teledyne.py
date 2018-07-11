@@ -1,4 +1,4 @@
-from Doberman.Controller import SerialController
+from ControllerBase import SerialController
 import logging
 
 
@@ -7,46 +7,40 @@ class Teledyne(SerialController):
     Teledyne flow controller
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(__name__)
-        self._basecommand = 'a{command}'
+        self.logger = logging.getLogger(opts.name)
+        self._basecommand = '{addr}{cmd}'
         self.device_address = 'a'  # changeable, but default is a
-        self.__msg_end = '\r\n'
+        self._msg_end = '\r\n'
         self.commands = {
                 'getAddress' : 'add?',
                 'read' : 'r',
                 'getSetpointMode' : 'spm?',
                 'getUnit' : 'uiu?',
                 }
-        super().__init__(opts)
+        super().__init__(opts, self.logger)
 
-    def checkController(self):
-        resp = self.SendRecv(self.commands['getAddress'])
-        if resp['retval']:
+    def isThisMe(self, dev):
+        resp = self.SendRecv(self.commands['getAddress'], dev)
+        if resp['retcode']:
             self.logger.error('Error checking controller')
-            self.__connected = False
-            return -1
+            self._connected = False
+            return False
         if self.device_address != resp['data']:
-            self.logger.error('Addresses don\'t match somehow, expected %s got %s' % (
-                self.device_address, resp['data']))
-            return -2
-        self.logger.info('Connected to %s correctly' % self.name)
-        self.add_ttyUSB()
-        return 0
+            return False
+        return True
 
     def Readout(self):
-        command = self._basecommand.format(command = self.commands['read'])
-        return self.SendRecv(command)
+        resp = self.SendRecv(self.commands['read'])
+        return resp
 
-    def SendRecv(self, command):
+    def SendRecv(self, command, dev):
         """
         The Teledyne has a more complex communication protocol, so we reimplement this
         method here to parse the output
         Sample output for a Read command (without \\r and split on \\n):
         ['*a*:r  ; ', 'READ:-0.007;0', '!a!o!']
         """
-        message = self.__msg_start + self._basecommand.format(address = self.device_address,
-                    command = command) + self.__msg_end
-        val = super().SendRecv(command)
+        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command), dev)
         if val['retcode']:
             return val
         if not val['data']:
@@ -61,7 +55,7 @@ class Teledyne(SerialController):
             return val
 
         echo = reply[0].rstrip('; ')
-        if echo != '*{c}*:%s' % (self.device_address, command):
+        if echo != '*{c}*:{s}'.format(c=self.device_address, s=command):
             self.logger.error('Didn\'t echo the right command: %s' % echo)
             val['retcode'] = -5
             return val
@@ -73,10 +67,10 @@ class Teledyne(SerialController):
             return val
 
         data = reply[1].split(':')
-        self.logger.debug('Got %s data' % data)
-        if data[0] == 'ADDR':
-            val['data'] = data[1].lstrip()
-        elif data[0] == 'READ':
+        #self.logger.debug('Got %s data' % data)
+        if data[0] == 'READ':
             val['data'] = float(data[1].split(';')[0])
-
+        elif data[0] == 'ADDR':
+            val['data'] = data[1].lstrip()
         return val
+

@@ -35,7 +35,7 @@ class alarmDistribution(object):
         """
         try:
             connection_details = []
-            with open("Mail_connectiondetails.txt", "r") as f:
+            with open("settings/Mail_connectiondetails.txt", "r") as f:
                 for line in f:
                     if not line or line == '\n':
                         continue
@@ -62,7 +62,7 @@ class alarmDistribution(object):
         """
         try:
             connection_details = []
-            with open("SMS_connectiondetails.txt", "r") as f:
+            with open("settings/SMS_connectiondetails.txt", "r") as f:
                 for line in f:
                     if not line or line == '\n':
                         continue
