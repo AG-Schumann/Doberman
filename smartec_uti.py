@@ -10,9 +10,10 @@ class smartec_uti(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(opts.name)
         self.commands = {
                 'greet' : '@',
+                'help' : '?',
                 'setSlow' : 's',
                 'setFast' : 'f',
                 'setMode0' : '0',
@@ -22,9 +23,12 @@ class smartec_uti(SerialController):
                 'measure' : 'm',
                 'powerDown' : 'p', # if you use this, you need to plug-cycle the board
                 }
-        self._msg_start = '*'
+        self._msg_start = ''
         self._msg_end = '\r\n'
         super().__init__(opts, self.logger)
+        self.SendRecv(self.commands['greet'])
+        self.SendRecv(self.commands['setSlow'])
+        self.SendRecv(self.commands['setMode%s' % int(self.mode)])
 
     def isThisMe(self, dev):
         """
@@ -56,8 +60,9 @@ class smartec_uti(SerialController):
             proc.kill()
             out, err = proc.communicate()
         if not len(out) or len(err):
-            self.logger.error('Could not check controller! stdout: %s, stderr: %s' % (
-                out.decode(), err.decode()))
+            #self.logger.error('Could not check controller! stdout: %s, stderr: %s' % (
+            #    out.decode(), err.decode()))
+            pass
         if self.serialID in out.decode():
             return True
         return False
@@ -88,4 +93,5 @@ class smartec_uti(SerialController):
         except Exception as e:
             self.logger.error('LM error: %s' % e)
             val['retcode'] = -3
+            val['data'] = None
         return val
