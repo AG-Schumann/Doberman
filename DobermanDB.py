@@ -99,12 +99,10 @@ class DobermanDB(object):
         """
         collection = self._check(db_name, collection_name)
         if onlyone:
-            ret = collection.update(cuts, updates)
+            ret = collection.update_one(cuts, updates)
         else:
-            ret = collection.update(cuts, updates, {'multi' : True})
-        self.logger.debug('Updated %i documents in %s/%s' % (ret['nModified'], db_name, collection_name))
-        if ret['ok'] != 1:
-            return 1
+            ret = collection.update_many(cuts, updates)
+        self.logger.debug('Updated %i documents in %s/%s' % (ret.modified_count, db_name, collection_name))
         return 0
 
     def deleteFromDatabase(self, db_name, collection_name=None, which_document=None):

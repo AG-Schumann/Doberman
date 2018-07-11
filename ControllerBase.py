@@ -21,10 +21,11 @@ class Controller(object):
             for key, value in opts.additional_params.items():
                 setattr(self, key, value)
         self._connected = False
-        if opts.initialize and self._getControl():
-            time.sleep(0.2)
-        else:
-            self.logger.error('Something went wrong during initialization...')
+        if opts.initialize:
+            if self._getControl():
+                time.sleep(0.2)
+            else:
+                self.logger.error('Something went wrong during initialization...')
 
     def connected(self):
         return self._connected
@@ -107,7 +108,7 @@ class SerialController(Controller):
     def SendRecv(self, message, dev=None):
         device = dev if dev else self._device
         ret = {'retcode' : 0, 'data' : None}
-        if not self._connected:
+        if not self._connected and dev is None:
             self.logger.error('No controller connected, can\'t send message %s' % message)
             ret['retcode'] = -1
             return ret

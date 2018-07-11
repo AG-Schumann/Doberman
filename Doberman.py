@@ -76,6 +76,7 @@ class Doberman(object):
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
+        self.DDB.updateDatabase('config','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -97,10 +98,8 @@ class Doberman(object):
             opts = options()
             for key, value in sensor_config[sensor].items():
                 setattr(opts, key, value)
-            plugin_name = sensor
+            plugin_name = sensor.rstrip('0123456789')
             opts.initialize = False
-            if plugin_name[-1] in map(str, range(10)): # catches 'smartec_uti1' etc
-                plugin_name = plugin_name[:-1]
 
             spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
             if spec is None:
