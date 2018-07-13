@@ -15,9 +15,10 @@ class Plugin(object):
         self.logger = logging.getLogger(__name__)
         self.name = opts.name
         self.logger.debug('Starting %s...' % self.name)
-        plugin_name = self.name.rstrip('0123456789')
-        #if plugin_name[-1] in map(str, range(10)): # catches 'smartec_uti1' etc
-        #    plugin_name = plugin_name[:-1]
+        if self.name != 'RAD7':
+            plugin_name = self.name.rstrip('0123456789')
+        else:
+            plugin_name = self.name
 
         spec = PathFinder.find_spec(plugin_name, opts.plugin_paths)
         if spec is None:

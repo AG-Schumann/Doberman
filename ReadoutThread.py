@@ -1,5 +1,6 @@
 import threading
 import datetime
+import time
 
 
 class ReadoutThread(threading.Thread):
@@ -24,9 +25,16 @@ class ReadoutThread(threading.Thread):
         self.Tevent = threading.Event()
 
     def run(self):
+        then = time.time()
+        now = time.time()
         while self.running:
+            then = time.time()
             self.Readout()
-            self.Tevent.wait(self.ReadoutInterval)
+            now = time.time()
+            dt = now - then
+            # some measurements are slow
+            if dt < self.ReadoutInterval:
+                self.Tevent.wait(self.ReadoutInterval - dt)
 
     def Readout(self):
         """
