@@ -11,36 +11,35 @@ class isegNHQ(SerialController):
         self.logger = logging.getLogger(opts.name)
         self._msg_end = '\r\n'
         self._msg_start = ''
-        self.commands = {'open' : '',
+        super().__init__(opts, logger)
+        self.basecommand = '{cmd}'
+        self.setcommand = self.basecommand + '={value}'
+        self.getcommand = self.basecommand
+        self.commands = {'open'     : '',
                          'identify' : '#',
-                         'getDelay' : 'W',
-                         'setDelay' : f'W={self.delay:03d}',
-                         'getVoltage' : f'U{self.channel}',
-                         'getCurrent' : f'I{self.channel}',
-                         'getVlim' : f'M{self.channel}',
-                         'getIlim' : f'N{self.channel}',
-                         'getVset' : f'D{self.channel}',
-                         'setVset' : f'D{self.channel}={self.vset:04d}',
-                         'getVramp' : f'V{self.channel}',
-                         'setVramp' : f'V{self.channel}={self.vramp:03d}',
-                         'getVstart' : f'G{self.channel}',
-                         'getItrip' : f'L{self.channel}',
-                         'setItrip' : f'L{self.channel}={self.itrip}',
-                         'getStatus' : f'S{self.channel}',
-                         'getAuto' : f'A{self.channel}',
-                         'setAuto' : f'A{self.channel}={self.isauto}',
+                         'Delay'    : 'W',
+                         'Voltage'  : f'U{self.channel}',
+                         'Current'  : f'I{self.channel}',
+                         'Vlim'     : f'M{self.channel}',
+                         'Ilim'     : f'N{self.channel}',
+                         'Vset'     : f'D{self.channel}',
+                         'Vramp'    : f'V{self.channel}',
+                         'Vstart'   : f'G{self.channel}',
+                         'Itrip'    : f'L{self.channel}',
+                         'Status'   : f'S{self.channel}',
+                         'Auto'     : f'A{self.channel}',
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
-        super().__init__(opts, logger)
 
     def _getControl(self):
         super()._getControl()
-        self.SendRecv(self.commands['open'])
-        self.SendRecv(self.commands['setDelay'])
+        self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
+        self.SendRecv(self.setcommand.format(cmd=self.commands['Delay'],
+            value=self.delay)
 
     def isThisMe(self, dev):
-        resp = self.SendRecv(self.commands['open', dev])
+        resp = self.SendRecv(self.commands['open'], dev)
         if resp['retval']:
             return False
         resp = self.SendRecv(self.commands['identify'], dev)
@@ -53,11 +52,12 @@ class isegNHQ(SerialController):
     def Readout(self):
         vals = []
         status = []
-        coms = ['getStatus','getVoltage','getCurrent','getVset']
+        coms = ['Status','Voltage','Current','Vset']
         funcs = [lambda x : self.state.get(x,-1), float,
                 lambda x: float(f'{x[:3]}E{x[4:]}'), float]
         for com,func in zip(coms,funcs):
-            resp = self.SendRecv(self.commands[com])
+            cmd = self.getcommand.format(cmd=self.commands[com])
+            resp = self.SendRecv(cmd)
             status.append(resp['retval'])
             if status[-1]:
                 vals.append[-1]
@@ -102,3 +102,20 @@ class isegNHQ(SerialController):
         ret['data'] = response.rstrip()
         return ret
 
+    def ExecuteCommand(self, command):
+        """
+        Accepts the following commands:
+        <Vset|Itrip|Vramp> <value>
+        """
+        try:
+            which, value = command.split()
+            value = float(value)
+            com = self.setcommand.format(cmd=self.commands[which],
+                    value=value)
+        except Exception as e:
+            self.logger.error("Could not parse command: %s. Error: %s" % (command,e))
+        resp = self.SendRecv(com)
+        if resp['retval']:
+            self.logger.error('Device did not accept command: %s' % command)
+        else:
+            self.logger.debug('Successfully sent command: %s' % command)

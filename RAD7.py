@@ -62,3 +62,7 @@ class RAD7(SerialController):
         data = [cycle, status, mode, counts, activity, activity_err, temperature,
                 humidity, battery, pump, HV, dutycycle, leakage, signal]
         return {'retcode' : [0]*len(data), 'data' : data}
+
+    def ExecuteCommand(self, command):
+        return
+

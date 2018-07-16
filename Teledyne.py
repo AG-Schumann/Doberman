@@ -1,76 +1,85 @@
 from ControllerBase import SerialController
 import logging
+import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
 class Teledyne(SerialController):
     """
     Teledyne flow controller
+    THCD-100
     """
     def __init__(self, opts):
         self.logger = logging.getLogger(opts.name)
-        self._basecommand = '{addr}{cmd}'
-        self.device_address = 'a'  # changeable, but default is a
         self._msg_end = '\r\n'
         self.commands = {
-                'getAddress' : 'add?',
+                'Address' : 'add',
                 'read' : 'r',
-                'getSetpointMode' : 'spm?',
-                'getUnit' : 'uiu?',
+                'SetpointMode' : 'spm',
+                'Unit' : 'uiu',
+                'SetpointValue' : 'spv'
                 }
         super().__init__(opts, self.logger)
+        self.device_address = 'a'  # changeable, but default is a
+        self.basecommand = f'{self.device_address}' + '{cmd}'
+        self.setcommand = self.basecommand + ' {params}'
+        self.getcommand = self.basecommand + '?'
+
+        self.get_reading = re.compile(r'READ:(?P<value>-?[0-9]+(\.[0-9]+)?)')
+        self.get_addr = re.compile(r'ADDR: *(?P<addr>[a-z])')
+        self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
+        self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
+
+        self.get_spt_value = re.compile(r'setpoint (?P<value>-?[0-9]+(\.[0-9]+)?)')
+        self.get_spt_mode = re.compile(r'setpoint (?P<mode>(auto)|(open)|(closed))')
 
     def isThisMe(self, dev):
-        resp = self.SendRecv(self.commands['getAddress'], dev)
-        if resp['retcode']:
-            self.logger.error('Error checking controller')
-            self._connected = False
+        command = self.getcommand.format(cmd=self.commands['Address'])
+        resp = self.SendRecv(command, dev)
+        if resp['retcode'] or not resp['data']:
             return False
-        if self.device_address != resp['data']:
+        m = self.get_addr.search(resp['data'])
+        if not m:
+            return False
+        if self.device_address != m.group('addr'):
             return False
         return True
 
     def Readout(self):
-        resp = self.SendRecv(self.commands['read'])
-        return resp
+        command = self.basecommand.format(cmd=self.commands['read'])
+        resp = self.SendRecv(command)
+        if resp['retcode'] or not resp['data']:
+            return resp
+        m = self.get_reading(resp['data'])
+        if not m:
+            return {'retcode' : -3, 'data' : [-1]}
+        return {'retcode' : 0, 'data' : float(m.group('value'))}
 
-    def SendRecv(self, command, dev=None):
+    def ExecuteCommand(self, command):
         """
-        The Teledyne has a more complex communication protocol, so we reimplement this
-        method here to parse the output
-        Sample output for a Read command (without \\r and split on \\n):
-        ['*a*:r  ; ', 'READ:-0.007;0', '!a!o!']
+        Allows for changing the setpoint (mode or value). Recognized command:
+        setpoint <value>
+        setpoint <auto|open|closed>
         """
-        val = super().SendRecv(self._basecommand.format(addr=self.device_address, cmd=command), dev)
-        if val['retcode']:
-            return val
-        if not val['data']:
-            self.logger.error('Didn\'t receive any data from controller!')
-            val['retcode'] = -3
-            return val
-
-        reply = val['data'].replace('\r','').splitlines()
-        if len(reply) != 3:
-            self.logger.error('Didn\'t receive the right amount of data: %s' % reply)
-            val['retcode'] = -4
-            return val
-
-        echo = reply[0].rstrip('; ')
-        if echo != '*{c}*:{s}'.format(c=self.device_address, s=command):
-            self.logger.error('Didn\'t echo the right command: %s' % echo)
-            val['retcode'] = -5
-            return val
-
-        resp = reply[2]
-        if resp != '!{c}!o!'.format(c=self.device_address):
-            self.logger.error('Command (%s) was not accepted' % command)
-            val['retcode'] = -6
-            return val
-
-        data = reply[1].split(':')
-        #self.logger.debug('Got %s data' % data)
-        if data[0] == 'READ':
-            val['data'] = float(data[1].split(';')[0])
-        elif data[0] == 'ADDR':
-            val['data'] = data[1].lstrip()
-        return val
-
+        mv = self.get_spt_value(command)
+        if not mv:
+            mm = self.get_spt_mode(command)
+            if not mm:
+                self.logger.error('Did not understand command: %s' % command)
+                return
+            else:
+                command = self.setcommand.format(cmd=self.commands['SetpointMode'],
+                        params = mm.group('mode'))
+        else:
+            command = self.setcommand.format(cmd=self.commands['SetpointValue'],
+                    params = mv.group('value'))
+        resp = self.SendRecv(command)
+        if resp['retcode'] or not resp['data']:
+            self.logger.error('Controller didn\'t like command: %s' % command)
+            return
+        m = self.retcode.search(resp['data'])
+        if not m:
+            self.logger.error('Not sure why you are seeing this...')
+            return
+        if m.group('retcode') != 'o':
+            self.logger.error('Device gave retcode %s!' % m.group('retcode'))
+        return

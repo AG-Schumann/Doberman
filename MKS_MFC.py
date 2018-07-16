@@ -1,6 +1,6 @@
 from ControllerBase import SerialController
 import logging
-import re  # EVERYBODY STAND BACK (xkcd.com/208)
+import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
 class MKS_MFC(SerialController):
@@ -10,6 +10,7 @@ class MKS_MFC(SerialController):
 
     def __init__(self, opts):
         self.logger = logging.getLogger(opts.name)
+        super().__init__(opts, self.logger)
         self._msg_start = f"@@@{self.serialID}"
         self._msg_end = ";FF" # ignores checksum
         self.commands = {'Address' : 'CA',
@@ -41,17 +42,17 @@ class MKS_MFC(SerialController):
                 '98' : 'Internal device error',
                 '99' : 'Internal device error',
                 }
-        self.getCommand = f'{self.commands[com]}?'
-        self.setCommand = f'{self.commands[com]}!{value}'
+        self.getCommand = '{cmd}?'
+        self.setCommand = '{cmd}!{value}'
         self._ACK == 'ACK'
         self._NAK == 'NAK'
-        super().__init__(opts, self.logger)
         self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
+        self.spt_val = re.compile(r'setpoint (?P<value>-?[0-9]+(\.[0-9]+)?)')
+        self.valve_status = re.compile(r'valve (?P<mode>(auto)|(close)|(purge))')
 
     def isThisMe(self, dev):
-        com = 'Address'
-        resp = self.SendRecv(self.getCommand, dev)
+        resp = self.SendRecv(self.getCommand.format(cmd=self.commands['Address']), dev)
         if not resp['data'] or resp['retcode']:
             return False
         if resp['data'] == self.serialID:
@@ -69,7 +70,7 @@ class MKS_MFC(SerialController):
         values = []
         status = []
         for com in ['FlowRate','FlowRatePercent','InternalTemperature']:
-            resp = self.SendRecv(self.getCommand)
+            resp = self.SendRecv(self.getCommand.format(cmd=self.commands[com]))
             if resp['retcode']:
                 values.append(-1)
                 status.append(resp['retcode'])
@@ -107,7 +108,30 @@ class MKS_MFC(SerialController):
             return {'retcode' : 0, 'data' : None}
         else:
             return {'retcode' : 0, 'data' : m.group('value')}
-        output = resp['data'].lstrip(self._msg_start[0]).lstrip(self.masterID)
-        output = output.split(';')[0]
-        return {'retcode' : 0, 'data' : output[3:-3]}
+
+    def ExecuteCommand(self, command):
+        """
+        Currently implemented commands:
+        setpoint <value>
+        valve <auto|close|purge>
+        """
+        command_out = ''
+        mv = self.valve_status.search(command)
+        if mv:
+            command_out = self.setCommand.format(cmd=self.commands['ValvePosition'],
+                    value=mv.group('mode'))
+        else:
+            mp = self.spt_val.search(command)
+            if mp:
+                command_out = self.setCommand.format(cmd=self.commands['SetpointValue'],
+                        value=mv.group('value'))
+        if not command_out:
+            self.logger.error('Could not understand command: %s' % command)
+            return
+        resp = self.SendRecv(command_out)
+        if resp['retcode']:
+            self.logger.error('Did not accept command: %s' % command)
+        else:
+            self.logger.debug('Successfully sent command %s' % command)
+        return
 
