@@ -172,11 +172,13 @@ class Doberman(object):
                 self.logger.debug("Not importing %s as its status is %s", name, status)
                 continue
             else:
-                plugin = self.importPlugin(controller)
-                if plugin not in [-1, -2]:
-                    imported_plugins[device] = plugin
-                else:
+                try:
+                    plugin = self.importPlugin(controller)
+                except FileNotFoundError as e:
+                    self.logger.error('Could not import %s: %s' % (name, e))
                     self.failed_import.append(name)
+                else:
+                    imported_plugins[device] = plugin
 
         self.logger.info("The following plugins were successfully imported "
                          "(%i/%i): %s" % (len(imported_plugins),
@@ -197,6 +199,7 @@ class Doberman(object):
         opts.queue = self.queue
         opts.path = self.path
         opts.plugin_paths = self.plugin_paths
+        opts.command_collection = self.DDB._check('logging','commands')
         opts.initialize = True
 
         # Try to import libraries
@@ -640,18 +643,8 @@ if __name__ == '__main__':
     defaults = DDB.getDefaultSettings()
     # START PARSING ARGUMENTS
     # RUN OPTIONS
-    import_default = DDB.getDefaultSettings(name='import_timeout')
-    if import_default < 1:
-        import_default = 1
-    parser.add_argument("-i",
-                        "--importtimeout",
-                        dest="importtimeout",
-                        type=int,
-                        help="Set the timout for importing plugins.",
-                        default=import_default)
     testrun_default = DDB.getDefaultSettings(name='testrun')
-    parser.add_argument("-t", "--testrun",
-                        dest='testrun',
+    parser.add_argument("--testrun",
                         nargs='?',
                         const=-1,
                         default=testrun_default,
@@ -663,62 +656,21 @@ if __name__ == '__main__':
     loglevel_default = DDB.getDefaultSettings(name='loglevel')
     if loglevel_default%10 != 0:
         loglevel_default = 20
-    parser.add_argument("-d", "--debug", dest="loglevel",
-                        type=int, help="switch to loglevel debug",
+    parser.add_argument("--logging", dest="loglevel",
+                        type=int, help="Use logging level <value>",
                         default=loglevel_default)
-    parser.add_argument("-ar", "--alarm_recurrence_time",
-                        dest="alarm_recurrence",
-                        type=int,
-                        help=("Time in minutes until the same Plugin can send "
-                              "an alarm (SMS/Email) again. Default = 5 min."),
-                        default=5)
-    parser.add_argument("-wr", "--warning_repetition_time",
-                        dest="warning_repetition",
-                        type=int,
-                        help=("Time in minutes until the same Plugin can send "
-                              "a warning (Email) again. Default = 10 min."),
-                        default=10)
     # CHANGE OPTIONS
-    parser.add_argument("-n", "--new",
-                        action="store_true",
-                        dest="new",
-                        help="(Re)Create tables config (Plugin settings), "
-                             "config_history and contacts.",
+    parser.add_argument('--update',
+                        action='store_true',
+                        help='Update settings (controller, contact, defaults...)',
                         default=False)
-    parser.add_argument("-u", "--update",
-                        action="store_true",
-                        dest="update",
-                        help="Update main settings of a controller.",
-                        default=False)
-    parser.add_argument("-r", "--remove",
-                        action="store_true",
-                        dest="remove",
-                        help="Remove an existing controller from the config (settings).",
-                        default=False)
-    parser.add_argument("-c", "--contacts",
-                        action="store_true",
-                        dest="contacts",
-                        help="Manage contacts "
-                             "(add, change or delete contact).",
-                        default=False)
-    parser.add_argument("-ud", "--update_defaults",
-                        action="store_true",
-                        dest="defaults",
-                        help="Update default Doberman settings "
-                             "(e.g. loglevel, importtimeout,...).",
-                        default=False)
-    parser.add_argument("-f", "--filereading",
-                        nargs='?',
-                        const="configBackup.txt",
-                        type=str,
-                        dest="filereading",
-                        help="Reading the Plugin settings from the file "
-                             "instead of database and store the file settings "
-                             "to the database.")
-    parser.add_argument("-v", "--version",
-                       dest="version",
+    parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
+    parser.add_argument('--command',
+                        nargs='+',
+                        help="Issue a command to a controller. Format: "
+                             "<controller name> <command>")
     opts = parser.parse_args()
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
@@ -739,26 +691,21 @@ if __name__ == '__main__':
     opts.logger = logger
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
+        if opts.command:
+            DDB.StoreCommand(' '.join(opts.command))
+    except Exception as e:
+        logger.fatal('Could not save command %s' % ' '.join(opts.command))
+        sys.exit()
+    try:
         if opts.update:
-            DDB.changeControllerByKeyboard()
-        if opts.remove:
-            DDB.removeControllerFromConfig()
-        if opts.contacts:
-            DDB.updateContactsByKeyboard()
-        if opts.defaults:
-            DDB.updateDefaultSettings()
+            DDB.AskForUpdates()
     except KeyboardInterrupt:
         print("\nUser input aborted! Check if your input changed anything.")
         sys.exit(0)
     except Exception as e:
         print("\nError while user input! Check if your input changed anything."
               " Error: %s", e)
-    if opts.new:
-        DDB.recreateTableConfigHistory()
-        DDB.recreateTableAlarmHistory()
-        DDB.recreateTableConfig()
-        DDB.recreateTableContact()
-    if opts.update or opts.remove or opts.contacts or opts.new or opts.defaults:
+    if opts.update:
         text = ("Database updated. "
                 "Do you want to start the Doberman slow control now (Y/N)?")
         answer = DDB.getUserInput(text, input_type=[str], be_in=[Y, y, N, n])

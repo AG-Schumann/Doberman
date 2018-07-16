@@ -135,6 +135,13 @@ class DobermanDB(object):
                 return 1
         return 0
 
+    def StoreCommand(self, command):
+        controller, cmd = command.split(maxsplit=1)
+        if self.insertIntoDatabase('logging', 'commands',
+                {'name' : controller, 'command' : cmd}):
+            self.logger.error('Could not store command %s!')
+        return 0
+
     def refreshConfigBackup(self):
         """
         Writes the current config from the Database to the file configBackup.txt
