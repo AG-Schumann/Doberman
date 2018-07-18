@@ -78,7 +78,7 @@ class Doberman(object):
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
-        self.DDB.updateDatabase('config','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
+        self.DDB.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -129,7 +129,7 @@ class Doberman(object):
                     self.logger.debug('Matched %s to %s' % (tty_num, name))
                     matched['sensors'].append(name)
                     matched['ttys'].append(tty_num)
-                    self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                    self.DDB.updateDatabase('settings','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                     dev.close()
                     break
                 self.logger.debug('Not %s' % name)
@@ -142,7 +142,7 @@ class Doberman(object):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
         else:
-            self.DDB.updateDatabase('config','default_settings',
+            self.DDB.updateDatabase('settings','defaults',
                     {'parameter' : 'tty_update'},
                     {'$set' : {'value' : datetime.datetime.now()}})
         return True
@@ -491,7 +491,8 @@ class observationThread(threading.Thread):
                         msg = 'Lost connection to %s? Status %i is %i' % (name, i, status[i])
                         num_recip = self.sendMessage(name, when, msg, 'warning', i)
                         self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
+                        self.DDB.addAlarmToHistory({'name' : name,
+                            'index' : i, 'when' : when,
                             'status' : status[i], 'data' : data[i], 'reason' : 'NC',
                             'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
@@ -502,9 +503,10 @@ class observationThread(threading.Thread):
                                 i, name, desc[i], data[i], alow[i], ahigh[i])
                             num_recip = self.sendMessage(name, when, msg, 'alarm', i)
                             self.logger.critical(msg)
-                            self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                      reason='AL',alarm_type='A',
-                                                      number_of_recipients=num_recip)
+                            self.DDB.addAlarmToHistory({'name' : name,
+                                'index' : i, 'when' : when, 'data' : data[i],
+                                'status' : status[i], 'reason' : 'AL',
+                                'howbad' : 2, 'num_recip' : num_recip})
                             self.recurrence_counter[name][i] = 0
                     elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
                         status[i] = 1
@@ -514,9 +516,10 @@ class observationThread(threading.Thread):
                                 i, name, desc[i], data[i], wlow[i], whigh[i])
                             num_recip = self.sendMessage(name, when, msg, 'warning', i)
                             self.logger.warning(msg)
-                            self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                      reason='WA',alarm_type='W',
-                                                      number_of_recipients=num_recip)
+                            self.DDB.addAlarmToHistory({'name' : name,
+                                'index' : i, 'when' : when, 'data' : data[i],
+                                'status' : status[i], 'reason' : 'WA',
+                                'howbad' : 1, 'num_recip' : num_recip})
                             self.recurrence_counter[name][i] = 0
                     else:
                         self.logger.debug('Reading %i from %s (%s) nominal' % (i, name, desc[i]))
