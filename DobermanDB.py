@@ -179,9 +179,9 @@ class DobermanDB(object):
         Reads the table config in the database.
         """
         if name == 'all':
-            controller = self.readFromDatabase('config', 'controllers', onlyone=False)
+            controller = self.readFromDatabase('settings', 'controllers', onlyone=False)
         else:
-            controller = self.readFromDatabase('config', 'controllers', cuts={'name' : name}, onlyone=True)
+            controller = self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
 
         if not controller:
             if name == 'all':
@@ -327,7 +327,7 @@ class DobermanDB(object):
 
         if changes:
             updates = {'$set' : {key: controller[key] for key in changes}}
-            if self.updateDatabase('config','controllers',cuts={'name' : name}, updates):
+            if self.updateDatabase('settings','controllers',cuts={'name' : name}, updates=updates):
                 self.logger.error('Could not update controller %s' % name)
 
         print(60 * '-')
@@ -391,7 +391,7 @@ class DobermanDB(object):
         Reads default Doberman settings from database.
         Returns a dict or the specified value
         """
-        cursor = self.readFromDatabase('config','default_settings')
+        cursor = self.readFromDatabase('settings','defaults')
         if cursor.count() == 0:
             self.logger.warning('Unable to read default settings')
             return -1
@@ -418,9 +418,9 @@ class DobermanDB(object):
         Reads contacts from database.
         """
         if not status:
-            cursor = self.readFromDatabase('config','contacts')
+            cursor = self.readFromDatabase('settings','contacts')
         else:
-            cursor = self.readFromDatabase('config','contacts', cuts={'status' : status})
+            cursor = self.readFromDatabase('settings','contacts', cuts={'status' : status})
         if cursor.count() == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
             contacts = {}
@@ -468,15 +468,14 @@ class DobermanDB(object):
                     "It can be 'ON' (all notifications), "
                     "'OFF' (no notifications), 'MAIL' (only by email), "
                     "'TEL' (only by phone)." % name)
-            status = utils.getUserInput(text,
+        status = utils.getUserInput(text,
                                        input_type=[str],
                                        be_in=['ON', 'OFF', 'MAIL', 'TEL', 'n'])
-            if status != 'n':
-                original_contact['status'] = status
-                if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']},
-                        update={'$set' : {'status' : status}}):
-                    self.logger.error()
-                    return -1
+        if status != 'n':
+            original_contact['status'] = status
+            if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']}, update={'$set' : {'status' : status}}):
+                self.logger.error('Could not update contact!')
+                return -1
         return 0
 
     def writeDataToDatabase(self, name, when, data, status):
@@ -512,3 +511,4 @@ class DobermanDB(object):
             if name not in new_names:
                 new_config[name] = old_config[name].copy()
         return new_config
+
