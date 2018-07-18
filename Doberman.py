@@ -149,7 +149,8 @@ class Doberman(object):
         elif len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
-        self.DDB.updateDatabase('settings','default_settings',
+        else:
+            self.DDB.updateDatabase('settings','defaults',
                     {'parameter' : 'tty_update'},
                     {'$set' : {'value' : datetime.datetime.now()}})
         return True
@@ -499,7 +500,8 @@ class observationThread(threading.Thread):
                         msg = 'Lost connection to %s? Status %i is %i' % (name, i, status[i])
                         num_recip = self.sendMessage(name, when, msg, 'warning', i)
                         self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory({'name' : name, 'index' : i, 'when' : when,
+                        self.DDB.addAlarmToHistory({'name' : name,
+                            'index' : i, 'when' : when,
                             'status' : status[i], 'data' : data[i], 'reason' : 'NC',
                             'howbad' : 1, 'num_recip' : num_recip})
                     elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
@@ -510,9 +512,10 @@ class observationThread(threading.Thread):
                                 i, name, desc[i], data[i], alow[i], ahigh[i])
                             num_recip = self.sendMessage(name, when, msg, 'alarm', i)
                             self.logger.critical(msg)
-                            self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                      reason='AL',alarm_type='A',
-                                                      number_of_recipients=num_recip)
+                            self.DDB.addAlarmToHistory({'name' : name,
+                                'index' : i, 'when' : when, 'data' : data[i],
+                                'status' : status[i], 'reason' : 'AL',
+                                'howbad' : 2, 'num_recip' : num_recip})
                             self.recurrence_counter[name][i] = 0
                     elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
                         status[i] = 1
@@ -522,9 +525,10 @@ class observationThread(threading.Thread):
                                 i, name, desc[i], data[i], wlow[i], whigh[i])
                             num_recip = self.sendMessage(name, when, msg, 'warning', i)
                             self.logger.warning(msg)
-                            self.DDB.addAlarmToHistory(name, i, when, data, status,
-                                                      reason='WA',alarm_type='W',
-                                                      number_of_recipients=num_recip)
+                            self.DDB.addAlarmToHistory({'name' : name,
+                                'index' : i, 'when' : when, 'data' : data[i],
+                                'status' : status[i], 'reason' : 'WA',
+                                'howbad' : 1, 'num_recip' : num_recip})
                             self.recurrence_counter[name][i] = 0
                     else:
                         self.logger.debug('Reading %i from %s (%s) nominal' % (i, name, desc[i]))
