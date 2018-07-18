@@ -4,6 +4,7 @@ from ReadoutThread import ReadoutThread
 import importlib
 import importlib.machinery
 from importlib.machinery import PathFinder
+from DobermanDB import DobermanDB
 
 
 class Plugin(object):
@@ -68,3 +69,10 @@ class Plugin(object):
         self.close()
         return
 
+def main():
+    db = DobermanDB()
+
+    return
+
+if __name__ == '__main__':
+    main()
