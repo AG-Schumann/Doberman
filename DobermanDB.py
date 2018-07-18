@@ -29,7 +29,8 @@ class DobermanDB(object):
         except Exception as e:
             self.logger.warning("Can not load database connection details. "
                                 "Trying default details. Error %s" % e)
-            conn_details = {'host' : 'localhost', 'port' : 13178}
+            conn_details = {'host' : 'localhost', 'port' : 13178,
+                    'username' : 'doberman', 'password' : 'h5jlm42'}
 
         self._connect(**conn_details)
         # load config details
@@ -49,10 +50,10 @@ class DobermanDB(object):
         return
 
     @classmethod
-    def _connect(cls, host, port, username=None, password=None):
+    def _connect(cls, host, port, username, password):
         if cls.client:
             return
-        cls.client = pymongo.MongoClient(host=host, port=port)#, username=username, password=password)
+        cls.client = pymongo.MongoClient(host=host, port=port, username=username, password=password)
 
     def _check(self, db_name, collection_name):
         """
