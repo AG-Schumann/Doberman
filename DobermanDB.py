@@ -258,9 +258,9 @@ class DobermanDB(object):
         Reads the table config in the database.
         """
         if name == 'all':
-            controller = self.readFromDatabase('config', 'controllers', onlyone=False)
+            controller = self.readFromDatabase('settings', 'controllers', onlyone=False)
         else:
-            controller = self.readFromDatabase('config', 'controllers', cuts={'name' : name}, onlyone=True)
+            controller = self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
 
         if not controller:
             if name == 'all':
@@ -476,8 +476,7 @@ class DobermanDB(object):
               'no brackets needed!  \n  '
               '- Enter 0 for no or default value,  \n  '
               '- Enter n for no change.')
-        print('\n' + 60 * '-' + '\n Choose the controller you want to change. '
-              '(If you would like to add a new controller use option -a instead)\n')
+        print('\n' + 60 * '-' + '\n Choose the controller you want to change. ')
         devices = list(self._config.keys())
         for number, controller in enumerate(devices):
             print("%s:\t%s" % (str(number), controller))
@@ -543,8 +542,8 @@ class DobermanDB(object):
             which = self.getUserInput('Parameter:', input_type=[str],be_in=list(controller.keys()),exceptions=['n'])
 
         if changes:
-            updates = {'$set' : {key, controller[key]} for key in changes}
-            if self.updateDatabase('config','controllers',cuts={'name' : name}, updates=updates):
+            updates = {'$set' : {key: controller[key] for key in changes}}
+            if self.updateDatabase('settings','controllers',cuts={'name' : name}, updates=updates):
                 self.logger.error('Could not update controller %s' % name)
 
         print(60 * '-')
@@ -582,7 +581,7 @@ class DobermanDB(object):
         if confirmation not in [y, Y]:
             return 0
         # Delete from the database
-        if self.deleteFromDatabase('config','controllers',{'name' : name}):
+        if self.deleteFromDatabase('settings','controllers',{'name' : name}):
             self.logger.warning("Can not remove %s from config. Database "
                                 "interaction error." % name)
             return -1
@@ -617,7 +616,7 @@ class DobermanDB(object):
                                            be_in=[y, Y, n, N])
             if user_input not in ['Y', 'y']:
                 return
-        self.deleteFromDatabase('config', collection_name='default_settings')
+        self.deleteFromDatabase('settings', collection_name='defaults')
         default_settings = None
         # Fill with standard defaults:
         with open(os.path.join('settings','default_settings.txt'),'r') as f:
@@ -630,7 +629,7 @@ class DobermanDB(object):
         except Exception as e:
             self.logger.error('Could not parse default settings: %s' % e)
             return -1
-        if self.insertIntoDatabase('config','default_settings',default_settings):
+        if self.insertIntoDatabase('settings','defaults',default_settings):
             self.logger.error("Error recreating default_settings in database")
             return -1
         return 0
@@ -684,7 +683,7 @@ class DobermanDB(object):
         Reads default Doberman settings from database.
         Returns a dict
         """
-        cursor = self.readFromDatabase('config','default_settings')
+        cursor = self.readFromDatabase('settings','defaults')
         if cursor.count() == 0:
             self.logger.warning('Unable to read default settings')
             return -1
@@ -711,9 +710,9 @@ class DobermanDB(object):
         Reads contacts from database.
         """
         if not status:
-            cursor = self.readFromDatabase('config','contacts')
+            cursor = self.readFromDatabase('settings','contacts')
         else:
-            cursor = self.readFromDatabase('config','contacts', cuts={'status' : status})
+            cursor = self.readFromDatabase('settings','contacts', cuts={'status' : status})
         if cursor.count() == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
             contacts = {}
@@ -779,7 +778,7 @@ class DobermanDB(object):
                                     be_in=['ON', 'OFF', 'MAIL', 'TEL', 'n'])
         if status != 'n':
             original_contact['status'] = status
-            if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']},
+            if self.updateDatabase('settings', 'contacts', cuts={'name' : original_contact['name']},
                     update={'$set' : {'status' : status}}):
                 self.logger.error()
                 return -1
@@ -930,7 +929,7 @@ class DobermanDB(object):
         for key in all_settings:
             if key in existing_names:
                 settings = all_settings[key]
-                ret = self.updateDatabase('config','controllers', update={'$set' : settings},
+                ret = self.updateDatabase('settings','controllers', update={'$set' : settings},
                         cuts={'name' : key})
             else:
                 ret = self.insertIntoDatabase('config','controllers', settings)
