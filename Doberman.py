@@ -78,7 +78,7 @@ class Doberman(object):
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
-        self.DDB.updateDatabase('config','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
+        self.DDB.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -89,7 +89,7 @@ class Doberman(object):
         if not len(out) or len(err):
             raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
         ttyUSBs = out.decode().splitlines()
-        cursor = self.DDB.readFromDatabase('config','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+        cursor = self.DDB.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
         sensor_config = {}
         for row in cursor:
             sensor_config[row['name']] = row
@@ -129,7 +129,7 @@ class Doberman(object):
                     self.logger.debug('Matched %s to %s' % (tty_num, name))
                     matched['sensors'].append(name)
                     matched['ttys'].append(tty_num)
-                    self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                    self.DDB.updateDatabase('settings','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                     dev.close()
                     break
                 self.logger.debug('Not %s' % name)
@@ -138,11 +138,15 @@ class Doberman(object):
                 self.logger.error('Could not assign %s!' % tty)
             dev.close()
 
-        if len(matched['sensors']) != len(sensors):
+        if len(matched['sensors']) == len(sensors)-1: # n-1 case
+            name = (set(sensors.keys())-set(matched['sensors'])).pop()
+            tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
+            self.logger.debug('Matched %s to %s via n-1' % (name, tty))
+            self.DDB.updateDatabase('settings','controllers',{'name' : name},{'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+        elif len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
-        else:
-            self.DDB.updateDatabase('config','default_settings',
+        self.DDB.updateDatabase('settings','default_settings',
                     {'parameter' : 'tty_update'},
                     {'$set' : {'value' : datetime.datetime.now()}})
         return True
@@ -150,9 +154,7 @@ class Doberman(object):
     def importAllPlugins(self):
         '''
         This function tries to import all programs of the controllers
-            which are saved in the database.
-        After a plugin is imported it can be started by:
-            getattr(imported_plugins[0], '%s_start'%plugin)()
+        which are saved in the database.
         '''
         if self._config in ['', -1, -2]:
             self.logger.warning("Plugin settings (config) not loaded, can not start devices")
