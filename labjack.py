@@ -27,7 +27,7 @@ class labjack(Controller):
         resistance = self.rc[0]*val/(self.rc[1] + self.rc[2]*val)
         #resistance = val/(((self.rc[0]-val)/self.rc[1])-\
         #        (self.rc[2]*val)+self.rc[3])/self.rc[4]
-        temp = sum([self.tc[i]*resistance**i for i in range(len(self.tc))])
+        temp = sum([v*resistance**i for i,v in enumerate(self.tc)])
         return temp
 
     def _getControl(self):

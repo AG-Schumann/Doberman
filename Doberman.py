@@ -100,7 +100,10 @@ class Doberman(object):
             opts = options()
             for key, value in sensor_config[sensor].items():
                 setattr(opts, key, value)
-            plugin_name = sensor.rstrip('0123456789')
+            if sensor == 'RAD7': # I dislike edge cases
+                plugin_name = sensor
+            else:
+                plugin_name = sensor.rstrip('0123456789')
             opts.initialize = False
 
             spec = PathFinder.find_spec(plugin_name, self.plugin_paths)

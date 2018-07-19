@@ -119,3 +119,4 @@ class isegNHQ(SerialController):
             self.logger.error('Device did not accept command: %s' % command)
         else:
             self.logger.debug('Successfully sent command: %s' % command)
+
