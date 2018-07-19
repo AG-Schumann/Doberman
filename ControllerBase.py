@@ -58,6 +58,13 @@ class Controller(object):
         """
         raise NotImplementedError()
 
+    def ExecuteCommand(self, command):
+        """
+        Allows Doberman to issue commands to the controller (change setpoints, valve
+        positions, etc)
+        """
+        raise NotImplementedError()
+
     def close(self):
         #self.logger.debug('Shutting down %s' % self.name)
         self._connected = False

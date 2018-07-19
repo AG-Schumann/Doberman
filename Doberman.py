@@ -78,7 +78,7 @@ class Doberman(object):
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
-        self.DDB.updateDatabase('config','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
+        self.DDB.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -89,7 +89,7 @@ class Doberman(object):
         if not len(out) or len(err):
             raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
         ttyUSBs = out.decode().splitlines()
-        cursor = self.DDB.readFromDatabase('config','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+        cursor = self.DDB.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
         sensor_config = {}
         for row in cursor:
             sensor_config[row['name']] = row
@@ -100,7 +100,10 @@ class Doberman(object):
             opts = options()
             for key, value in sensor_config[sensor].items():
                 setattr(opts, key, value)
-            plugin_name = sensor.rstrip('0123456789')
+            if sensor == 'RAD7': # I dislike edge cases
+                plugin_name = sensor
+            else:
+                plugin_name = sensor.rstrip('0123456789')
             opts.initialize = False
 
             spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
@@ -129,7 +132,7 @@ class Doberman(object):
                     self.logger.debug('Matched %s to %s' % (tty_num, name))
                     matched['sensors'].append(name)
                     matched['ttys'].append(tty_num)
-                    self.DDB.updateDatabase('config','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                    self.DDB.updateDatabase('settings','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                     dev.close()
                     break
                 self.logger.debug('Not %s' % name)
@@ -138,11 +141,15 @@ class Doberman(object):
                 self.logger.error('Could not assign %s!' % tty)
             dev.close()
 
-        if len(matched['sensors']) != len(sensors):
+        if len(matched['sensors']) == len(sensors)-1: # n-1 case
+            name = (set(sensors.keys())-set(matched['sensors'])).pop()
+            tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
+            self.logger.debug('Matched %s to %s via n-1' % (name, tty))
+            self.DDB.updateDatabase('settings','controllers',{'name' : name},{'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+        elif len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
-        else:
-            self.DDB.updateDatabase('config','default_settings',
+        self.DDB.updateDatabase('settings','default_settings',
                     {'parameter' : 'tty_update'},
                     {'$set' : {'value' : datetime.datetime.now()}})
         return True
@@ -150,9 +157,7 @@ class Doberman(object):
     def importAllPlugins(self):
         '''
         This function tries to import all programs of the controllers
-            which are saved in the database.
-        After a plugin is imported it can be started by:
-            getattr(imported_plugins[0], '%s_start'%plugin)()
+        which are saved in the database.
         '''
         if self._config in ['', -1, -2]:
             self.logger.warning("Plugin settings (config) not loaded, can not start devices")
@@ -172,11 +177,13 @@ class Doberman(object):
                 self.logger.debug("Not importing %s as its status is %s", name, status)
                 continue
             else:
-                plugin = self.importPlugin(controller)
-                if plugin not in [-1, -2]:
-                    imported_plugins[device] = plugin
-                else:
+                try:
+                    plugin = self.importPlugin(controller)
+                except FileNotFoundError as e:
+                    self.logger.error('Could not import %s: %s' % (name, e))
                     self.failed_import.append(name)
+                else:
+                    imported_plugins[device] = plugin
 
         self.logger.info("The following plugins were successfully imported "
                          "(%i/%i): %s" % (len(imported_plugins),
@@ -197,6 +204,7 @@ class Doberman(object):
         opts.queue = self.queue
         opts.path = self.path
         opts.plugin_paths = self.plugin_paths
+        opts.command_collection = self.DDB._check('logging','commands')
         opts.initialize = True
 
         # Try to import libraries
@@ -657,62 +665,21 @@ if __name__ == '__main__':
     loglevel_default = defaults['Loglevel']
     if loglevel_default%10 != 0:
         loglevel_default = 20
-    parser.add_argument("-d", "--debug", dest="loglevel",
-                        type=int, help="switch to loglevel debug",
+    parser.add_argument("--logging", dest="loglevel",
+                        type=int, help="Use logging level <value>",
                         default=loglevel_default)
-    parser.add_argument("-ar", "--alarm_recurrence_time",
-                        dest="alarm_recurrence",
-                        type=int,
-                        help=("Time in minutes until the same Plugin can send "
-                              "an alarm (SMS/Email) again. Default = 5 min."),
-                        default=5)
-    parser.add_argument("-wr", "--warning_repetition_time",
-                        dest="warning_repetition",
-                        type=int,
-                        help=("Time in minutes until the same Plugin can send "
-                              "a warning (Email) again. Default = 10 min."),
-                        default=defaults['Warning_Repetition'])
     # CHANGE OPTIONS
-    parser.add_argument("-n", "--new",
-                        action="store_true",
-                        dest="new",
-                        help="(Re)Create tables config (Plugin settings), "
-                             "config_history and contacts.",
+    parser.add_argument('--update',
+                        action='store_true',
+                        help='Update settings (controller, contact, defaults...)',
                         default=False)
-    parser.add_argument("-u", "--update",
-                        action="store_true",
-                        dest="update",
-                        help="Update main settings of a controller.",
-                        default=False)
-    parser.add_argument("-r", "--remove",
-                        action="store_true",
-                        dest="remove",
-                        help="Remove an existing controller from the config (settings).",
-                        default=False)
-    parser.add_argument("-c", "--contacts",
-                        action="store_true",
-                        dest="contacts",
-                        help="Manage contacts "
-                             "(add, change or delete contact).",
-                        default=False)
-    parser.add_argument("-ud", "--update_defaults",
-                        action="store_true",
-                        dest="defaults",
-                        help="Update default Doberman settings "
-                             "(e.g. loglevel, importtimeout,...).",
-                        default=False)
-    parser.add_argument("-f", "--filereading",
-                        nargs='?',
-                        const="configBackup.txt",
-                        type=str,
-                        dest="filereading",
-                        help="Reading the Plugin settings from the file "
-                             "instead of database and store the file settings "
-                             "to the database.")
-    parser.add_argument("-v", "--version",
-                       dest="version",
+    parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
+    parser.add_argument('--command',
+                        nargs='+',
+                        help="Issue a command to a controller. Format: "
+                             "<controller name> <command>")
     opts = parser.parse_args()
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
@@ -723,26 +690,21 @@ if __name__ == '__main__':
     logger.setLevel(int(opts.loglevel))
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
+        if opts.command:
+            DDB.StoreCommand(' '.join(opts.command))
+    except Exception as e:
+        logger.fatal('Could not save command %s' % ' '.join(opts.command))
+        sys.exit()
+    try:
         if opts.update:
-            DDB.changeControllerByKeyboard()
-        if opts.remove:
-            DDB.removeControllerFromConfig()
-        if opts.contacts:
-            DDB.updateContactsByKeyboard()
-        if opts.defaults:
-            DDB.updateDefaultSettings()
+            DDB.AskForUpdates()
     except KeyboardInterrupt:
         print("\nUser input aborted! Check if your input changed anything.")
         sys.exit(0)
     except Exception as e:
         print("\nError while user input! Check if your input changed anything."
               " Error: %s", e)
-    if opts.new:
-        DDB.recreateTableConfigHistory()
-        DDB.recreateTableAlarmHistory()
-        DDB.recreateTableConfig()
-        DDB.recreateTableContact()
-    if opts.update or opts.remove or opts.contacts or opts.new or opts.defaults:
+    if opts.update:
         text = ("Database updated. "
                 "Do you want to start the Doberman slow control now (Y/N)?")
         answer = DDB.getUserInput(text, input_type=[str], be_in=[Y, y, N, n])
