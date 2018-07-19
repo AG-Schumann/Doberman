@@ -1,6 +1,5 @@
 from ControllerBase import SerialController
 import logging
-import time
 
 
 class RAD7(SerialController):
@@ -16,9 +15,12 @@ class RAD7(SerialController):
         super().__init__(opts, logger)
 
     def isThisMe(self, dev):
-        pass
+        return False
 
     def Readout(self):
+        """
+        I hate this so much
+        """
         resp = self.SendRecv(self.commands['read'])
         if not resp['data'] or resp['retcode']:
             return resp
