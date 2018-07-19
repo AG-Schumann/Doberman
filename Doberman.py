@@ -12,7 +12,7 @@ from _thread import start_new_thread
 import sys
 from argparse import ArgumentParser
 import signal
-import atexit
+import DobermanLogging
 from Plugin import Plugin
 import psutil
 import importlib
@@ -404,12 +404,12 @@ class observationThread(threading.Thread):
             while not self.queue.empty():
                 # Makes sure that the processing doesn't get too much behind.
                 #excpected minimal processing rate: 25 Hz
-                if self.queue.qsize() > self.critical_queue_size:
+                if self.queue.qsize() > queue_size:
                     message = ("Data queue too long (queue length = %s). "
                                "Data processing will lag behind and "
                                "data can be lost! Reduce "
                                "the amount and frequency of data sent "
-                               "to the queue!" % str(self.critical_queue_size))
+                               "to the queue!" % str(queue_size))
                     self.logger.error(message)
                     self.critical_queue_size = self.critical_queue_size * 1.5
                     self.waitingTime /= 2
@@ -637,19 +637,23 @@ if __name__ == '__main__':
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logging.getLogger()
     logger.setLevel(20)
-    #chlog = logging.StreamHandler()
-    #chlog.setLevel(20)
-    logging.basicConfig(format='%(levelname)s:%(asctime)s:%(name)s:'
-                                  '%(funcName)s:%(lineno)d:%(message)s')
-    #chlog.setFormatter(formatter)
-    #logger.addHandler(chlog)
-    opts = logger
-    DDB = DobermanDB.DobermanDB(opts)
-    defaults = DDB.getDefaultSettings()
+    DDB = DobermanDB.DobermanDB()
+    logger.addHandler(DobermanLogger.DobermanLogger())
     # START PARSING ARGUMENTS
     # RUN OPTIONS
-    testrun_default = DDB.getDefaultSettings(name='testrun')
-    parser.add_argument("--testrun",
+    defaults = DDB.getDefaultSettings()
+    import_default = defaults['Importtimeout']
+    if import_default < 1:
+        import_default = 1
+    parser.add_argument("-i",
+                        "--importtimeout",
+                        dest="importtimeout",
+                        type=int,
+                        help="Set the timout for importing plugins.",
+                        default=import_default)
+    testrun_default = defaults['Testrun']
+    parser.add_argument("-t", "--testrun",
+                        dest='testrun',
                         nargs='?',
                         const=-1,
                         default=testrun_default,
@@ -658,7 +662,7 @@ if __name__ == '__main__':
                               "for the time value given "
                               "(in minutes. e.g. -t=5: first 5 min) "
                               "or forever if no value is given."))
-    loglevel_default = DDB.getDefaultSettings(name='loglevel')
+    loglevel_default = defaults['Loglevel']
     if loglevel_default%10 != 0:
         loglevel_default = 20
     parser.add_argument("--logging", dest="loglevel",
@@ -679,21 +683,11 @@ if __name__ == '__main__':
     opts = parser.parse_args()
     opts.path = os.getcwd()
     Y, y, N, n = 'Y', 'y', 'N', 'n'
-    # Loglevel option
-    #logger.removeHandler(chlog)
-    #logger = logging.getLogger()
     if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
         print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of " % loglevel_default)
+              "Fall back to default value of " % (opts.loglevel, loglevel_default))
         opts.loglevel = loglevel_default
     logger.setLevel(int(opts.loglevel))
-    #chlog = logging.StreamHandler()
-    #chlog.setLevel(int(opts.loglevel))
-    #formatter = logging.Formatter('%(levelname)s:%(process)d:%(module)s:'
-    #                              '%(funcName)s:%(lineno)d:%(message)s')
-    #chlog.setFormatter(formatter)
-    #logger.addHandler(chlog)
-    opts.logger = logger
     # Databasing options -n, -a, -u, -uu, -r, -c
     try:
         if opts.command:
