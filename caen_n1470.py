@@ -1,4 +1,4 @@
-from Doberman.Controller import SerialController
+from ControllerBase import SerialController
 import logging
 
 
