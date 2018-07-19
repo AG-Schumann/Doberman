@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 import _thread
 import datetime
 import pymongo
+import os.path
 import time
 import utils
 
@@ -20,7 +21,7 @@ class DobermanDB(object):
         self.logger = logging.getLogger(__name__)
         # Load database connection details
         try:
-            with open('Database_connectiondetails.txt', 'r') as f:
+            with open(os.path.join('settings','Database_connectiondetails.txt'), 'r') as f:
                 conn_details = eval(f.read())
         except Exception as e:
             print("Can not load database connection details. "
@@ -45,7 +46,7 @@ class DobermanDB(object):
         return
 
     @classmethod
-    def _connect(cls, host, port, username, password):
+    def _connect(cls, host, port, username=None, password=None):
         if cls.client:
             return
         cls.client = pymongo.MongoClient(host=host, port=port)#, username=username, password=password)
@@ -83,7 +84,7 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts=None, projection={}):
+    def readFromDatabase(self, db_name, collection_name, cuts=None, projection={'_id' : 0}):
         """
         Finds one or more documents that pass the specified cuts
         """
@@ -165,7 +166,7 @@ class DobermanDB(object):
             else:
                 self.logger.warning("No controller with name '%s' "
                                     "found in DB" % str(name))
-        elif controller_config == -1:
+        elif controller == -1:
             self.logger.warning("Can not read from config table in DobermanDB. "
                                 "Database interaction error.")
             return -1
@@ -176,7 +177,7 @@ class DobermanDB(object):
             for row in controller:
                 controller_name = row['name']
                 config_dict[controller_name] = row
-            return config_dicg
+            return config_dict
         else:
             return controller
         return config_dict
@@ -372,7 +373,10 @@ class DobermanDB(object):
             return -1
         settings = {}
         for row in cursor:
-            settings[row['parameter']] = row['value']
+            if row['parameter'] == 'tty_update':
+                settings[row['parameter']] = row['value']
+            else:
+                settings[row['parameter']] = int(row['value'])
         if not name:
             return settings
         else:
@@ -390,13 +394,13 @@ class DobermanDB(object):
         Reads contacts from database.
         """
         if not status:
-            cursor = readFromDatabase('config','contacts')
+            cursor = self.readFromDatabase('config','contacts')
         else:
-            cursor = readFromDatabase('config','contacts', cuts={'status' : status})
+            cursor = self.readFromDatabase('config','contacts', cuts={'status' : status})
         if cursor.count() == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
             contacts = {}
-        elif contacts == -1:
+        elif cursor == -1:
             self.logger.warning("Can not read from contact table in database. "
                                 "Database interaction error.")
             return -1
@@ -462,7 +466,7 @@ class DobermanDB(object):
           >9 = Alarm
         """
 
-        if self.insertIntoDatabase('data', name, {'when' : time, 'data' : data, 'status' : status}):
+        if self.insertIntoDatabase('data', name, {'when' : when, 'data' : data, 'status' : status}):
             self.logger.warning("Can not write data from %s to Database. "
                                 "Database interaction error." % name)
             return -1
@@ -484,4 +488,3 @@ class DobermanDB(object):
             if name not in new_names:
                 new_config[name] = old_config[name].copy()
         return new_config
-
