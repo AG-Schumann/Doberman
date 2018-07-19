@@ -14,6 +14,7 @@ from argparse import ArgumentParser
 import signal
 import atexit
 import Plugin
+import DobermanLogging
 
 __version__ = 2.0.0
 
@@ -299,19 +300,21 @@ class observationThread(threading.Thread):
             self.critical_queue_size = 150
 
     def run(self):
+        queue_size = self.critical_queue_size
+        waiting_time = self.waitingTime
         while not self.stopped:
             while not self.queue.empty():
                 # Makes sure that the processing doesn't get too much behind.
                 #excpected minimal processing rate: 25 Hz
-                if self.queue.qsize() > self.critical_queue_size:
+                if self.queue.qsize() > queue_size:
                     message = ("Data queue too long (queue length = %s). "
                                "Data processing will lag behind and "
                                "data can be lost! Reduce "
                                "the amount and frequency of data sent "
-                               "to the queue!" % str(self.critical_queue_size))
+                               "to the queue!" % str(queue_size))
                     self.logger.error(message)
-                    self.critical_queue_size = self.critical_queue_size * 1.5
-                    self.waitingTime = self.waitingTime / 2
+                    queue_size = self.critical_queue_size * 1.5
+                    waiting_time = self.waitingTime / 2
                     self.sendWarning(name="Doberman", message=message, index=None)
                 # Do the work
                 job = self.queue.get()
@@ -528,93 +531,14 @@ class timeout:
 def deleteLockFile(lockfilePath):
     os.remove(lockfilePath)
 
-
-class DBLogger(logging.Handler):
-    """
-    Logs to the database instead of to disk. Keeps disk as backup
-    """
-    def __init__(self, db):
-        logging.Handler.__init__(self)
-        self.db = db
-        self.db_name = 'logging'
-        self.collection_name = 'logs'
-        backup_filename = time.strftime('%Y-%m-%d.log', time.localtime(time.time()))
-        self.backup_logger = logging.handlers.TimedRotatingFileHanlder(
-            os.path.join(os.getcwd(), 'log', backup_filename),
-            when='midnight')
-
-        def emit(self, record):
-        if self.use_backup:
-            self.backup_logger.emit(record)
-            return
-        rec = dict(when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created)),
-                    msg = record.msg.strip(),
-                    level = record.levelname,
-                    module = record.module,
-                    funcname = record.funcName,
-                    lineno = record.lineno,
-                    table = self.table_name)
-        if self.db.insertIntoDatabase(self.db_name, self.collection_name, rec):
-            self.backup_logger.emit(record)
-
-
-
-class DBLogger(logging.Handler):
-    """
-    Logs to the database instead of to disk. Keeps disk as backup
-    """
-    def __init__(self, db, tablename='logs'):
-        logging.Handler.__init__(self)
-        self.db = db
-        self.table_name = tablename
-        backup_filename = time.strftime('%Y-%m-%d.log', time.localtime(time.time()))
-        self.backup_logger = logging.handlers.TimedRotatingFileHanlder(
-            os.path.join(os.getcwd(), 'log', backup_filename),
-            when='midnight')
-        sql = ("CREATE TABLE IF NOT EXISTS %s ("
-            "_logno INT NOT NULL AUTO_INCREMENT,"
-            "time TIMESTAMP NOT NULL,"
-            "level VARCHAR(12),"
-            "module VARCHAR(32),"
-            "function VARCHAR(32),"
-            "line INT,"
-            "msg TEXT,"
-            "PRIMARY KEY ( _logno ));" % self.table_name)
-        if self.db.interactWithDatabase(sql):
-            self.use_backup = True
-        else:
-            self.use_backup = False
-
-    def emit(self, record):
-        if self.use_backup:
-            self.backup_logger.emit(record)
-            return
-        rec = dict(when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created)),
-                    msg = record.msg.strip(),
-                    level = record.levelname,
-                    module = record.module,
-                    funcname = record.funcName,
-                    lineno = record.lineno,
-                    table = self.table_name)
-        sql = ("INSERT INTO {table} (time, level, module, function, line, msg) VALUES "
-                "'{when}','{level}','{module}','{funcname}',{lineno},'{msg}')")
-        if self.db.interactWithDatabase(sql.format(**rec)):
-            self.backup_logger.emit(record)
-
-
 if __name__ == '__main__':
 
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logging.getLogger()
     logger.setLevel(20)
-    formatter = logging.Formatter('%(asctime)s|%(levelname)s|%(module)s|'
-                                  '%(funcName)s|%(lineno)di|%(message)s')
     DDB = DobermanDB.DobermanDB()
-    dblogger = DBLogger(DDB)
-    dblogger.setFormatter(formatter)
-    logger.addHandler(dblogger)
-    defaults = DDB.getDefaultSettings()
+    logger.addHandler(DobermanLogger.DobermanLogger())
     # START PARSING ARGUMENTS
     # RUN OPTIONS
     defaults = DDB.getDefaultSettings()
