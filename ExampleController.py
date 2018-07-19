@@ -56,3 +56,18 @@ class ExampleController(SerialController):
                 vals.append(float(resp['data']))
         return {'retval' : status, 'data' : vals}
 
+    def ExecuteCommand(self, command):
+        """
+        Executes the specified command. For example:
+        itrip <value>
+        valve open
+        Regular expressions might be useful for parsing the input
+        """
+        task, value = command.split()
+        com = self.setcommand.format(cmd=self.commands[task],value=value)
+        resp = self.SendRecv(com)
+        if resp['retval']:
+            self.logger.error('Could not send command %s' % command)
+        else:
+            self.logger.debug('Successfully sent command %s' % command)
+

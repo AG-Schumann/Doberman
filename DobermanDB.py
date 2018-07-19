@@ -26,7 +26,8 @@ class DobermanDB(object):
         except Exception as e:
             print("Can not load database connection details. "
                                 "Trying default details. Error %s" % e)
-            conn_details = {'host' : 'localhost', 'port' : 13178}
+            conn_details = {'host' : 'localhost', 'port' : 13178,
+                    'username' : 'doberman', 'password' : 'h5jlm42'}
 
         self._connect(**conn_details)
         # load config details
@@ -46,10 +47,10 @@ class DobermanDB(object):
         return
 
     @classmethod
-    def _connect(cls, host, port, username=None, password=None):
+    def _connect(cls, host, port, username, password):
         if cls.client:
             return
-        cls.client = pymongo.MongoClient(host=host, port=port)#, username=username, password=password)
+        cls.client = pymongo.MongoClient(host=host, port=port, username=username, password=password)
 
     def _check(self, db_name, collection_name):
         """
@@ -129,6 +130,29 @@ class DobermanDB(object):
             if ret['ok'] != 1:
                 self.logger.error('Database removal failed!')
                 return 1
+        return 0
+
+    def StoreCommand(self, command):
+        controller, cmd = command.split(maxsplit=1)
+        if self.insertIntoDatabase('logging', 'commands',
+                {'name' : controller, 'command' : cmd}):
+            self.logger.error('Could not store command %s!')
+        return 0
+
+    def refreshConfigBackup(self):
+        """
+        Writes the current config from the Database to the file configBackup.txt
+        """
+        try:
+            with open(os.path.join('settings','configBackup.txt'), 'w') as f:
+                f.write("# Backup file of the config table in DobermanDB. "
+                        "Updated: %s\n" % str(datetime.datetime.now()))
+                self.logger.info("Writing new config to configBackup.txt...")
+                for _,controller in self._config.items():
+                    f.write('%s\n#\n' % controller)
+        except Exception as e:
+            self.logger.warning("Can not refresh configBackup.txt. %s." % e)
+            return -1
         return 0
 
     def addAlarmToHistory(self, document):

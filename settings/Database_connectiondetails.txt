@@ -1,1 +1,1 @@
-{'host' : 'localhost', 'port' : 13178}
+{'host' : 'localhost', 'port' : 13178, 'username' : 'doberman', 'password' : 'h5jlm42'}
