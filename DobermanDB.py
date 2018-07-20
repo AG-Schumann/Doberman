@@ -310,6 +310,85 @@ class DobermanDB(object):
         print(60 * '-')
         self.addSettingToConfigHistory(controller)
 
+    def removeControllerFromConfig(self):
+        '''
+        Deletes a controller from the config table.
+        Asks if Data table should be deleted as well.
+        '''
+        if self._config == "EMPTY":
+            print("Config empty. Can not remove a controller.")
+            return
+        y, Y = 'y', 'Y'
+        n, N = 'n', 'N'
+        existing_names = list(self._config.keys())
+        # Ask for controller to delete and confirmation.
+        text = ("\nEnter the name of the controller you would like to remove "
+                "from config:")
+        name = self.getUserInput(text,
+                                 input_type=[str],
+                                 be_in=existing_names)
+        text = ("Do you really want to remove %s from the config table? (y/n) "
+                "THIS CANNOT BE UNDONE." % name)
+        confirmation = self.getUserInput(text,
+                                         input_type=[str],
+                                         be_in=[y, Y, n, N])
+        if confirmation not in [y, Y]:
+            return 0
+        # Delete from the database
+        if self.deleteFromDatabase('settings','controllers',{'name' : name}):
+            self.logger.warning("Can not remove %s from config. Database "
+                                "interaction error." % name)
+            return -1
+        self.logger.info(
+            "Successfully removed %s from the config table." % name)
+        # Ask for deleting data table as well.
+        text = ("\nDo you also want to delete the data table of %s? (y/n)? "
+                "All stored data will be lost." % (name))
+        drop_table = self.getUserInput(text,
+                                       input_type=[str],
+                                       be_in=[y, Y, n, N])
+        if drop_table not in [y, Y]:
+            return 0
+        # Delete data table in the database.
+        if self.deleteFromDatabase('data', name):
+            self.logger.warning(
+                "Can not delete data from %s. Database interaction error." % name)
+            return -1
+        self.logger.info("Successfully deleted all data from %s." % name)
+
+    def recreateTableDefaultSettings(self, force_to=False):
+        """
+        (Re)Creates the Doberman general (default) settings
+        """
+        if not force_to:
+            y, Y = 'y', 'Y'
+            n, N = 'n', 'N'
+            text = ("Are you sure you want to (clear and) recreate table "
+                "'default_settings'? All saved defaults will be lost. (y/n)?")
+            user_input = self.getUserInput(text,
+                                           input_type=[str],
+                                           be_in=[y, Y, n, N])
+            if user_input not in ['Y', 'y']:
+                return
+        self.deleteFromDatabase('settings', collection_name='defaults')
+        default_settings = None
+        # Fill with standard defaults:
+        with open(os.path.join('settings','default_settings.txt'),'r') as f:
+            default_settings = f.read()
+        if not default_settings:
+            self.logger.error('Could not read default settings from file!')
+            return -1
+        try:
+            default_settings = eval(default_settings)
+        except Exception as e:
+            self.logger.error('Could not parse default settings: %s' % e)
+            return -1
+        if self.insertIntoDatabase('settings','defaults',default_settings):
+            self.logger.error("Error recreating default_settings in database")
+            return -1
+        return 0
+>>>>>>> ebefae6d8063fc7f9fb9e1a8881b76338116be55
+
     def updateDefaultSettings(self):
         """
         Updates the default Doberman settings
@@ -440,8 +519,9 @@ class DobermanDB(object):
                                        be_in=['ON', 'OFF', 'MAIL', 'TEL', 'n'])
         if status != 'n':
             original_contact['status'] = status
-            if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']}, update={'$set' : {'status' : status}}):
-                self.logger.error('Could not update contact!')
+            if self.updateDatabase('settings', 'contacts', cuts={'name' : original_contact['name']},
+                    update={'$set' : {'status' : status}}):
+                self.logger.error()
                 return -1
         return 0
 

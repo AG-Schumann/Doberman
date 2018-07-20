@@ -78,9 +78,10 @@ def main():
     parser.add_argument('--log', type=int, choices=range(10,60,10), default=20,
                         help='Logging level')
     args = parser.parse_args()
-    if 
     logging.getLogger()
     logger.addHandler(DobermanLogger.DobermanLogger())
+    db = DobermanDB()
+
     return
 
 if __name__ == '__main__':
