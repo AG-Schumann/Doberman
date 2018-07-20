@@ -45,13 +45,12 @@ class Doberman(object):
         self.opts = opts
         self.logger = logging.getLogger(__name__)
 
-        self.queue = queue.Queue(0)
-        opts.queue = self.queue
-        self.path = os.getcwd()  # Gets path to the folder of this file
-
         self.DDB = DobermanDB.DobermanDB(opts)
 
         self.plugin_paths = ['.']
+        self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
+
+    def Start(self):
         last_tty_update_time = self.DDB.getDefaultSettings('tty_update')
         boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
         self.logger.debug('tty settings last set %s, boot time %s' % (
@@ -62,23 +61,15 @@ class Doberman(object):
                 return
         else:
             self.logger.debug('Not updating tty settings')
-        self._config = self.DDB.getConfig()
-        self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
-
         self.imported_plugins = self.importAllPlugins()
-        self._running_controllers = self.startAllControllers()
-        if self._running_controllers == -1:  # No controller was started
-            self.__exit__(stop_observationThread=False)
-            return
-        self.observationThread = observationThread(
-            self.opts, self._config, self._running_controllers)
+        self.startAllControllers()
 
     def refreshTTY(self):
         """
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
-        self.DDB.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}}, onlyone=False)
+        self.DDB.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -160,31 +151,17 @@ class Doberman(object):
         This function tries to import all programs of the controllers
         which are saved in the database.
         '''
-        if self._config in ['', -1, -2]:
-            self.logger.warning("Plugin settings (config) not loaded, can not start devices")
-            return ['', '']
-        elif self._config == "EMPTY":
-            self.logger.error("Plugin settings (config) empty. Add your controllers settings "
-                              "to the database first with "
-                              "'python Doberman.py -a'.")
-            return ['', '']
         self.failed_import = []
-        imported_plugins = {}
-        for device in self._config:
-            controller = self._config[device]
-            name = controller['name']
-            status = controller['status']
-            if status != 'ON':
-                self.logger.debug("Not importing %s as its status is %s", name, status)
-                continue
+        imported_plugins = []
+        devices = self.DDB.ControllerSettings()
+        for name, controller in devices.items():
+            try:
+                plugin = self.importPlugin(controller)
+            except Exception as e:
+                self.logger.error('Could not import %s: %s' % (name, e))
+                self.failed_import.append(name)
             else:
-                try:
-                    plugin = self.importPlugin(controller)
-                except FileNotFoundError as e:
-                    self.logger.error('Could not import %s: %s' % (name, e))
-                    self.failed_import.append(name)
-                else:
-                    imported_plugins[device] = plugin
+                imported_plugins.append(plugin)
 
         self.logger.info("The following plugins were successfully imported "
                          "(%i/%i): %s" % (len(imported_plugins),
@@ -202,10 +179,7 @@ class Doberman(object):
         for key, value in controller.items():
             setattr(opts, key, value)
 
-        opts.queue = self.queue
-        opts.path = self.path
         opts.plugin_paths = self.plugin_paths
-        opts.command_collection = self.DDB._check('logging','commands')
         opts.initialize = True
 
         # Try to import libraries
@@ -217,20 +191,6 @@ class Doberman(object):
         self.logger.debug("Imported plugin '%s'" % controller['name'])
         return plugin
 
-    def startPlugin(self, plugin):
-        '''
-        Starts a plugin
-        '''
-        try:
-            self.started = True
-            getattr(plugin, 'Run')()
-        except Exception as e:
-            self.logger.error("Failed to start plugin '%s', "
-                              "error: %s" % (plugin.name, str(e)))
-            self.started = False
-            return -1
-        return 0
-
     def startAllControllers(self):
         """
         Function that starts the master programs of all devices
@@ -238,53 +198,36 @@ class Doberman(object):
         """
         running_controllers = []
         failed_controllers = []
-        if self._config in ['', -1, -2]:
-            self.logger.error("Plugin settings (config) not loaded, can not start devices")
-            return -1
-        if self._config == "EMPTY":
-            return -1
-        for name, plugin in self.imported_plugins.items():
+        settings = self.DDB.ControllerSettings()
+        for plugin in self.imported_plugins:
             # Try to start the plugin.
             self.logger.debug("Trying to start device '%s' ..." % name)
-            started = False
-            self.started = False
-            start_new_thread(self.startPlugin, (plugin,))
+            plugin.running = True
+            plugin.start()
             time.sleep(0.5)  # Makes sure the plugin has time to react.
-            if self.started:
-                running_controllers.append(name)
-                self.logger.debug("Successfully started plugin '%s'" % name)
+            if plugin.running:
+                running_controllers.append(plugin.name)
+                self.logger.debug("Successfully started %s" % name)
             else:
                 failed_controllers.append(name)
 
         # Summarize which plugins were started/imported/failed.
         # Also get alarm statuses and Testrun status.
         if len(running_controllers) > 0:
-            self.logger.info("The following controller were successfully "
-                             "started: %s" % str(running_controllers))
-            print("\n" + 60 * '-')
-            print("--Successfully started: %s" % str(running_controllers))
-            print("--Failed to start: %s" % str(failed_controllers))
-            print("--Failed to import: %s" % str(self.failed_import))
+            print('Successfully started: %s' % [c.name for c in running_controllers])
+            print()
+            print('Failed to start: %s' % [c.name for c in failed_controllers])
+            print('Failed to import: %s' % self.failed_import)
 
             print("\n--Alarm statuses:")
             for controller in running_controllers:
-                print("  %s: %s" %
-                      (controller, self._config[controller]['alarm_status']))
-            print("\n--Enabled contacts, status:")
+                name = controller.name
+                alarm_status = settings[name]['alarm_status'][settings[name]['runmode']]
+                print("  %s: %s" % (name, alarm_status))
 
+            print("\n--Enabled contacts, status:")
             for contact in self.DDB.getContacts():
                 print("  %s, %s" % (contact['name'], contact['status']))
-
-            print("\n--Loaded connection details for alarms:")
-            if self.alarmDistr.mailconnection_details:
-                print("  Mail: Successfull.")
-                if self.alarmDistr.smsconnection_details:
-                    print("  SMS: Successfull.")
-                else:
-                    print("  SMS: Not loaded!")
-            else:
-                print("  Mail: Not loaded!")
-                print("  SMS: Mail required!")
 
             if self.opts.testrun == -1:
                 print("\n--Testrun:\n  Activated.")
@@ -302,17 +245,15 @@ class Doberman(object):
                                   str(len(failed_controllers))))
             return -1
 
-    def observation_master(self):
+    def beeWatcher(self):
         '''
-        Checks that observation thread is still alive, restarts it if not
+        Watches all the bees
         '''
         yesno = False
-        try:
-            self.observationThread.start()
-            # Loop for working until stopped.
-            while True:
-                self.logger.info("Main program still alive...")
-                if yesno:
+        while True:
+            if yesno:
+                for plugin in self.running_controllers:
+
                     if (self.observationThread.stopped or not self.observationThread.isAlive()):
                         text = ("Observation thread died, Reviving... "
                                 "(observationThread.stopped = %s, "
@@ -646,15 +587,6 @@ if __name__ == '__main__':
     # START PARSING ARGUMENTS
     # RUN OPTIONS
     defaults = DDB.getDefaultSettings()
-    import_default = defaults['Importtimeout']
-    if import_default < 1:
-        import_default = 1
-    parser.add_argument("-i",
-                        "--importtimeout",
-                        dest="importtimeout",
-                        type=int,
-                        help="Set the timout for importing plugins.",
-                        default=import_default)
     testrun_default = defaults['Testrun']
     parser.add_argument("-t", "--testrun",
                         dest='testrun',
@@ -739,11 +671,6 @@ if __name__ == '__main__':
         print("Testrun=%s (minutes) activated: "
               "No alarms/warnings will be sent for the first %s minutes." %
               (str(opts.testrun), str(opts.testrun)))
-    # Import timeout option -i
-    if opts.importtimeout < 1:
-        print("ERROR: Importtimeout to small. "
-              "Fall back to default value of %d s" % import_default)
-        opts.importtimeout = import_default
     # Filereading option -f
     if opts.filereading:
         print("WARNING: opt -f enabled: Reading Plugin Config from file"
