@@ -91,7 +91,7 @@ class SerialController(Controller):
         self._device.baudrate=9600
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
-        self._device.timeout=3
+        self._device.timeout=0  # nonblocking mode
         super().__init__(opts, logger)
 
     def _getControl(self):

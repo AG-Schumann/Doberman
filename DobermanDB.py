@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-import time
 import logging
-from argparse import ArgumentParser
-import _thread
 import datetime
 import pymongo
 import os.path
-import time
 import utils
 
 
@@ -30,8 +26,6 @@ class DobermanDB(object):
                     'username' : 'doberman', 'password' : 'h5jlm42'}
 
         self._connect(**conn_details)
-        # load config details
-        self._config = self.getConfig()
 
     def close(self):
         if self.client:
@@ -71,7 +65,7 @@ class DobermanDB(object):
         if isinstance(document, (list, tuple)):
             result = collection.insert_many(document)
             if len(result.inserted_ids) != len(document):
-                self.logger.error('Inserted %i intries instead of %i into %/%s' % (
+                self.logger.error('Inserted %i entries instead of %i into %/%s' % (
                     len(result.inserted_ids), len(document), db_name, collection_name))
                 return -1
             return 0
@@ -85,7 +79,7 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts=None, projection={'_id' : 0}):
+    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}):
         """
         Finds one or more documents that pass the specified cuts
         """
@@ -139,23 +133,7 @@ class DobermanDB(object):
             self.logger.error('Could not store command %s!')
         return 0
 
-    def refreshConfigBackup(self):
-        """
-        Writes the current config from the Database to the file configBackup.txt
-        """
-        try:
-            with open(os.path.join('settings','configBackup.txt'), 'w') as f:
-                f.write("# Backup file of the config table in DobermanDB. "
-                        "Updated: %s\n" % str(datetime.datetime.now()))
-                self.logger.info("Writing new config to configBackup.txt...")
-                for _,controller in self._config.items():
-                    f.write('%s\n#\n' % controller)
-        except Exception as e:
-            self.logger.warning("Can not refresh configBackup.txt. %s." % e)
-            return -1
-        return 0
-
-    def addAlarmToHistory(self, document):
+    def logAlarm(self, document):
         """
         Adds the alarm to the history.
         """
@@ -174,37 +152,29 @@ class DobermanDB(object):
             return 1
         return 0
 
-    def readConfig(self, name='all'):
+    def ControllerSettings(self, name='all'):
         """
-        Reads the table config in the database.
+        Reads the settings in the database.
         """
         if name == 'all':
-            controller = self.readFromDatabase('settings', 'controllers', onlyone=False)
+            cursor = self.readFromDatabase('settings', 'controllers')
         else:
-            controller = self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
+            cursor = self.readFromDatabase('settings', 'controllers', cuts={'name' : name})
 
-        if not controller:
+        if not cursor.count():  # FIXME count is deprecated
             if name == 'all':
                 self.logger.info("Config table empty.")
                 return 'EMPTY'
             else:
                 self.logger.warning("No controller with name '%s' "
                                     "found in DB" % str(name))
-        elif controller == -1:
-            self.logger.warning("Can not read from config table in DobermanDB. "
-                                "Database interaction error.")
-            return -1
 
         config_dict = {}
         if name=='all':
-            # list of dicts
-            for row in controller:
-                controller_name = row['name']
-                config_dict[controller_name] = row
+            config_dict = {row['name'] : row for row in cursor}
             return config_dict
         else:
-            return controller
-        return config_dict
+            return cursor[0]
 
     def printParameterDescription(self):
         """
@@ -249,7 +219,7 @@ class DobermanDB(object):
         for sentence in text:
             print("\n - " + sentence)
 
-    def changeControllerByKeyboard(self, change_all=True):
+    def updateController(self):
         n = 'n'
         print('\n' + 60 * '-' + '\nUpdate plugin settings. '
               'The following parameters can be changed:\n')
@@ -261,21 +231,22 @@ class DobermanDB(object):
               '- Enter 0 for no or default value,  \n  '
               '- Enter n for no change.')
         print('\n' + 60 * '-' + '\n Choose the controller you want to change. ')
-        devices = list(self._config.keys())
+        controllers = self.ControllerSettings()
+        devices = list(controllers.keys())
         for number, controller in enumerate(devices):
             print("%s:\t%s" % (str(number), controller))
         # Enter name to find controller
         existing_names = devices
-        existing_numbers = list(map(str, list(range(len(existing_names)))))
+        existing_numbers = list(map(str, range(len(existing_names))))
         existing_devices = existing_names + existing_numbers
         text = "\nEnter controller number or alternatively its name:"
         name = utils.getUserInput(text, input_type=[str],
                                  be_in=existing_devices)
         try:
-            controller = self._config[name]
+            controller = [name]
         except KeyError:
             name = devices[int(name)]
-            controller = self._config[name]
+            controller = controllers[name]
 
         # Print current parameters and infos.
         print('\n' + 60 * '-' + '\n')
@@ -291,13 +262,13 @@ class DobermanDB(object):
         while which != 'n':
             if which == 'status':
                 text = 'Controller %s: Status (ON/OFF):' % name
-                status = utils.getUserInput(text, input_type=[str], be_in['ON','OFF','n'])
+                status = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF','n'])
                 if status != 'n':
                     controller['status'] = status
                     changes.append(which)
             elif which == 'alarm_status':
                 text = 'Controller %s: alarm status (ON/OFF, ON/OFF...):' % name
-                val = utils.getUserInput(text, input_type=[str], be_in['ON','OFF'],
+                val = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF'],
                         be_array=True,exceptions=['n'])
                 if val != 'n':
                     controller[which] = utils.adjustListLength(val, controller['number_of_data'], 'OFF', which)
@@ -413,7 +384,7 @@ class DobermanDB(object):
                 return -1
         return settings
 
-    def readContacts(self,status=None):
+    def getContacts(self,status=None):
         """
         Reads contacts from database.
         """
@@ -424,16 +395,12 @@ class DobermanDB(object):
         if cursor.count() == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
             contacts = {}
-        elif cursor == -1:
-            self.logger.warning("Can not read from contact table in database. "
-                                "Database interaction error.")
-            return -1
         contacts = []
         for row in cursor:
             contacts.append(row)
         return contacts
 
-    def updateContactsByKeyboard(self):
+    def updateContacts(self):
         """
         Update active contacts
         """
@@ -489,26 +456,11 @@ class DobermanDB(object):
           >9 = Alarm
         """
 
-        if self.insertIntoDatabase('data', name, {'when' : when, 'data' : data, 'status' : status}):
+        ret = self.insertIntoDatabase('data', name, {'when' : when, 'data' : data, 'status' : status})
+        if ret:
             self.logger.warning("Can not write data from %s to Database. "
                                 "Database interaction error." % name)
             return -1
+        self.logger.debug('Wrote data from %s' % name)
         return 0
-
-    def updateConfig(self, old_config):
-        """
-        Updates the config variable.
-        Takes deleted settings from the old config,
-        so that the running software is not running out of informations
-        for a certain Plugin.
-        """
-        new_config = self.getConfig()
-        if new_config in [-1, -2, -3]:
-            return -1
-        new_names = list(new_config.keys())
-        old_names = list(old_config.keys())
-        for name in old_names:
-            if name not in new_names:
-                new_config[name] = old_config[name].copy()
-        return new_config
 
