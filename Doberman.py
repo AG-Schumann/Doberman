@@ -13,7 +13,7 @@ import sys
 from argparse import ArgumentParser
 import signal
 import DobermanLogging
-from Plugin import Plugin
+from Plugin import Plugin, FindPlugin
 import psutil
 import importlib
 import importlib.machinery
@@ -35,20 +35,17 @@ class Doberman(object):
        "Detector OBservation and Error Reporting Multiadaptive ApplicatioN"
        is a slow control software.
     Main program that regulates the slow control.
-    First starts all controllers.
-    Then starts an observation thread,
-        which handels all data which come over the queue.
     Closes all processes in the end.
     '''
 
     def __init__(self, opts):
         self.opts = opts
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
 
-        self.DDB = DobermanDB.DobermanDB(opts)
+        self.DDB = DobermanDB.DobermanDB()
 
         self.plugin_paths = ['.']
-        self.alarmDistr = alarmDistribution.alarmDistribution(self.opts)
+        self.alarmDistr = alarmDistribution.alarmDistribution()
 
     def Start(self):
         last_tty_update_time = self.DDB.getDefaultSettings('tty_update')
@@ -58,10 +55,11 @@ class Doberman(object):
         if boot_time > last_tty_update_time:
             if not self.refreshTTY():
                 self.logger.fatal('Could not assign tty ports!')
-                return
+                return -1
         else:
             self.logger.debug('Not updating tty settings')
-        self.imported_plugins = self.importAllPlugins()
+        if self.importAllPlugins():
+            return -2
         self.startAllControllers()
 
     def refreshTTY(self):
@@ -96,15 +94,7 @@ class Doberman(object):
             else:
                 plugin_name = sensor.rstrip('0123456789')
             opts.initialize = False
-
-            spec = PathFinder.find_spec(plugin_name, self.plugin_paths)
-            if spec is None:
-                raise FileNotFoundError('Could not find a controller named %s' % plugin_name)
-            try:
-                controller = getattr(spec.loader.load_module(), plugin_name)(opts)
-            except Exception as e:
-                raise FileNotFoundError('Could not load controller %s: %s' % (plugin_name, e))
-            sensors[sensor] = controller
+            sensors[sensor] = FindPlugin(plugin_name, self.plugin_paths)(opts)
 
         dev = serial.Serial()
         for tty in ttyUSBs:
@@ -123,7 +113,8 @@ class Doberman(object):
                     self.logger.debug('Matched %s to %s' % (tty_num, name))
                     matched['sensors'].append(name)
                     matched['ttys'].append(tty_num)
-                    self.DDB.updateDatabase('settings','controllers',{'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                    self.DDB.updateDatabase('settings','controllers',
+                            {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                     dev.close()
                     break
                 self.logger.debug('Not %s' % name)
@@ -136,14 +127,16 @@ class Doberman(object):
             name = (set(sensors.keys())-set(matched['sensors'])).pop()
             tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
             self.logger.debug('Matched %s to %s via n-1' % (name, tty))
-            self.DDB.updateDatabase('settings','controllers',{'name' : name},{'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+            self.DDB.updateDatabase('settings','controllers',{'name' : name},
+                    {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+            self.DDB.updateDatabase('settings','opmodes', {},
+                    {'$set' : {'tty_update' : datetime.datetime.now()}})
         elif len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
         else:
-            self.DDB.updateDatabase('settings','defaults',
-                    {'parameter' : 'tty_update'},
-                    {'$set' : {'value' : datetime.datetime.now()}})
+            self.DDB.updateDatabase('settings','opmodes', {},
+                    {'$set' : {'tty_update' : datetime.datetime.now()}})
         return True
 
     def importAllPlugins(self):
@@ -167,14 +160,13 @@ class Doberman(object):
                          "(%i/%i): %s" % (len(imported_plugins),
                                           len(self._config),
                                           list(imported_plugins.keys())))
-        return imported_plugins
+        self.imported_plugins = imported_plugins
+        return 0
 
     def importPlugin(self, controller):
         '''
         Imports a plugin
         '''
-        # converting config entries into opts. values
-
         opts = options()
         for key, value in controller.items():
             setattr(opts, key, value)
@@ -182,13 +174,9 @@ class Doberman(object):
         opts.plugin_paths = self.plugin_paths
         opts.initialize = True
 
-        # Try to import libraries
-        try:
-            plugin = Plugin(opts)
-        except Exception as e:
-            self.logger.error("Can not add '%s'. %s " % (controller['name'], e))
-            return -1
-        self.logger.debug("Imported plugin '%s'" % controller['name'])
+        # Exception is caught upstream
+        plugin = Plugin(opts)
+        self.logger.debug("Imported plugin %s" % controller['name'])
         return plugin
 
     def startAllControllers(self):
@@ -199,26 +187,23 @@ class Doberman(object):
         running_controllers = []
         failed_controllers = []
         settings = self.DDB.ControllerSettings()
-        for plugin in self.imported_plugins:
+        while self.imported_plugins:
+            plugin = self.imported_plugins.pop()
             # Try to start the plugin.
-            self.logger.debug("Trying to start device '%s' ..." % name)
-            plugin.running = True
+            self.logger.debug("Trying to start %s ..." % plugin.name)
             plugin.start()
             time.sleep(0.5)  # Makes sure the plugin has time to react.
             if plugin.running:
-                running_controllers.append(plugin.name)
-                self.logger.debug("Successfully started %s" % name)
+                running_controllers.append(plugin)
+                self.logger.info("Successfully started %s" % plugin.name)
             else:
-                failed_controllers.append(name)
+                failed_controllers.append(plugin.name)
+                self.logger.info("Could not start %s" % plugin.name)
+                plugin.close()
 
         # Summarize which plugins were started/imported/failed.
         # Also get alarm statuses and Testrun status.
-        if len(running_controllers) > 0:
-            print('Successfully started: %s' % [c.name for c in running_controllers])
-            print()
-            print('Failed to start: %s' % [c.name for c in failed_controllers])
-            print('Failed to import: %s' % self.failed_import)
-
+        if running_controllers:
             print("\n--Alarm statuses:")
             for controller in running_controllers:
                 name = controller.name
@@ -229,308 +214,125 @@ class Doberman(object):
             for contact in self.DDB.getContacts():
                 print("  %s, %s" % (contact['name'], contact['status']))
 
-            if self.opts.testrun == -1:
-                print("\n--Testrun:\n  Activated.")
-            elif self.opts.testrun == 0:
-                print("\n--Testrun:\n  Deactivated.")
-            else:
-                print("\n--Testrun:\n  Active for the first %s minutes." %
-                      str(self.opts.testrun))
-            print(60 * '-')
-            return running_controllers
+            self.running_controllers = running_controllers
+            return 0
         else:
             self.logger.critical("No controller was started (Failed to import: "
                                  "%s, Failed to start: %s)" %
                                  (str(len(self.failed_import)),
                                   str(len(failed_controllers))))
+            self.running_controllers = []
             return -1
 
     def beeWatcher(self):
         '''
         Watches all the bees
         '''
-        yesno = False
-        while True:
-            if yesno:
-                for plugin in self.running_controllers:
-
-                    if (self.observationThread.stopped or not self.observationThread.isAlive()):
-                        text = ("Observation thread died, Reviving... "
-                                "(observationThread.stopped = %s, "
-                                "obervationThread.isAlive() = %s)" %
-                                (str(self.observationThread.stopped),
-                                 str(self.observationThread.isAlive())))
-                        self.logger.fatal(text)
-                        # Restart observation Thread
-                        self.observationThread = observationThread(
-                            self.opts, self._config, self._running_controllers)
-                        self.observationThread.start()
+        self.running = True
+        try:
+            while self.running:
+                self.checkCommands()
+                self.checkAlarms()
+                for i,plugin in enumerate(self.running_controllers):
+                    if not (plugin.running and plugin.is_alive()):
+                        self.logger.error('%s has died! Restarting...' % plugin.name)
+                        try:
+                            plugin.running = False
+                            plugin.close()
+                            plugin.join()
+                            plugin.start()
+                        except Exception as e:
+                            self.logger.critical('Could not restart %s!' % plugin.name)
+                            plugin.close()
+                            self.running_controllers.pop(i)
                 time.sleep(30)
-                yesno = not yesno
-            self.close()
         except KeyboardInterrupt:
             self.logger.fatal("\n\n Program killed by ctrl-c \n\n")
+        finally:
             self.close()
 
-    def close(self, stop_observationThread=True):
+    def checkCommands(self):
+        collection = self.db._check('logging','commands')
+        doc_filter = {'name' : 'doberman', 'acknowledged' : {'$exists' : 0}}
+        while collection.count_documents(doc_filter):
+            updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+            command = collection.find_one_and_update(doc_filter, updates)['command']
+            if command == 'stop':
+                self.running = False
+            elif command == 'restart':
+                self.close()
+                self.Start()
+            else:
+                self.logger.error('Command %s not understood' % command)
+        return
+
+    def checkAlarms(self):
+        collection = self.db._check('logging','alarm_history')
+        doc_filter_alarms = {'acknowledged' : {'$exists' : 0}, 'howbad' : 2}
+        doc_filter_warns =  {'acknowledged' : {'$exists' : 0}, 'howbad' : 1}
+        msg_format = '{name} : {when} : {msg}'
+        messages = {'alarms' : [], 'warnings' : []}
+        updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+        while collection.count_documents(doc_filter_alarms):
+            alarm = collection.find_one_and_update(doc_filter_alarms, updates)
+            messages['alarms'].append(msg_format.format(**alarm))
+        while(collection.count_documents(doc_filter_warns)):
+            warn = collection.find_one_and_update(doc_filter_warns, updates)
+            messages['warnings'].append(msg_format.format(**warn))
+        if messages['alarms']:
+            self.sendMessage('\n'.join(messages['alarms']), 'alarm')
+        if messages['warnings']:
+            self.sendMessage('\n'.join(messages['warnings']), 'warning')
+        return
+
+    def close(self):
         """
-        If the observationThread hasn't started use True to suppress error messages.
+        Shuts down all plugins
         """
-        try:
-            for plugin in self.imported_plugins:
-                try:
-                    getattr(self.imported_plugins[plugin], "close")()
-                except Exception as e:
-                    self.logger.warning("Can not close plugin '%s' properly. "
-                                        "Error: %s" % (plugin, e))
+        for plugin in self.running_controllers:
             try:
-                self.observationThread.stopped = True
-                self.observationThread.Tevent.set()
+                plugin.running = False
+                plugin.close()
+                plugin.join()
             except Exception as e:
-                if stop_observationThread:
-                    self.logger.warning("Can not stop observationThread "
-                                        "properly: %s" % e)
-        except Exception as e:
-            self.logger.debug("Closing Doberman with an error: %s." % e)
-        finally:
-            return
+                self.logger.warning("Can not close %s properly. "
+                                    "Error: %s" % (plugin, e))
+        return
 
     def __del__(self):
         self.close()
         return
 
-    def __exit__(self, stop_observationThread=True):
-        self.close(stop_observationThread)
+    def __exit__(self):
+        self.close()
         return
 
-
-class observationThread(threading.Thread):
-    '''
-    Does all incoming jobs from the controllers:
-    - Collects data,
-    - Writes data to database (or file if no connection to database),
-    - Checks value limits,
-    - raises warnings and alarms.
-    '''
-
-    def __init__(self, opts, _config, _running_controllers):
-        self.opts = opts
-        self.logger = logging.getLogger(__name__)
-        self.queue = opts.queue
-        self._config = _config
-        self._running_controllers = _running_controllers
-
-        self.__startTime = datetime.datetime.now()
-        self.stopped = False
-        threading.Thread.__init__(self)
-        self.Tevent = threading.Event()
-        self.waitingTime = 6
-        self.DDB = DobermanDB.DobermanDB(opts)
-        self.alarmDistr = alarmDistribution.alarmDistribution(opts)
-        self.lastMeasurementTime = {name : datetime.datetime.now()
-                                    for name in self._config}
-        self.lastAlarmTime = {name : datetime.datetime.now()
-                               for name in self._config}
-        self.lastWarningTime = {name : datetime.datetime.now()
-                                 for name in self._config}
-        self.recurrence_counter = {name : [0]*int(val['number_of_data'])
-                                    for name, val in self._config.items()}
-        self.critical_queue_size = DDB.getDefaultSettings(name="queue_size")
-        if self.critical_queue_size < 5:
-            self.critical_queue_size = 150
-
-    def run(self):
-        self.logger.debug('Observation thread starting')
-        ohshit = False
-        while not self.stopped:
-            while not self.queue.empty():
-                # Makes sure that the processing doesn't get too much behind.
-                #excpected minimal processing rate: 25 Hz
-                if self.queue.qsize() > queue_size:
-                    message = ("Data queue too long (queue length = %s). "
-                               "Data processing will lag behind and "
-                               "data can be lost! Reduce "
-                               "the amount and frequency of data sent "
-                               "to the queue!" % str(queue_size))
-                    self.logger.error(message)
-                    self.critical_queue_size = self.critical_queue_size * 1.5
-                    self.waitingTime /= 2
-                    self.sendMessage(name="Doberman", msg=message, index=None, howbad='warning')
-                    ohshit = True
-                # Do the work
-                job = self.queue.get()
-                if len(job) < 2:
-                    self.logger.warning("Unknown job: %s" % str(job))
-                    continue
-                self.logger.info("Processing data from %s" % job[0])
-                self.processData(job)
-            if ohshit and self.queue.empty():
-                ohshit = False
-                self.waiting_time *= 2
-                self.critical_queue_size = DDB.getDefaultSettings(name="queue_size")
-                if self.critical_queue_size < 5:
-                    self.critical_queue_size = 150
-                self.logger.debug("Queue empty. Updating Plugin settings (config)...")
-                self.updateConfig()
-            if self.queue.empty():
-                self.logger.debug("Queue empty. Sleeping for %s s..." %
-                                  str(self.waitingTime))
-                self.Tevent.wait(self.waitingTime)
-
-    def processData(self, chunk):
-        """
-        Checks the data format and then passes it to the database and
-        the data check.
-        """
-        if self.checkData(*chunk):
-            return -1
-        if self.writeData(*chunk):
-            return -2
-
-    def updateConfig(self):
-        """
-        Calls the DobermanDB.updateConfig() function to update config
-        Makes sure it works out, otherwise continues without updating.
-        """
-        new_config = self.DDB.updateConfig(self._config)
-        if new_config == -1:
-            self.logger.warning("Could not update settings. Plugin settings (config) "
-                                "loading failed. Continue with old settings...")
-            return -1
-        self._config = new_config
-
-    def writeData(self, name, logtime, data, status):
-        """
-        Writes data to a database/file
-        Status:
-        0 = OK,
-        -1 = no connection,
-        -2 = communication error,
-        1 = warning
-        2 = alarm
-        """
-        self.logger.debug('Writing data from %s to database...' % name)
-        if self.DDB.writeDataToDatabase(name, logtime, data, status):
-            self.logger.error('Could not write data from %s to database' % name)
-            return -1
-        return 0
-
-    def checkData(self, name, when, data, status):
-        """
-        Checks if all data is within limits, and start warning if necessary.
-        """
-        try:
-            device = self._config[name]
-        except KeyError:
-            self.logger.error("No controller called %s. Can not check data." % name)
-            return -1
-        al_stat = device['alarm_status']
-        wlow = device['warning_low']
-        whigh = device['warning_high']
-        alow = device['alarm_low']
-        ahigh = device['alarm_high']
-        desc = device['description']
-        readout_interval = device['readout_interval']
-
-        # Actual status and data check.
-        try:
-            self.logger.debug('Checking data from %s' % name)
-            for i in range(len(data)):
-                if al_stat[i] == 'ON':
-                    if status[i] != 0:
-                        msg = 'Lost connection to %s? Status %i is %i' % (name, i, status[i])
-                        num_recip = self.sendMessage(name, when, msg, 'warning', i)
-                        self.logger.warning(msg)
-                        self.DDB.addAlarmToHistory({'name' : name,
-                            'index' : i, 'when' : when,
-                            'status' : status[i], 'data' : data[i], 'reason' : 'NC',
-                            'howbad' : 1, 'num_recip' : num_recip})
-                    elif clip(data[i], alow[i], ahigh[i]) in [alow[i], ahigh[i]]:
-                        self.recurrence_counter[name][i] += 1
-                        status[i] = 2
-                        if self.recurrence_counter[name][i] >= device['recurrence']:
-                            msg = 'Reading %i from %s (%s, %.2f) is outside the alarm range (%.2f,%.2f)' % (
-                                i, name, desc[i], data[i], alow[i], ahigh[i])
-                            num_recip = self.sendMessage(name, when, msg, 'alarm', i)
-                            self.logger.critical(msg)
-                            self.DDB.addAlarmToHistory({'name' : name,
-                                'index' : i, 'when' : when, 'data' : data[i],
-                                'status' : status[i], 'reason' : 'AL',
-                                'howbad' : 2, 'num_recip' : num_recip})
-                            self.recurrence_counter[name][i] = 0
-                    elif clip(data[i], wlow[i], whigh[i]) in [wlow[i], whigh[i]]:
-                        status[i] = 1
-                        self.recurrence_counter[name][i] += 1
-                        if self.recurrence_counter[name][i] >= device['recurrence']:
-                            msg = 'Reading %i from %s (%s, %.2f) is outside the warning range (%.2f,%.2f)' % (
-                                i, name, desc[i], data[i], wlow[i], whigh[i])
-                            num_recip = self.sendMessage(name, when, msg, 'warning', i)
-                            self.logger.warning(msg)
-                            self.DDB.addAlarmToHistory({'name' : name,
-                                'index' : i, 'when' : when, 'data' : data[i],
-                                'status' : status[i], 'reason' : 'WA',
-                                'howbad' : 1, 'num_recip' : num_recip})
-                            self.recurrence_counter[name][i] = 0
-                    else:
-                        self.logger.debug('Reading %i from %s (%s) nominal' % (i, name, desc[i]))
-                else:
-                    self.logger.debug('Alarm status %i from %s is OFF, skipping...' % (i, name))
-            time_diff = (when - self.lastMeasurementTime[name]).total_seconds()
-            if time_diff > 2*readout_interval:
-                msg = '%s last sent data %.1f sec ago instead of %i' % (
-                    name, time_diff, readout_interval)
-                self.logger.warning(msg)
-                num_recip = self.sendMessage(name, when, msg, 'warning')
-                self.DDB.addAlarmToHistory({'name' : name, 'when' : when, 'status' : status,
-                    'data' : data, 'reason' : 'TD', 'howbad' : 1, 'num_recip' : num_recip})
-            self.lastMeasurementTime[name] = when  # when will then be now?
-        except Exception as e:
-            self.logger.critical("Can not check data values and status from %s. Error: %s" % (name, e))
-            return -2
-        return 0
-
-    def sendMessage(self, name, when, msg, howbad, index=0):
+    def sendMessage(self, message, howbad):
         """
         Sends a warning/alarm to the appropriate contacts
         """
         # permanent testrun?
         if self.opts.testrun == -1:
             self.logger.warning('Testrun, no alarm sent. Message: %s' % msg)
-            return [-1, -1]
+            return -1
         now = datetime.datetime.now()
         runtime = (now - self.__startTime).total_seconds()/60
         # still a testrun?
         if runtime < self.opts.testrun:
             self.logger.warning('Testrun still active (%.1f/%i min). Message (%s) not sent' % (runtime, self.opts.testrun, msg))
-            return [-1, -1]
-        # when was last message sent?
-        mintime = self._config[name]['alarm_recurrence'][index]
-        if howbad == 'alarm':
-            time_since = (now - self.lastAlarmTime[name]).total_seconds()/60
-            if time_since < mintime:
-                self.logger.debug('Alarm for %s sent recently (%.1f/%i min)' % (
-                    name, time_since, mintime))
-                return [-2,-2]
-        elif howbad == 'warning':
-            time_since = (now - self.lastWarningTime[name]).total_seconds()/60
-            if time_since < mintime:
-                self.logger.debug('Warning for %s send recently (%.1f/%i min)' % (
-                    name, time_since, mintime))
-                return [-2,-2]
+            return -2
         # who to send to?
-        sms_recipients = [contact['sms'] for contact in self.DDB.getContacts()
-                          if contact['status'] == 'ON']
-        mail_recipients = [contact['email'] for contact in self.DDB.getContacts()
-                           if contact['status'] == 'ON']
+        sms_recipients = [c.sms for c in self.DDB.getContacts('sms')]
+        mail_recipients = [c.email for c in self.DDB.getContacts('email')]
         sent_sms = False
         sent_mail = False
         if sms_recipients and howbad == 'alarm':
-            if self.alarmDistr.sendSMS(sms_recipients, msg) == -1:
+            if self.alarmDistr.sendSMS(sms_recipients, message) == -1:
                 self.logger.error('Could not send SMS, trying mail...')
                 additional_mail_recipients = [contact['email'] for contact
                                               in self.DDB.getContacts()
                                               if contact['sms'] in sms_recipients
-                                              if len(contact['email']) > 5
+                                              if '@' in contact['email']
                                               if contact['email'] not in mail_recipients]
                 mail_recipients = mail_recipients + additional_mail_recipients
                 sms_recipients = []
@@ -539,45 +341,21 @@ class observationThread(threading.Thread):
             else:
                 self.logger.error('Sent SMS to %s' % sms_recipients)
                 sent_sms = True
-                self.lastAlarmTime[name] = now
         if mail_recipients:
-            subject = "%s: %s" % (howbad.upper(), name)
+            subject = 'Doberman %s' % howbad
             if self.alarmDistr.sendEmail(toaddr=mail_recipients, subject=subject,
-                                         message=msg) == -1:
+                                         message=message) == -1:
                 self.logger.error('Could not send %s email!' % howbad)
                 mail_recipients = []
             else:
                 self.logger.info('Sent %s email to %s' % (howbad, mail_recipients))
                 sent_mail = True
-                self.lastWarningTime[name] = now
         if not any([sent_mail, sent_sms]):
             self.logger.critical('Unable to send message!')
-        return [len(sms_recipients), len(mail_recipients)]
+            return -3
+        return 0
 
-class timeout:
-    '''
-    Timeout class. Raises an error when timeout is reached.
-    '''
-
-    def __init__(self, seconds=1, error_message='Timeout'):
-        self.seconds = seconds
-        self.error_message = str(error_message) + ' (%s s) exceeded' % seconds
-
-    def handle_timeout(self, signum, frame):
-        raise OSError(self.error_message)
-
-    def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.seconds)
-
-    def __exit__(self, type, value, traceback):
-        signal.alarm(0)
-
-def deleteLockFile(lockfilePath):
-    os.remove(lockfilePath)
-
-if __name__ == '__main__':
-
+def main():
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     # READING DEFAULT VALUES (need a logger to do so)
     logger = logging.getLogger()
@@ -587,114 +365,41 @@ if __name__ == '__main__':
     # START PARSING ARGUMENTS
     # RUN OPTIONS
     defaults = DDB.getDefaultSettings()
-    testrun_default = defaults['Testrun']
-    parser.add_argument("-t", "--testrun",
-                        dest='testrun',
-                        nargs='?',
-                        const=-1,
-                        default=testrun_default,
-                        type=int,
-                        help=("Testrun: No alarms or warnings will be sent "
-                              "for the time value given "
-                              "(in minutes. e.g. -t=5: first 5 min) "
-                              "or forever if no value is given."))
+    parser.add_argument('--runmode', default='default', type=str,
+                        action='store_true', choices=['testing','default','recovery'],
+                        help='Which operational mode to use')
     loglevel_default = defaults['Loglevel']
-    if loglevel_default%10 != 0:
-        loglevel_default = 20
-    parser.add_argument("--logging", dest="loglevel",
+    parser.add_argument("--log", dest="loglevel", choices=range(10,60,10),
                         type=int, help="Use logging level <value>",
                         default=loglevel_default)
     # CHANGE OPTIONS
-    parser.add_argument('--update',
-                        action='store_true',
-                        help='Update settings (controller, contact, defaults...)',
-                        default=False)
     parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
-    parser.add_argument('--command',
-                        nargs='+',
-                        help="Issue a command to a controller. Format: "
-                             "<controller name> <command>")
     opts = parser.parse_args()
-    opts.path = os.getcwd()
-    Y, y, N, n = 'Y', 'y', 'N', 'n'
-    if opts.loglevel not in [0, 10, 20, 30, 40, 50]:
-        print("ERROR: Given log level %i not allowed. "
-              "Fall back to default value of " % (opts.loglevel, loglevel_default))
-        opts.loglevel = loglevel_default
     logger.setLevel(int(opts.loglevel))
     # Databasing options -n, -a, -u, -uu, -r, -c
-    try:
-        if opts.command:
-            DDB.StoreCommand(' '.join(opts.command))
-    except Exception as e:
-        logger.fatal('Could not save command %s' % ' '.join(opts.command))
-        sys.exit()
-    try:
-        if opts.update:
-            DDB.AskForUpdates()
-    except KeyboardInterrupt:
-        print("\nUser input aborted! Check if your input changed anything.")
-        sys.exit(0)
-    except Exception as e:
-        print("\nError while user input! Check if your input changed anything."
-              " Error: %s", e)
-    if opts.update:
-        text = ("Database updated. "
-                "Do you want to start the Doberman slow control now (Y/N)?")
-        answer = DDB.getUserInput(text, input_type=[str], be_in=[Y, y, N, n])
-        if answer not in [Y, y]:
-            sys.exit(0)
-        opts.add = False
-        opts.update = False
-        opts.contacts = False
-        opts.new = False
 
     lockfile = os.path.join(os.getcwd(), "doberman.lock")
     if os.path.exists(lockfile):
         print("The lockfile exists: is there an instance of Doberman already running?")
-        sys.exit(0)
+        return
     else:
         with open(lockfile, 'w') as f:
             f.write('\0')
-        atexit.register(deleteLockFile, lockfile)
+        atexit.register(lambda x : os.remove(x), lockfile)
 
-    # Testrun option -t
-    if opts.testrun == -1:
-        print("WARNING: Testrun activated: No alarm / warnings will be sent.")
-    elif opts.testrun == testrun_default:
-        print("WARNING: Testrun=%d (minutes) activated by default: "
-              "No alarms/warnings will be sent for the first %d minutes." %
-              (testrun_default, testrun_default))
-    else:
-        print("Testrun=%s (minutes) activated: "
-              "No alarms/warnings will be sent for the first %s minutes." %
-              (str(opts.testrun), str(opts.testrun)))
-    # Filereading option -f
-    if opts.filereading:
-        print("WARNING: opt -f enabled: Reading Plugin Config from file"
-              " '%s' and storing new settings to database... "
-              "Possible changes in the database will be overwritten...!" %
-              opts.filereading)
-        try:
-            DDB.storeSettingsFromFile(opts.filereading)
-        except Exception as e:
-            print("ERROR: Reading plugin settings from file failed! "
-                  "Error: %s. Check the settings in the database for any "
-                  "unwanted or missed changes." % e)
-            text = ("Do you want to start the Doberman slow control "
-                    "anyway (Y/N)?")
-            answer = DDB.getUserInput(text, input_type=[str], be_in=[Y, y, N, n])
-            if answer not in [Y, y]:
-                sys.exit(0)
     # Load and start script
     slCo = Doberman(opts)
     try:
-        slCo.observation_master()
+        slCo.Start()
+        slCo.beeWatcher()
     except AttributeError:
         pass
     except Exception as e:
         print(e)
 
-    sys.exit(0)
+    return
+
+if __name__ == '__main__':
+    main()
