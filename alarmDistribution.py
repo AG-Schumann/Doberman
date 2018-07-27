@@ -1,87 +1,31 @@
-#!/usr/bin/env python3
-import sys
-from argparse import ArgumentParser
 import logging
 import datetime
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import DobermanDB
 
 
 class alarmDistribution(object):
     """
-    Class that sends an email or to a given address
+    Class that sends an email or sms to a given address
     """
 
-    def __init__(self, opts):
+    def __init__(self):
         """
         Loading connections to Mail and SMS.
         """
-        self.logger = logging.getLogger(__name__)
-        self.mailconnection_details = self.getMailConnectionDetails()
-        self.smsconnection_details = self.getSMSConnectionDetails()
+        self.logger = logging.getLogger(self.__class__.__name__)
+        db = DobermanDB.DobermanDB
+        details = db._check('settings','contacts').find_one({'conn_details' : {'$exists' : 1}})
+        self.mailconnection_details = details['email']
+        self.smsconnection_details = details['sms']
         if not self.mailconnection_details:
             self.logger.critical("No Mail connection details loaded! Will not "
                                  "be able to send warnings and alarms!")
         if not self.smsconnection_details:
             self.logger.critical("No SMS connection details loaded! Will not "
                                  "be able to send alarms by sms!")
-
-    def getMailConnectionDetails(self):
-        """
-        Reading file Mail_connectiondetail.txt and returning entries.
-        Should be saved in the order:
-          'server','port','fromaddr','password','contactaddr'
-        """
-        try:
-            connection_details = []
-            with open("settings/Mail_connectiondetails.txt", "r") as f:
-                for line in f:
-                    if not line or line == '\n':
-                        continue
-                    if str(line)[0] == '#':
-                        continue
-                    line = line.split('=')
-                    connection_details.append(line[1].strip())
-        except Exception as e:
-            self.logger.warning("Can not load email connection details. "
-                                "Error: %s" % e)
-            return []
-        # Protection against default connection details
-        if connection_details[2] == "myemail@gmail.com":
-            self.logger.error("Default identification in file "
-                              "Mail_connectiondetails.txt! No alarms will "
-                              "be sent. Update connectiondetails first!")
-            return []
-        self.logger.debug("Email connection details loaded from file.")
-        return connection_details
-
-    def getSMSConnectionDetails(self):
-        """
-        Reading file SMS_connectiondetail.txt and returning entries.
-        """
-        try:
-            connection_details = []
-            with open("settings/SMS_connectiondetails.txt", "r") as f:
-                for line in f:
-                    if not line or line == '\n':
-                        continue
-                    if str(line)[0] == '#':
-                        continue
-                    line = line.split('=')
-                    connection_details.append(line[1].strip())
-        except Exception as e:
-            self.logger.warning("Can not load SMS connection details. "
-                                "Error: %s" % e)
-            return []
-        # Protection against default connection details
-        if connection_details[1] == "myserialnumber.mypassword":
-            self.logger.error("Default identification in file "
-                              "SMS_connectiondetails.txt! No SMS will be "
-                              "sent. Update connectiondetails first!")
-            return []
-        self.logger.debug("SMS connection details loaded from file.")
-        return connection_details
 
     def sendEmail(self, toaddr, subject, message, Cc=None, Bcc=None, add_signature=True):
         '''
@@ -97,15 +41,15 @@ class alarmDistribution(object):
         try:
             # Compose connection details and addresses
             now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            server = self.mailconnection_details[0]
-            port = int(self.mailconnection_details[1])
-            fromaddr = self.mailconnection_details[2]
-            password = self.mailconnection_details[3]
+            server = self.mailconnection_details['server']
+            port = self.mailconnection_details['port']
+            fromaddr = self.mailconnection_details['fromaddr']
+            password = self.mailconnection_details['password']
             if not isinstance(toaddr, list):
                 toaddr = toaddr.split(',')
             recipients = toaddr
             try:
-                contactaddr = self.mailconnection_details[4]
+                contactaddr = self.mailconnection_details['contactaddr']
             except:
                 self.logger.warning("No contact address given. Mail will be "
                                     "sent without contact address.")
@@ -190,10 +134,10 @@ class alarmDistribution(object):
                 return -1
         # Compose connection details and addresses
         try:
-            server = self.smsconnection_details[0]
-            identification = self.smsconnection_details[1]
-            contactaddr = self.smsconnection_details[2]
-            fromaddr = self.mailconnection_details[2]
+            server = self.smsconnection_details['server']
+            identification = self.smsconnection_details['identification']
+            contactaddr = self.smsconnection_details['contactaddr']
+            fromaddr = self.mailconnection_details['fromaddr']
             if not phonenumber:
                 self.logger.warning("No phonenumber given. "
                                     "Can not send SMS.")

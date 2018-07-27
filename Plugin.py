@@ -1,87 +1,208 @@
+import threading
+import datetime
 import time
 import logging
-from ReadoutThread import ReadoutThread
+import DobermanDB
 import importlib
 import importlib.machinery
-from importlib.machinery import PathFinder
-from DobermanDB import DobermanDB
-import DobermanLogger
 import argparse
+import DobermanLogger
 
 
-class Plugin(object):
+def FindPlugin(name, path):
+    spec = importlib.machinery.PathFinder.find_spec(name, path)
+    if spec is None:
+        raise FileNotFoundError('Could not find a controller named %s' % name)
+    controller_ctor = getattr(spec.loader.load_module(), plugin_name)
+    return controller_ctor
+
+def clip(val, low, high):
+    return max(min(val, high), low)
+
+class Plugin(threading.Thread):
     """
-    Base plugin class. Attempts to find a controller with the specified name in the specified directory
+    Class that controls starting, running, and stopping the readout thread
+    Reads data from the controller, checks it for warnings/alarms, and writes
+    to the database
     """
+
     def __init__(self, opts):
+        """
+        Does the controller interfacing and stuff
+        """
         self.logger = logging.getLogger(opts.name)
         self.name = opts.name
-        self.logger.debug('Starting %s...' % self.name)
+        self.logger.debug('Starting %s' % self.name)
+        self.db = DobermanDB.DobermanDB()
+        self.config_doc = self.db.readFromDatabase('settings','controllers',
+                {'name' : self.name}, onlyone=True)
         if self.name != 'RAD7':
             plugin_name = self.name.rstrip('0123456789')
         else:
             plugin_name = self.name
 
-        spec = PathFinder.find_spec(plugin_name, opts.plugin_paths)
-        if spec is None:
-            raise FileNotFoundError('Could not find a controller named %s' % plugin_name)
-        try:
-            controller_ctor = getattr(spec.loader.load_module(), plugin_name)
-        except Exception as e:
-            raise FileNotFoundError('Could not load controller %s: %s' % (plugin_name, e))
+        self.controller_ctor = FindPlugin(plugin_name, opts.plugin_paths)
 
-        self.writeThread = ReadoutThread(opts, self.logger, controller_ctor)
-
-    def Run(self):
-        """This function starts the readout process from the controller.
-        It spawns a new thread and checks periodically if it's still running.
-        If it isn't it tries to restart it
-        """
-        yesno = False
-        try:
-            self.writeThread.running = True
-            self.writeThread.start()
-            while True:
-                self.logger.debug("Main program still alive...")
-                if yesno:
-                    if not self.writeThread.running or not self.writeThread.isAlive():
-                        self.logger.fatal("Readout thread died! Reviving...")
-                        self.writeThread.start()
-                time.sleep(30)
-                yesno = not yesno
-            self.close()
-        except KeyboardInterrupt:
-            self.logger.fatal("Program killed by ctrl-c")
-            self.close()
+        self.number_of_data = self.config_doc['number_of_data']
+        self.recurrence_counter = [0] * self.number_of_data
+        self.last_message_time = datetime.datetime.now()
+        self.late_counter = 0
+        self.last_measurement_time = datetime.datetime.now()
+        self.opts = opts
+        self.controller = None
+        self.OpenController()
+        self.running = False
+        super().__init__()
+        self.Tevent = threading.Event()
 
     def close(self):
-        self.logger.debug("Closing %s..." % self.name)
-        self.writeThread.running = False
-        self.writeThread.Tevent.set()
-        self.controller.close()
+        self.logger.info('Stopping %s' % self.name)
+        self.running = False
+        self.Tevent.set()
+        if self.controller:
+            self.controller.close()
+        self.controller = None
         return
 
-    def __del__(self):
-        self.close()
-        return
+    def OpenController(self):
+        if self.controller:
+            return
+        try:
+            self.controller = self.controller_ctor(self.opts)
+        except Exception as e:
+            self.logger.error('Could not open controller')
+            self.controller = None
+            raise
 
-    def __exit__(self):
+    def run(self):
+        self.OpenController()
+        now = time.time()
+        self.running = True
+        collection = self.db._check('settings','controllers')
+        while self.running:
+            rundoc = collection.find_one({'name' : self.name})
+            then = time.time()
+            dt = now - then
+            if dt < rundoc['readout_interval']:
+                self.Tevent.wait(rundoc['readout_interval'] - dt)
+            now = time.time()
+            if rundoc['status'][rundoc['runmode']] == 'ON':
+                data = self.Readout()
+                self.ProcessData(data, rundoc)
+            for command in self.CheckCommands():
+                self.controller.ExecuteCommand(command)
         self.close()
-        return
+
+    def Readout(self):
+        """
+        Actually interacts with the device. Returns [time, data, status]
+        Ensures data and status are lists
+        """
+        vals = self.controller.Readout()
+        if vals['data'] is not None and not isinstance(vals['data'], (list, tuple)):
+            vals['data'] = [vals['data']]
+        if not isinstance(vals['retcode'], (list, tuple)):
+            vals['retcode'] = [vals['retcode']]
+        upstream = [datetime.datetime.now(), vals['data'], vals['retcode']]
+        self.logger.debug('Measured %s' % vals['data'])
+        return upstream
+
+    def ProcessData(self, data, rundoc):
+        """
+        Checks data for warning/alarms and writes it to the database
+        """
+        when, values, status = data
+        alarm_status = rundoc['alarm_status'][rundoc['runmode']]
+        alarm_low = rundoc['alarm_low'][rundoc['runmode']]
+        alarm_high = rundoc['alarm_high'][rundoc['runmode']]
+        warning_low = rundoc['warning_low'][rundoc['runmode']]
+        warning_high = rundoc['warning_high'][rundoc['runmode']]
+        message_time = rundoc['message_time'][rundoc['runmode']]
+        recurrence = rundoc['alarm_recurrence'][rundoc['runmode']]
+        readout_interval = rundoc['readout_interval']
+        dt = (datetime.datetime.now() - self.last_message_time).total_seconds()
+        too_soon = (dt < message_time*60)
+        for i in range(self.number_of_data):
+            try:
+                if alarm_status[i] != 'ON':
+                    continue
+                if status[i] < 0 and not too_soon:
+                    msg = 'Something wrong with %s? Status %i is %i' % (self.name,
+                            i, status[i])
+                    self.logger.warning(msg)
+                    self.db.logAlarm({'name' : self.name, 'index' : i,
+                        'when' : when, 'status' : status[i], 'data' : values[i],
+                        'reason' : 'NC', 'howbad' : 1, 'msg' : msg})
+                elif clip(values[i], alarm_low[i], alarm_high[i]) in \
+                    [alarm_low[i], alarm_high[i]]:
+                    self.recurrence_counter[i] += 1
+                    status[i] = 2
+                    if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
+                        msg = (f'Reading {i} from {self.name} ({self.description[i]}, '
+                               f'{data[i]:.2f}) is outside the alarm range '
+                                f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
+                        self.logger.critical(msg)
+                        self.db.logAlarm({'name' : self.name, 'index' : i,
+                            'when' : when, 'status' : status[i], 'data' : values[i],
+                            'reason' : 'A', 'howbad' : 2, 'msg' : msg})
+                        self.recurrence_counter[i] = 0
+                        self.last_message_time = now
+                elif clip(values[i], warning_low[i], warning_high[i]) in \
+                    [warning_low[i], warning_high[i]]:
+                    self.recurrence_counter[i] += 1
+                    status[i] = 1
+                    if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
+                        msg = (f'Reading {i} from {self.name} ({self.description[i]}, '
+                                f'{data[i]:.2f}) is outside the warning range '
+                                f'({warning_low[i]:.2f}, {warning_high[i]:.2f})')
+                        self.logger.warning(msg)
+                        self.db.logAlarm({'name' : self.name, 'index' : i,
+                            'when' : when, 'status' : status[i], 'data' : values[i],
+                            'reason' : 'W', 'howbad' : 1, 'msg' : msg})
+                        self.recurrence_counter[i] = 0
+                        self.last_message_time = now
+                else:
+                    self.recurrence_counter[i] = 0
+            except Exception as e:
+                self.logger.critical('Could not check data %i from %s: %s' % (i, self.name, e))
+        time_diff = (when - self.last_measurement_time).total_seconds()
+        if time_diff > 2*readout_interval:
+            self.late_counter += 1
+            if self.late_counter >= 3:
+                msg = f'{self.name} last sent data {time_diff:.1f} sec ago instead of {readout_interval}'
+                self.logger.warning(msg)
+                self.db.logAlarm({'name' : self.name, 'when' : now, 'status' : status,
+                    'data' : data, 'reason' : 'TD', 'howbad' : 1})
+                self.late_counter = 0
+        else:
+            self.late_counter = 0
+        self.last_measurement_time = when
+        self.db.writeDataToDatabase(self.name, when, values, status)
+        # success is logged upstream
+
+    def CheckCommands(self):
+        """
+        Pings the database for new commands for the controller, returns a list
+        """
+        doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0}}
+        collection = self.db._check('logging','commands')
+        while(collection.count_documents(doc_filter)):
+            updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+            yield collection.find_one_and_update(doc_filter, updates)['command']
 
 def main():
-    parser = argparse.ArgumentParser(description='Doberman standalone plugin')
-    parser.add_argument('--name', type=str, dest='plugin_name',
-                        help='Name of the controller', required=True)
-    parser.add_argument('--config', type=str, dest='configuration',
-                        help='Which configuration to run with', default='default')
+    raise NotImplementedError('Too soon...')
+    parser = argparse.ArgumentParser(description='Doberman plugin standalone')
+    parser.add_argument('--name', type=str, dest='plugin_name', required=True,
+                        help='Name of the controller')
+    parser.add_argument('--runmode', type=str, dest='runmode',
+                        help='Which run mode to use', default='default')
     parser.add_argument('--log', type=int, choices=range(10,60,10), default=20,
                         help='Logging level')
     args = parser.parse_args()
-    logging.getLogger()
-    logger.addHandler(DobermanLogger.DobermanLogger())
-    db = DobermanDB()
-
+    args.plugin_paths=['.']
+    logging.getLogger(args.plugin_name)
+    logging.addHandler(DobermanLogger.DobermanLogger())
     return
 
 if __name__ == '__main__':
