@@ -8,7 +8,7 @@ class cryocon_22c(LANController):
     Cryogenic controller
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         self._msg_end = ';\n'
         self.commands = { # these are not case sensitive
                 'identify' : '*idn?',

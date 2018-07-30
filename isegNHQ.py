@@ -8,10 +8,10 @@ class isegNHQ(SerialController):
     iseg NHQ controller
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         self._msg_end = '\r\n'
         self._msg_start = ''
-        super().__init__(opts, logger)
+        super().__init__(opts, self.logger)
         self.basecommand = '{cmd}'
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
@@ -36,7 +36,7 @@ class isegNHQ(SerialController):
         super()._getControl()
         self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
         self.SendRecv(self.setcommand.format(cmd=self.commands['Delay'],
-            value=self.delay)
+            value=self.delay))
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.commands['open'], dev)
@@ -62,7 +62,9 @@ class isegNHQ(SerialController):
             if status[-1]:
                 vals.append[-1]
             else:
-                vals.append(func(resp['data']))
+                data = resp['data'].split(cmd)[-1]
+                #data = resp['data']
+                vals.append(func(data))
         return {'retcode' : status, 'data' : vals}
 
     def SendRecv(self, message, dev=None):
@@ -70,6 +72,7 @@ class isegNHQ(SerialController):
         The iseg does things char by char, not string by string
         This handles that, checks for the echo, and strips the \\r\\n
         """
+        return super().SendRecv(message,dev)
         device = dev if dev else self._device
         msg = self._msg_start + message + self._msg_end
         response = ''

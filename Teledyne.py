@@ -9,7 +9,7 @@ class Teledyne(SerialController):
     THCD-100
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         self._msg_end = '\r\n'
         self.commands = {
                 'Address' : 'add',

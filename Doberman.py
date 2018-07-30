@@ -23,12 +23,6 @@ import serial
 
 __version__ = '2.0.0'
 
-class options(object):
-    pass
-
-def clip(val, low, high):
-    return max(min(val, high), low)
-
 class Doberman(object):
     '''
     Doberman short for
@@ -86,14 +80,16 @@ class Doberman(object):
         sensors = {name: None for name in sensor_names}
         matched = {'sensors' : [], 'ttys' : []}
         for sensor in sensor_names:
-            opts = options()
-            for key, value in sensor_config[sensor].items():
-                setattr(opts, key, value)
+            opts = {}
+            opts['name'] = sensor
+            opts['initialize'] = False
+            opts.update(sensor_config[sensor]['address'])
+            if 'additional_params' in sensor_config[sensor]:
+                opts.update(sensor_config[sensor]['additional_params'])
             if sensor == 'RAD7': # I dislike edge cases
                 plugin_name = sensor
             else:
                 plugin_name = sensor.rstrip('0123456789')
-            opts.initialize = False
             sensors[sensor] = FindPlugin(plugin_name, self.plugin_paths)(opts)
 
         dev = serial.Serial()
@@ -149,11 +145,12 @@ class Doberman(object):
         devices = self.DDB.ControllerSettings()
         for name, controller in devices.items():
             try:
-                plugin = self.importPlugin(controller)
+                plugin = Plugin(name, self.plugin_paths)
             except Exception as e:
                 self.logger.error('Could not import %s: %s' % (name, e))
                 self.failed_import.append(name)
             else:
+                self.logger.debug('Imported %s' % name
                 imported_plugins.append(plugin)
 
         self.logger.info("The following plugins were successfully imported "
@@ -162,22 +159,6 @@ class Doberman(object):
                                           list(imported_plugins.keys())))
         self.imported_plugins = imported_plugins
         return 0
-
-    def importPlugin(self, controller):
-        '''
-        Imports a plugin
-        '''
-        opts = options()
-        for key, value in controller.items():
-            setattr(opts, key, value)
-
-        opts.plugin_paths = self.plugin_paths
-        opts.initialize = True
-
-        # Exception is caught upstream
-        plugin = Plugin(opts)
-        self.logger.debug("Imported plugin %s" % controller['name'])
-        return plugin
 
     def startAllControllers(self):
         """
@@ -235,7 +216,7 @@ class Doberman(object):
                 self.checkAlarms()
                 for i,plugin in enumerate(self.running_controllers):
                     if not (plugin.running and plugin.is_alive()):
-                        self.logger.error('%s has died! Restarting...' % plugin.name)
+                        self.logger.error('%s died! Restarting...' % plugin.name)
                         try:
                             plugin.running = False
                             plugin.close()
@@ -243,7 +224,9 @@ class Doberman(object):
                             plugin.start()
                         except Exception as e:
                             self.logger.critical('Could not restart %s!' % plugin.name)
+                            plugin.running = False
                             plugin.close()
+                            plugin.join()
                             self.running_controllers.pop(i)
                 time.sleep(30)
         except KeyboardInterrupt:
@@ -262,6 +245,13 @@ class Doberman(object):
             elif command == 'restart':
                 self.close()
                 self.Start()
+            elif 'runmode' in command:
+                try:
+                    _, runmode = command.split()
+                except ValueError:
+                    self.logger.error("Could not understand command '%s'" % command)
+                else:
+                    self.DDB.updateDatabase('settings','controllers',{},{'$set' : {'runmode' : runmode}})
             else:
                 self.logger.error('Command %s not understood' % command)
         return
