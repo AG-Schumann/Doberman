@@ -26,29 +26,34 @@ class Plugin(threading.Thread):
     to the database
     """
 
-    def __init__(self, opts):
+    def __init__(self, name, plugin_paths):
         """
         Does the controller interfacing and stuff
         """
-        self.logger = logging.getLogger(opts.name)
-        self.name = opts.name
-        self.logger.debug('Starting %s' % self.name)
+        self.logger = logging.getLogger(name)
+        self.name = name
+        self.logger.debug('Starting...')
         self.db = DobermanDB.DobermanDB()
-        self.config_doc = self.db.readFromDatabase('settings','controllers',
+        config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
         if self.name != 'RAD7':
             plugin_name = self.name.rstrip('0123456789')
         else:
             plugin_name = self.name
 
-        self.controller_ctor = FindPlugin(plugin_name, opts.plugin_paths)
+        self.controller_ctor = FindPlugin(plugin_name, plugin_paths)
+        self.ctor_opts = {}
+        self.ctor_opts['name'] = self.name
+        self.ctor_opts['initialize'] = True
+        self.ctor_opts.update(config_doc['address'])
+        if 'additional_params' in config_doc:
+            self.ctor_opts.update(config_doc['additional_params'])
 
-        self.number_of_data = self.config_doc['number_of_data']
+        self.number_of_data = config_doc['number_of_data']
         self.recurrence_counter = [0] * self.number_of_data
         self.last_message_time = datetime.datetime.now()
         self.late_counter = 0
         self.last_measurement_time = datetime.datetime.now()
-        self.opts = opts
         self.controller = None
         self.OpenController()
         self.running = False
@@ -56,7 +61,7 @@ class Plugin(threading.Thread):
         self.Tevent = threading.Event()
 
     def close(self):
-        self.logger.info('Stopping %s' % self.name)
+        self.logger.info('Stopping...')
         self.running = False
         self.Tevent.set()
         if self.controller:
@@ -65,32 +70,54 @@ class Plugin(threading.Thread):
         return
 
     def OpenController(self):
-        if self.controller:
+        if self.controller is not None:
             return
         try:
-            self.controller = self.controller_ctor(self.opts)
+            self.controller = self.controller_ctor(self.ctor_opts)
         except Exception as e:
             self.logger.error('Could not open controller')
             self.controller = None
             raise
+        else:
+            self._connected = True
 
     def run(self):
         self.OpenController()
         now = time.time()
         self.running = True
-        collection = self.db._check('settings','controllers')
         while self.running:
-            rundoc = collection.find_one({'name' : self.name})
+            rundoc = self.db.readFromDatabase('settings','controllers',
+                    {'name' : self.name}, onlyone=True)
             then = time.time()
             dt = now - then
             if dt < rundoc['readout_interval']:
                 self.Tevent.wait(rundoc['readout_interval'] - dt)
             now = time.time()
-            if rundoc['status'][rundoc['runmode']] == 'ON':
-                data = self.Readout()
-                self.ProcessData(data, rundoc)
+            if self._connected:
+                if rundoc['status'][rundoc['runmode']] == 'ON':
+                    data = self.Readout()
+                    if data['retcode'] in [-1,-2]: # connection lost
+                        self._connected = False
+                    self.ProcessData(data, rundoc)
+            else:
+                try:
+                    self.OpenController()
+                except:
+                    pass
             for command in self.CheckCommands():
-                self.controller.ExecuteCommand(command)
+                if 'runmode' in command:
+                    try:
+                        _, runmode = command.split()
+                    except ValueError:
+                        self.logger.error("Could not understand command '%s'" % command)
+                    else:
+                        self.db.updateDatabase('settings','controllers',
+                                {'name': self.name}, {'$set' : {'runmode' : runmode}})
+                elif 'stop' in command:
+                    self.running = False
+                    # note that this will cause some issues when not in standalone mode
+                elif self._connected:
+                    self.controller.ExecuteCommand(command)
         self.close()
 
     def Readout(self):
@@ -99,10 +126,14 @@ class Plugin(threading.Thread):
         Ensures data and status are lists
         """
         vals = self.controller.Readout()
-        if vals['data'] is not None and not isinstance(vals['data'], (list, tuple)):
+        if vals['data'] not isinstance(vals['data'], (list, tuple)):
             vals['data'] = [vals['data']]
+        if len(vals['data']) != self.number_of_data:
+            vals['data'] += [None]*(self.number_of_data - len(vals['data']))
         if not isinstance(vals['retcode'], (list, tuple)):
             vals['retcode'] = [vals['retcode']]
+        if len(vals['retcode']) != self.number_of_data:
+            vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
         upstream = [datetime.datetime.now(), vals['data'], vals['retcode']]
         self.logger.debug('Measured %s' % vals['data'])
         return upstream
@@ -112,13 +143,14 @@ class Plugin(threading.Thread):
         Checks data for warning/alarms and writes it to the database
         """
         when, values, status = data
-        alarm_status = rundoc['alarm_status'][rundoc['runmode']]
-        alarm_low = rundoc['alarm_low'][rundoc['runmode']]
-        alarm_high = rundoc['alarm_high'][rundoc['runmode']]
-        warning_low = rundoc['warning_low'][rundoc['runmode']]
-        warning_high = rundoc['warning_high'][rundoc['runmode']]
-        message_time = rundoc['message_time'][rundoc['runmode']]
-        recurrence = rundoc['alarm_recurrence'][rundoc['runmode']]
+        runmode = rundoc['runmode']
+        alarm_status = rundoc['alarm_status'][runmode]
+        alarm_low = rundoc['alarm_low'][runmode]
+        alarm_high = rundoc['alarm_high'][runmode]
+        warning_low = rundoc['warning_low'][runmode]
+        warning_high = rundoc['warning_high'][runmode]
+        message_time = rundoc['message_time'][runmode]
+        recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
         dt = (datetime.datetime.now() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
@@ -127,8 +159,7 @@ class Plugin(threading.Thread):
                 if alarm_status[i] != 'ON':
                     continue
                 if status[i] < 0 and not too_soon:
-                    msg = 'Something wrong with %s? Status %i is %i' % (self.name,
-                            i, status[i])
+                    msg = f'Something wrong? Status[{i}] is {status[i]}'
                     self.logger.warning(msg)
                     self.db.logAlarm({'name' : self.name, 'index' : i,
                         'when' : when, 'status' : status[i], 'data' : values[i],
@@ -138,7 +169,7 @@ class Plugin(threading.Thread):
                     self.recurrence_counter[i] += 1
                     status[i] = 2
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
-                        msg = (f'Reading {i} from {self.name} ({self.description[i]}, '
+                        msg = (f'Reading {i} ({self.description[i]}, '
                                f'{data[i]:.2f}) is outside the alarm range '
                                 f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
                         self.logger.critical(msg)
@@ -152,7 +183,7 @@ class Plugin(threading.Thread):
                     self.recurrence_counter[i] += 1
                     status[i] = 1
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
-                        msg = (f'Reading {i} from {self.name} ({self.description[i]}, '
+                        msg = (f'Reading {i} ({self.description[i]}, '
                                 f'{data[i]:.2f}) is outside the warning range '
                                 f'({warning_low[i]:.2f}, {warning_high[i]:.2f})')
                         self.logger.warning(msg)
@@ -164,11 +195,13 @@ class Plugin(threading.Thread):
                 else:
                     self.recurrence_counter[i] = 0
             except Exception as e:
-                self.logger.critical('Could not check data %i from %s: %s' % (i, self.name, e))
+                self.logger.critical(f'Could not check data[{i}]: {e}')
+        if not self._connected:
+            return
         time_diff = (when - self.last_measurement_time).total_seconds()
         if time_diff > 2*readout_interval:
             self.late_counter += 1
-            if self.late_counter >= 3:
+            if self.late_counter >= 3 and not too_soon:
                 msg = f'{self.name} last sent data {time_diff:.1f} sec ago instead of {readout_interval}'
                 self.logger.warning(msg)
                 self.db.logAlarm({'name' : self.name, 'when' : now, 'status' : status,
@@ -191,7 +224,6 @@ class Plugin(threading.Thread):
             yield collection.find_one_and_update(doc_filter, updates)['command']
 
 def main():
-    raise NotImplementedError('Too soon...')
     parser = argparse.ArgumentParser(description='Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the controller')
@@ -200,9 +232,36 @@ def main():
     parser.add_argument('--log', type=int, choices=range(10,60,10), default=20,
                         help='Logging level')
     args = parser.parse_args()
-    args.plugin_paths=['.']
+    plugin_paths=['.']
     logging.getLogger(args.plugin_name)
     logging.addHandler(DobermanLogger.DobermanLogger())
+    logging.setLevel(args.log)
+
+    plugin = Plugin(args.plugin_name, plugin_paths)
+    plugin.start()
+    running = True
+    time.sleep(5)
+    try:
+        while running:
+            if not (plugin.running and plugin.is_alive()):
+                self.logger.error('%s died! Restarting...' % plugin.name)
+                try:
+                    plugin.running = False
+                    plugin.close()
+                    plugin.join()
+                    plugin.start()
+                except Exception as e:
+                    self.logger.critical('Could not restart %s' % plugin.name)
+                    plugin.running = False
+                    plugin.close()
+                    plugin.join()
+                    running = False
+            time.sleep(30)
+    except KeyboardInterrupt:
+        self.logger.fatal('Killed by ctrl-c')
+    finally:
+        plugin.close()
+
     return
 
 if __name__ == '__main__':

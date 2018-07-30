@@ -13,15 +13,15 @@ class Controller(object):
     _msg_end = ''
 
     def __init__(self, opts, logger):
-        self.name = opts.name
+        """
+        opts is a dict with all the options needed for initialization
+        (addresses, configuration options, etc)
+        """
         self.logger = logger
-        for key, value in opts.address.items():
+        for key, value in opts.items():
             setattr(self, key, value)
-        if hasattr(opts, 'additional_params'):
-            for key, value in opts.additional_params.items():
-                setattr(self, key, value)
         self._connected = False
-        if opts.initialize:
+        if self.initialize:
             if self._getControl():
                 time.sleep(0.2)
             else:
@@ -38,7 +38,7 @@ class Controller(object):
 
     def isThisMe(self, dev):
         """
-        Makes sure the connected controller is the correct one
+        Makes sure the specified controller is the correct one
         """
         raise NotImplementedError()
 
@@ -92,6 +92,7 @@ class SerialController(Controller):
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
+        self._device.write_timeout = 5
         super().__init__(opts, logger)
 
     def _getControl(self):
@@ -126,6 +127,10 @@ class SerialController(Controller):
             if device.in_waiting:
                 ret['data'] = device.read(device.in_waiting).decode().rstrip()
         except serial.SerialException as e:
+            self.logger.error('Could not send message %s. Error %s' % (message, e))
+            ret['retcode'] = -2
+            return ret
+        except serial.SerialTimeoutException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
             return ret

@@ -8,7 +8,7 @@ class iseries(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         self._msg_start = '*'
         self._msg_end = '\r\n'
         self.commands = {
@@ -58,3 +58,5 @@ class iseries(SerialController):
         val['data'] = float(val['data'].split(self.commands['getDisplayedValue'])[-1])
         return val
 
+    def ExecuteCommand(self, command):
+        return
