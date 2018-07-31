@@ -4,20 +4,13 @@ import logging
 import os
 import DobermanDB
 import alarmDistribution
-import queue
-import threading
 import datetime
-import _thread
-from _thread import start_new_thread
 import sys
 from argparse import ArgumentParser
 import signal
 import DobermanLogging
 from Plugin import Plugin, FindPlugin
 import psutil
-import importlib
-import importlib.machinery
-from importlib.machinery import PathFinder
 from subprocess import Popen, PIPE, TimeoutExpired
 import serial
 
@@ -40,6 +33,7 @@ class Doberman(object):
 
         self.plugin_paths = ['.']
         self.alarmDistr = alarmDistribution.alarmDistribution()
+        self.last_message_time = datetime.datetime.now()
 
     def Start(self):
         last_tty_update_time = self.DDB.getDefaultSettings('tty_update')
@@ -205,14 +199,14 @@ class Doberman(object):
             self.running_controllers = []
             return -1
 
-    def beeWatcher(self):
+    def watchBees(self):
         '''
         Watches all the bees
         '''
         self.running = True
         try:
             while self.running:
-                self.checkCommands()
+                loop_start_time = time.time()
                 self.checkAlarms()
                 for i,plugin in enumerate(self.running_controllers):
                     if not (plugin.running and plugin.is_alive()):
@@ -228,6 +222,10 @@ class Doberman(object):
                             plugin.close()
                             plugin.join()
                             self.running_controllers.pop(i)
+                self.checkCommands()
+                while time.time()-loop_start_time < self.loop_time:
+                    time.sleep(1)
+                    self.checkCommands()
                 time.sleep(30)
         except KeyboardInterrupt:
             self.logger.fatal("\n\n Program killed by ctrl-c \n\n")
@@ -358,14 +356,13 @@ def main():
     parser.add_argument('--runmode', default='default', type=str,
                         action='store_true', choices=['testing','default','recovery'],
                         help='Which operational mode to use')
-    loglevel_default = defaults['Loglevel']
-    parser.add_argument("--log", dest="loglevel", choices=range(10,60,10),
-                        type=int, help="Use logging level <value>",
-                        default=loglevel_default)
     # CHANGE OPTIONS
     parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
+    parser.add_argument('--standalone', action='store_true',
+                        help='Run Doberman in standalone mode (ie, don\'t load
+                        controllers here, just monitor the database)')
     opts = parser.parse_args()
     logger.setLevel(int(opts.loglevel))
     # Databasing options -n, -a, -u, -uu, -r, -c
@@ -383,7 +380,7 @@ def main():
     slCo = Doberman(opts)
     try:
         slCo.Start()
-        slCo.beeWatcher()
+        slCo.watchBees()
     except AttributeError:
         pass
     except Exception as e:
