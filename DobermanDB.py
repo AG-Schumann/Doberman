@@ -449,10 +449,16 @@ def main():
 
     db = DobermanDB()
     parser.add_argument('--update', action='store_true', default=False,
-                        help='Update settings')
+                        help='Update settings/contacts/etc')
     parser.add_argument('-- command', action='store_true', default=False,
                         help='Issue a command to the system. Format: '
                             '<name> <command>', nargs='+')
+    parser.add_argument('--add-opmode', action='store_true', default=False,
+                        help='Add a new operation preset')
+    parser.add_argument('--add-contact', action='store_true', default=False,
+                        help='Add a new contact')
+    parser.add_argument('--add-controller', default=None, type=str,
+                        help='Specify a new controller config file to load')
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))

@@ -1,3 +1,4 @@
+#!/ust/bin/env python3
 import threading
 import datetime
 import time
@@ -10,6 +11,26 @@ import DobermanLogger
 
 
 def FindPlugin(name, path):
+    """
+    Finds the controller constructor with the specified name, in the specified paths
+
+    Parameters
+    ---------
+    name : str
+        The name of the controller to load
+    path : [str]
+        The paths to look through to find the file named `name.py`
+
+    Returns
+    -------
+    fcn
+        The constructor of the controller
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file can't be found
+    """
     spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
         raise FileNotFoundError('Could not find a controller named %s' % name)
@@ -17,18 +38,34 @@ def FindPlugin(name, path):
     return controller_ctor
 
 def clip(val, low, high):
+    """Clips `val` to be at least `low` and at most `high`"""
     return max(min(val, high), low)
 
 class Plugin(threading.Thread):
     """
     Class that controls starting, running, and stopping the readout thread
     Reads data from the controller, checks it for warnings/alarms, and writes
-    to the database
+    to the database.
     """
 
     def __init__(self, name, plugin_paths):
         """
-        Does the controller interfacing and stuff
+        Constructor
+
+        Parameters
+        ----------
+        name : str
+            The name of the plugin/controller to use
+        plugin_paths : list
+            A list of directories in which to find plugins
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        None
         """
         self.logger = logging.getLogger(name)
         self.name = name
@@ -61,6 +98,7 @@ class Plugin(threading.Thread):
         self.Tevent = threading.Event()
 
     def close(self):
+        """Closes the controller, and sets the threading event"""
         self.logger.info('Stopping...')
         self.running = False
         self.Tevent.set()
@@ -70,6 +108,7 @@ class Plugin(threading.Thread):
         return
 
     def OpenController(self):
+        """Tries to call the controller constructor. Raises any exceptions recieved"""
         if self.controller is not None:
             return
         try:
@@ -82,14 +121,30 @@ class Plugin(threading.Thread):
             self._connected = True
 
     def run(self):
+        """
+        The main readout loop of the plugin. Ensures it always has a controller to read
+        data from. If it doesn't it tries periodically to open it.
+        While running, pulls data from the controller, checks its validity, checks for
+        new commands, and repeats until told to quit. Closes the controller when finished
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        None
+        """
         self.OpenController()
-        now = time.time()
         self.running = True
         while self.running:
+            loop_start_time = time.time()
             rundoc = self.db.readFromDatabase('settings','controllers',
                     {'name' : self.name}, onlyone=True)
-            then = time.time()
-            dt = now - then
             if dt < rundoc['readout_interval']:
                 self.Tevent.wait(rundoc['readout_interval'] - dt)
             now = time.time()
@@ -104,26 +159,35 @@ class Plugin(threading.Thread):
                     self.OpenController()
                 except:
                     pass
-            for command in self.CheckCommands():
-                if 'runmode' in command:
-                    try:
-                        _, runmode = command.split()
-                    except ValueError:
-                        self.logger.error("Could not understand command '%s'" % command)
-                    else:
-                        self.db.updateDatabase('settings','controllers',
-                                {'name': self.name}, {'$set' : {'runmode' : runmode}})
-                elif 'stop' in command:
-                    self.running = False
-                    # note that this will cause some issues when not in standalone mode
-                elif self._connected:
-                    self.controller.ExecuteCommand(command)
+            self.HandleCommands()
+            while time.time() - loop_start_time < rundoc['readout_interval']:
+                time.sleep(1)
+                self.HandleCommands()
         self.close()
 
     def Readout(self):
         """
         Actually interacts with the device. Returns [time, data, status]
         Ensures data and status are lists
+
+        Parameters
+        ---------
+        None
+
+        Returns
+        -------
+        time : datetime.datetime
+            When the data was recorded
+        data : list
+            The values read from the controller. Has length self.number_of_data, will
+            be padded with None if necessary
+        status : list
+            The status codes returned by the controller. Has length self.number_of_data,
+            will be padded with -3 if necessary
+
+        Raises
+        ------
+        None
         """
         vals = self.controller.Readout()
         if vals['data'] not isinstance(vals['data'], (list, tuple)):
@@ -141,6 +205,23 @@ class Plugin(threading.Thread):
     def ProcessData(self, data, rundoc):
         """
         Checks data for warning/alarms and writes it to the database
+
+        Paramaters
+        ----------
+        data : [time, values, status]
+            The quantity returned by Readout() above
+
+        rundoc : dict
+            The controller's settings document from the database, that contains all the
+            current parameters for operation
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        None
         """
         when, values, status = data
         runmode = rundoc['runmode']
@@ -213,15 +294,44 @@ class Plugin(threading.Thread):
         self.db.writeDataToDatabase(self.name, when, values, status)
         # success is logged upstream
 
-    def CheckCommands(self):
+    def HandleCommands(self):
         """
-        Pings the database for new commands for the controller, returns a list
+        Pings the database for new commands for the controller
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        ------
+        None
+
+        Raises
+        ------
+        None
         """
         doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0}}
         collection = self.db._check('logging','commands')
-        while(collection.count_documents(doc_filter)):
+
+        while collection.count_documents(doc_filter):
             updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
-            yield collection.find_one_and_update(doc_filter, updates)['command']
+            command = collection.find_one_and_update(doc_filter, updates)['command']
+            if 'runmode' in command:
+                try:
+                    _, runmode = command.split()
+                except ValueError:
+                    self.logger.error("Could not understand command '%s'" % command)
+                else:
+                    self.db.updateDatabase('settings','controllers',
+                                {'name': self.name}, {'$set' : {'runmode' : runmode}})
+            elif command = 'stop':
+                self.running = False
+                # note that this will cause some issues if not in standalone mode
+            elif self._connected:
+                self.controller.ExecuteCommand(command)
+            else:
+                self.logger.error(f"Command '{command}' not accepted")
+        return
 
 def main():
     parser = argparse.ArgumentParser(description='Doberman plugin standalone')
@@ -229,8 +339,6 @@ def main():
                         help='Name of the controller')
     parser.add_argument('--runmode', type=str, dest='runmode',
                         help='Which run mode to use', default='default')
-    parser.add_argument('--log', type=int, choices=range(10,60,10), default=20,
-                        help='Logging level')
     args = parser.parse_args()
     plugin_paths=['.']
     logging.getLogger(args.plugin_name)

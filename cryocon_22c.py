@@ -20,7 +20,7 @@ class cryocon_22c(LANController):
                 'getLp2Pwr' : 'loop 2:htread?',
                 'setTempAUnits' : 'input a:units k',
                 'settempBUnits' : 'input b:units k',
-                'setSP' : f'loop {channel}:setpt {value}',
+                'setSP' : 'loop {channel}:setpt {value}',
                 'shitshitfirezemissiles' : 'stop',
                 'stop' : 'stop',
                 }
@@ -59,9 +59,9 @@ class cryocon_22c(LANController):
         setpoint <1|2> <value>
         stop
         """
-        if command in self.commands:  # handles 'stop' commands
-            self.SendRecv(self.commands[command])
-            self.logger.info('Send command %s' % command)
+        if command in self.commands or command == 'loop stop':  # handles 'stop' commands
+            self.SendRecv(self.commands['stop'])
+            self.logger.info('Sent command %s' % command)
             return
         m = self.set_pattern.search(command)
         if not m:

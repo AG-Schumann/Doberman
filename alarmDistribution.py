@@ -16,8 +16,9 @@ class alarmDistribution(object):
         Loading connections to Mail and SMS.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        db = DobermanDB.DobermanDB
-        details = db._check('settings','contacts').find_one({'conn_details' : {'$exists' : 1}})
+        self.db = DobermanDB.DobermanDB
+        details = self.db._check('settings','contacts').find_one(
+                {'conn_details' : {'$exists' : 1}})['conn_details']
         self.mailconnection_details = details['email']
         self.smsconnection_details = details['sms']
         if not self.mailconnection_details:
@@ -27,13 +28,24 @@ class alarmDistribution(object):
             self.logger.critical("No SMS connection details loaded! Will not "
                                  "be able to send alarms by sms!")
 
+    def getConnectionDetails(self, which):
+        try:
+            details = self.db._check('settings','contacts').find_one(
+                    {'conn_details' : {'$exists' : 1}})['conn_details']
+            if 'mail' in which:
+                self.mailconnection_details = details['email']
+            else:
+                self.smsconnection_details = details['sms']
+        except Exception as e:
+            self.logger.error('Could not load email connection details!')
+
     def sendEmail(self, toaddr, subject, message, Cc=None, Bcc=None, add_signature=True):
         '''
         Sends an email. Make sure toaddr is a list of strings.
         '''
         # Get connections details
         if not self.mailconnection_details:
-            self.getMailConnectionDetails()
+            self.getConnectionDetails('mail')
             if not self.mailconnection_details:
                 self.logger.critical("No email connection details loaded! "
                                      "Not able to send warnings and alarms!")
@@ -69,26 +81,11 @@ class alarmDistribution(object):
                 msg['Bcc'] = ', '.join(Bcc)
                 recipians = recipients.extend(Bcc)
             msg['Subject'] = subject
-            contactaddr_cond1 = len(contactaddr) > 3
-            contactaddr_cond2 = False  # Test if contactaddr is a mail address
-            if len(contactaddr.split("@")) == 2:
-                if len(contactaddr.split("@")[1].split(".")) >= 2:
-                    contactaddr_cond2 = True
-            if contactaddr_cond2:
-                msg.add_header('reply-to', contactaddr)
             signature = ""
             if add_signature:
                 signature = ("\n\n----------\n"
                              "Message created on %s by slowcontrol. "
                              "This is a automatic message. " % now)
-                if contactaddr_cond2:
-                    signature += ("Reply for further informations or questions"
-                                  " (Replies are sent to '%s'.)" % contactaddr)
-                elif contactaddr_cond1:
-                    signature += ("Do not reply. Contact '%s' for further "
-                                  "informations or questions." % contactaddr)
-                else:
-                    signature += ("Do not reply.")
                 body = str(message) + signature
             else:
                 body = str(message)
@@ -121,13 +118,13 @@ class alarmDistribution(object):
         '''
         # Get connection details
         if not self.mailconnection_details:
-            self.getMailConnectionDetails()
+            self.getConnectionDetails('mail')
             if not self.mailconnection_details:
                 self.logger.critical("No email connection details loaded! "
                                      "Not able to send alarms at all!")
                 return -1
         if not self.smsconnection_details:
-            self.getSMSConnectionDetails()
+            self.getConnectionDetails('sms')
             if not self.smsconnection_details:
                 self.logger.critical("No sms connection details loaded! "
                                      "Not able to send alarms by sms!")
@@ -157,16 +154,7 @@ class alarmDistribution(object):
                 self.logger.warning("SMS message exceets limit of 160 "
                                     "characters (%s characters). Message will "
                                     "be cut off." % str(len(str(message))))
-            elif len(str(message)) < 105:
-                message = message + "--Automatic SMS. Help conctact: %s." % contactaddr
-            elif len(str(message)) < 140:
-                message = message + "--Automatic SMS."
-                self.logger.warning("Could not add contact address as message "
-                                    "would exceet limit of 160 characters.")
-            else:
-                self.logger.warning("Could not add 'Automatic message' and "
-                                    "contact address as message would exceet "
-                                    "limit of 160 characters.")
+                message = message[:155]
             Cc = None
             if self.sendEmail(toaddr=toaddr,
                               subject=subject,
