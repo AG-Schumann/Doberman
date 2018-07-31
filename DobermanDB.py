@@ -342,29 +342,31 @@ class DobermanDB(object):
         Returns a dict or the specified value
         """
         if opmode:
-            doc = self.readFromDatabase('settings','opmodes',{'mode' : opmode})
+            doc = self.readFromDatabase('settings','opmodes',
+                    {'mode' : opmode},onlyone=True)
             if name:
-                return doc['name']
+                return doc[name]
             return doc
-        cursor = self.readFromDatabase('settings','opmodes')
-        return {doc['mode'] : doc for doc in cursor}
+        doc = self.readFromDatabase('settings','defaults', onlyone=True)
+        if name:
+            return doc[name]
+        return doc
 
     def getContacts(self,status=None):
         """
         Reads contacts from database.
         """
         if not status:
-            cursor = self.readFromDatabase('settings','contacts')
+            cuts = {}
         elif status == 'sms':
-            cursor = self.readFromDatabase('settings','contacts',
-                    cuts={'status' : {'$in' : ['ON','SMS']}})
+            cuts={'status' : {'$in' : ['ON','SMS']}}
         elif status == 'email':
-            cursor = self.readFromDatabase('settings','contacts',
-                    cuts={'status' : {'$in' : ['ON','MAIL']}})
-        if cursor.count() == 0:
+            cuts={'status' : {'$in' : ['ON','MAIL']}}
+        collection = self._check('settings','contacts')
+        if  collection.count_documents(cuts) == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
             return []
-        return [row for row in cursor]
+        return [row for row in collection.find(cuts)]
 
     def updateContacts(self):
         """
@@ -444,6 +446,53 @@ class DobermanDB(object):
             elif which not in to_quit:
                 print('Invalid input: %s' % which)
 
+    def addOpmode(self):
+        print('What is the name of this opmode?')
+        name = input('>>>')
+        print('What loglevel (default 20?')
+        loglevel = utils.getUserInput('Loglevel', input_type=[int], be_in=range(10,60,10),
+                exceptions=['n'])
+        if loglevel == 'n':
+            loglevel = 20
+        print('Testrun (default 5)?')
+        testrun = utils.getUserInput('Testrun', input_type=[int],exceptions=['n'])
+        if testrun == 'n':
+            testrun = 5
+        print('Message timer (default 5)?')
+        msg_time = utils.getUserInput('Message timer', input_type=[int], exceptions=['n'])
+        if msg_time == 'n':
+            msg_time = 5
+        if self.insertIntoDatabase('settings','opmodes',{'mode' : name,
+            'loglevel' : loglevel, 'testrun' : testrun, 'message_time' : msg_time}):
+            print('Could not add runmode!')
+        return
+
+    def addContact(self):
+        print('Contact name:')
+        name = input('>>>')
+        print('Contact sms')
+        sms = input('>>>')
+        print('Contact email')
+        email = input('>>>')
+        print('Contact status')
+        status = utils.getUserInput('Status', input_type[str], be_in=['ON','SMS','MAIL','OFF'], exceptions=['n'])
+        if status == 'n':
+            status = 'OFF'
+        if self.insertIntoDatabase('settings','contacts',{'name' : name, 'sms' : sms,
+            'email' : email, 'status' : status}):
+            print('Could not add contact!')
+        return
+
+    def addController(self, filename):
+        with open(filename, 'r') as f:
+            try:
+                d = eval(f.read())
+            except Exception as e:
+                print('Could not read file! Error: %s' % e)
+            if self.insertIntoDatabase('settings','controllers',d):
+                print('Could not add controller!')
+        return
+
 def main():
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n DobermanDB interface')
 
@@ -462,13 +511,19 @@ def main():
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
-    if args.update:
-        try:
+    try:
+        if args.add_opmode:
+            db.addOpmode()
+        if args.add_contact:
+            db.addContact()
+        if args.add_controller:
+            db.addController(args.add_controller)
+        if args.update:
             db.askForUpdates()
-        except KeyboardInterrupt:
-            print('Interrupted!')
-        except Exception as e:
-            print('Exception! %s' % e)
+    except KeyboardInterrupt:
+        print('Interrupted!')
+    except Exception as e:
+        print('Exception! %s' % e)
 
     print('Ciao!')
     db.close()
