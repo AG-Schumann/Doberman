@@ -343,14 +343,18 @@ def main():
     plugin_paths=['.']
     logging.getLogger(args.plugin_name)
     logging.addHandler(DobermanLogger.DobermanLogger())
-    logging.setLevel(args.log)
+    db = DobermanDB.DobermanDB()
+    loglevel = db.getDefaultSettings(opmode=args.runmode,name='loglevel')
+    logging.setLevel(loglevel)
+    db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
+            {'$set' : {'runmode' : args.runmode}})
 
     plugin = Plugin(args.plugin_name, plugin_paths)
     plugin.start()
     running = True
-    time.sleep(5)
     try:
         while running:
+            time.sleep(30)
             if not (plugin.running and plugin.is_alive()):
                 self.logger.error('%s died! Restarting...' % plugin.name)
                 try:
@@ -364,7 +368,6 @@ def main():
                     plugin.close()
                     plugin.join()
                     running = False
-            time.sleep(30)
     except KeyboardInterrupt:
         self.logger.fatal('Killed by ctrl-c')
     finally:
