@@ -10,12 +10,11 @@ class labjack(Controller):
     """
     def __init__(self, opts):
         self.name = opts.name
-        self.logger = logging.getLogger(opts.name)
+        for k, v in opts.items():
+            setattr(self, k, v)
+        self.logger = logging.getLogger(opts['name'])
         self._device = u12.U12()
 
-        if hasattr(opts, 'additional_params'):
-            for key, value in opts.additional_params.items():
-                setattr(self, key, value)
         self.then = 0
         self.read_args = {'idNum' : None, 'demo' : 0}
         self._getControl()
@@ -64,3 +63,5 @@ class labjack(Controller):
 
         return {'retcode' : status, 'data' : data}
 
+    def ExecuteCommand(self, command):
+        return

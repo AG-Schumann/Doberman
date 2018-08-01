@@ -10,7 +10,7 @@ class smartec_uti(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         self.commands = {
                 'greet' : '@',
                 'help' : '?',
@@ -100,3 +100,6 @@ class smartec_uti(SerialController):
             val['retcode'] = -3
             val['data'] = None
         return val
+
+    def ExecuteCommand(self, command):
+        return
