@@ -1,4 +1,4 @@
-#!/ust/bin/env python3
+#!/usr/bin/env python3
 import threading
 import datetime
 import time
@@ -98,6 +98,7 @@ class Plugin(threading.Thread):
         #self.logger.debug('Opening controller...')
         self.OpenController()
         self.running = False
+        self.has_quit = False  # only used in standalone mode
 
     def close(self):
         """Closes the controller, and sets the threading event"""
@@ -332,7 +333,8 @@ class Plugin(threading.Thread):
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
             elif command == 'stop':
                 self.running = False
-                # note that this will cause some issues if not in standalone mode
+                # in standalone mode Doberman will restart the plugin when it stops
+                self.has_quit = True
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:
@@ -347,11 +349,11 @@ def main():
                         help='Which run mode to use', default='default')
     args = parser.parse_args()
     plugin_paths=['.']
-    logging.getLogger(args.plugin_name)
-    logging.addHandler(DobermanLogging.DobermanLogging())
+    logger = logging.getLogger(args.plugin_name)
+    logger.addHandler(DobermanLogging.DobermanLogger())
     db = DobermanDB.DobermanDB()
     loglevel = db.getDefaultSettings(opmode=args.runmode,name='loglevel')
-    logging.setLevel(loglevel)
+    logger.setLevel(int(loglevel))
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode}})
 
@@ -360,16 +362,21 @@ def main():
     running = True
     try:
         while running:
+            logger.info('I\'m still here')
             time.sleep(30)
+            if plugin.has_quit:
+                logger.info('Plugin stopped')
+                break
             if not (plugin.running and plugin.is_alive()):
                 self.logger.error('%s died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
                     plugin.close()
                     plugin.join()
+                    plugin = Plugin(args.plugin_name, plugin_paths)
                     plugin.start()
                 except Exception as e:
-                    self.logger.critical('Could not restart %s' % plugin.name)
+                    logger.critical('Could not restart %s' % plugin.name)
                     plugin.running = False
                     plugin.close()
                     plugin.join()
