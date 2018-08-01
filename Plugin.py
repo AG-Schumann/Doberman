@@ -7,7 +7,7 @@ import DobermanDB
 import importlib
 import importlib.machinery
 import argparse
-import DobermanLogger
+import DobermanLogging
 
 
 def FindPlugin(name, path):
@@ -34,7 +34,7 @@ def FindPlugin(name, path):
     spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
         raise FileNotFoundError('Could not find a controller named %s' % name)
-    controller_ctor = getattr(spec.loader.load_module(), plugin_name)
+    controller_ctor = getattr(spec.loader.load_module(), name)
     return controller_ctor
 
 def clip(val, low, high):
@@ -67,9 +67,11 @@ class Plugin(threading.Thread):
         ------
         None
         """
+        threading.Thread.__init__(self)
+        self.Tevent = threading.Event()
         self.logger = logging.getLogger(name)
         self.name = name
-        self.logger.debug('Starting...')
+        self.logger.debug('Starting plugin...')
         self.db = DobermanDB.DobermanDB()
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
@@ -77,7 +79,7 @@ class Plugin(threading.Thread):
             plugin_name = self.name.rstrip('0123456789')
         else:
             plugin_name = self.name
-
+        #self.logger.debug('Finding plugin...')
         self.controller_ctor = FindPlugin(plugin_name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
@@ -86,24 +88,26 @@ class Plugin(threading.Thread):
         if 'additional_params' in config_doc:
             self.ctor_opts.update(config_doc['additional_params'])
 
-        self.number_of_data = config_doc['number_of_data']
+        self.number_of_data = int(config_doc['number_of_data'])
+        self.description = config_doc['description']
         self.recurrence_counter = [0] * self.number_of_data
         self.last_message_time = datetime.datetime.now()
         self.late_counter = 0
         self.last_measurement_time = datetime.datetime.now()
         self.controller = None
+        #self.logger.debug('Opening controller...')
         self.OpenController()
         self.running = False
-        super().__init__()
-        self.Tevent = threading.Event()
 
     def close(self):
         """Closes the controller, and sets the threading event"""
-        self.logger.info('Stopping...')
         self.running = False
         self.Tevent.set()
         if self.controller:
+            self.logger.info('Stopping...')
             self.controller.close()
+        else:
+            self.logger.info('Already stopped!')
         self.controller = None
         return
 
@@ -145,23 +149,23 @@ class Plugin(threading.Thread):
             loop_start_time = time.time()
             rundoc = self.db.readFromDatabase('settings','controllers',
                     {'name' : self.name}, onlyone=True)
-            if dt < rundoc['readout_interval']:
-                self.Tevent.wait(rundoc['readout_interval'] - dt)
-            now = time.time()
             if self._connected:
                 if rundoc['status'][rundoc['runmode']] == 'ON':
                     data = self.Readout()
-                    if data['retcode'] in [-1,-2]: # connection lost
+                    if -1 in data[2] or -2 in data[2]: # connection lost
                         self._connected = False
                     self.ProcessData(data, rundoc)
             else:
                 try:
+                    self.logger.debug('Reopening controller...')
                     self.OpenController()
                 except:
                     pass
+                else:
+                    self.logger.debug('Reopened controller')
             self.HandleCommands()
-            while time.time() - loop_start_time < rundoc['readout_interval']:
-                time.sleep(1)
+            while (time.time() - loop_start_time) < rundoc['readout_interval'] and self.running:
+                self.Tevent.wait(1)
                 self.HandleCommands()
         self.close()
 
@@ -190,7 +194,7 @@ class Plugin(threading.Thread):
         None
         """
         vals = self.controller.Readout()
-        if vals['data'] not isinstance(vals['data'], (list, tuple)):
+        if vals['data'] and not isinstance(vals['data'], (list, tuple)):
             vals['data'] = [vals['data']]
         if len(vals['data']) != self.number_of_data:
             vals['data'] += [None]*(self.number_of_data - len(vals['data']))
@@ -230,7 +234,7 @@ class Plugin(threading.Thread):
         alarm_high = rundoc['alarm_high'][runmode]
         warning_low = rundoc['warning_low'][runmode]
         warning_high = rundoc['warning_high'][runmode]
-        message_time = rundoc['message_time'][runmode]
+        message_time = self.db.getDefaultSettings(opmode=runmode,name='message_time')
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
         dt = (datetime.datetime.now() - self.last_message_time).total_seconds()
@@ -252,7 +256,7 @@ class Plugin(threading.Thread):
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
                         msg = (f'Reading {i} ({self.description[i]}, '
                                f'{data[i]:.2f}) is outside the alarm range '
-                                f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
+                               f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
                         self.logger.critical(msg)
                         self.db.logAlarm({'name' : self.name, 'index' : i,
                             'when' : when, 'status' : status[i], 'data' : values[i],
@@ -312,10 +316,12 @@ class Plugin(threading.Thread):
         """
         doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0}}
         collection = self.db._check('logging','commands')
+        #self.logger.debug('Checking commands')
 
-        while collection.count_documents(doc_filter):
+        while collection.count(doc_filter):
             updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
+            self.logger.debug(f"Found command '{command}'")
             if 'runmode' in command:
                 try:
                     _, runmode = command.split()
@@ -324,7 +330,7 @@ class Plugin(threading.Thread):
                 else:
                     self.db.updateDatabase('settings','controllers',
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
-            elif command = 'stop':
+            elif command == 'stop':
                 self.running = False
                 # note that this will cause some issues if not in standalone mode
             elif self._connected:
@@ -342,7 +348,7 @@ def main():
     args = parser.parse_args()
     plugin_paths=['.']
     logging.getLogger(args.plugin_name)
-    logging.addHandler(DobermanLogger.DobermanLogger())
+    logging.addHandler(DobermanLogging.DobermanLogging())
     db = DobermanDB.DobermanDB()
     loglevel = db.getDefaultSettings(opmode=args.runmode,name='loglevel')
     logging.setLevel(loglevel)

@@ -13,6 +13,7 @@ from Plugin import Plugin, FindPlugin
 import psutil
 from subprocess import Popen, PIPE, TimeoutExpired
 import serial
+import atexit
 
 __version__ = '2.0.0'
 
@@ -28,22 +29,23 @@ class Doberman(object):
     def __init__(self, runmode, standalone=False):
         self.runmode = runmode
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.last_message_time = datetime.datetime.now()
+        self.standalone = standalone
 
-        self.DDB = DobermanDB.DobermanDB()
+        self.db = DobermanDB.DobermanDB()
 
-        self.DDB.updateDatabase('settings','defaults',{},{'$set' : {'opmode' : runmode}})
-        self.DDB.updateDatabase('settings','controllers',{},
+        self.db.updateDatabase('settings','defaults',{},{'$set' : {'opmode' : runmode}})
+        self.db.updateDatabase('settings','controllers',{},
                 {'$set' : {'runmode' : runmode}})
 
         self.plugin_paths = ['.']
         self.alarmDistr = alarmDistribution.alarmDistribution()
-        self.last_message_time = datetime.datetime.now()
-        self.standalone = standalone
+        self.running_controllers = []
 
     def Start(self):
         if self.standalone:
             return 0
-        last_tty_update_time = self.DDB.getDefaultSettings('tty_update')
+        last_tty_update_time = self.db.getDefaultSettings(name='tty_update')
         boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
         self.logger.debug('tty settings last set %s, boot time %s' % (
             last_tty_update_time, boot_time))
@@ -54,6 +56,7 @@ class Doberman(object):
         else:
             self.logger.debug('Not updating tty settings')
         if self.importAllPlugins():
+            self.logger.error('Could not import all plugins!')
             return -2
         self.startAllControllers()
         return 0
@@ -63,7 +66,7 @@ class Doberman(object):
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
-        self.DDB.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
+        self.db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
         try:
@@ -74,7 +77,7 @@ class Doberman(object):
         if not len(out) or len(err):
             raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
         ttyUSBs = out.decode().splitlines()
-        cursor = self.DDB.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+        cursor = self.db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
         sensor_config = {}
         for row in cursor:
             sensor_config[row['name']] = row
@@ -111,7 +114,7 @@ class Doberman(object):
                     self.logger.debug('Matched %s to %s' % (tty_num, name))
                     matched['sensors'].append(name)
                     matched['ttys'].append(tty_num)
-                    self.DDB.updateDatabase('settings','controllers',
+                    self.db.updateDatabase('settings','controllers',
                             {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                     dev.close()
                     break
@@ -125,15 +128,15 @@ class Doberman(object):
             name = (set(sensors.keys())-set(matched['sensors'])).pop()
             tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
             self.logger.debug('Matched %s to %s via n-1' % (name, tty))
-            self.DDB.updateDatabase('settings','controllers',{'name' : name},
+            self.db.updateDatabase('settings','controllers',{'name' : name},
                     {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
-            self.DDB.updateDatabase('settings','defaults', {},
+            self.db.updateDatabase('settings','defaults', {},
                     {'$set' : {'tty_update' : datetime.datetime.now()}})
         elif len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
         else:
-            self.DDB.updateDatabase('settings','opmodes', {},
+            self.db.updateDatabase('settings','opmodes', {},
                     {'$set' : {'tty_update' : datetime.datetime.now()}})
         return True
 
@@ -144,21 +147,22 @@ class Doberman(object):
         '''
         self.failed_import = []
         imported_plugins = []
-        devices = self.DDB.ControllerSettings()
+        devices = self.db.ControllerSettings()
         for name, controller in devices.items():
             try:
+                self.logger.debug('Importing %s' % name)
                 plugin = Plugin(name, self.plugin_paths)
             except Exception as e:
                 self.logger.error('Could not import %s: %s' % (name, e))
                 self.failed_import.append(name)
             else:
-                self.logger.debug('Imported %s' % name
+                self.logger.debug('Imported %s' % name)
                 imported_plugins.append(plugin)
 
         self.logger.info("The following plugins were successfully imported "
                          "(%i/%i): %s" % (len(imported_plugins),
-                                          len(self._config),
-                                          list(imported_plugins.keys())))
+                                          len(devices),
+                                          [p.name for p in imported_plugins]))
         self.imported_plugins = imported_plugins
         return 0
 
@@ -169,7 +173,7 @@ class Doberman(object):
         """
         running_controllers = []
         failed_controllers = []
-        settings = self.DDB.ControllerSettings()
+        settings = self.db.ControllerSettings()
         while self.imported_plugins:
             plugin = self.imported_plugins.pop()
             # Try to start the plugin.
@@ -194,7 +198,7 @@ class Doberman(object):
                 print("  %s: %s" % (name, alarm_status))
 
             print("\n--Enabled contacts, status:")
-            for contact in self.DDB.getContacts():
+            for contact in self.db.getContacts():
                 print("  %s, %s" % (contact['name'], contact['status']))
 
             self.running_controllers = running_controllers
@@ -213,27 +217,35 @@ class Doberman(object):
         '''
         self.running = True
         self.loop_time = 30
+        self.logger.info('Watch ALL the bees!')
         try:
             while self.running:
+                self.logger.info('Still watching the bees...')
                 loop_start_time = time.time()
                 self.checkAlarms()
                 if not self.standalone:
                     for i,plugin in enumerate(self.running_controllers):
                         if not (plugin.running and plugin.is_alive()):
-                            self.logger.error('%s died! Restarting...' % plugin.name)
+                            self.logger.warning('%s died! Restarting...' % plugin.name)
                             try:
                                 plugin.running = False
                                 plugin.close()
                                 plugin.join()
+                                # can't restart threads, so remake the plugin
+                                plugin = Plugin(plugin.name, self.plugin_paths)
                                 plugin.start()
+                                self.running_controllers[i] = plugin
                             except Exception as e:
-                                self.logger.critical('Could not restart %s!' % plugin.name)
+                                self.logger.critical('Could not restart %s! %s' % (plugin.name, e))
                                 plugin.running = False
                                 plugin.close()
                                 plugin.join()
                                 self.running_controllers.pop(i)
+                        else:
+                            #self.logger.debug('%s is still live' % plugin.name)
+                            pass
                 self.checkCommands()
-                while time.time()-loop_start_time < self.loop_time:
+                while (time.time()-loop_start_time) < self.loop_time and self.running:
                     time.sleep(1)
                     self.checkCommands()
         except KeyboardInterrupt:
@@ -242,11 +254,13 @@ class Doberman(object):
             self.close()
 
     def checkCommands(self):
+        #self.logger.debug('Checking commands')
         collection = self.db._check('logging','commands')
         doc_filter = {'name' : 'doberman', 'acknowledged' : {'$exists' : 0}}
-        while collection.count_documents(doc_filter):
+        while collection.count(doc_filter):
             updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
+            self.logger.debug(f"Found '{command}'")
             if command == 'stop':
                 self.running = False
             elif command == 'restart':
@@ -258,27 +272,32 @@ class Doberman(object):
                 except ValueError:
                     self.logger.error("Could not understand command '%s'" % command)
                 else:
-                    self.DDB.updateDatabase('settings','controllers',{},{'$set' : {'runmode' : runmode}})
+                    self.db.updateDatabase('settings','controllers',{},{'$set' : {'runmode' : runmode}})
             else:
                 self.logger.error('Command %s not understood' % command)
         return
 
     def checkAlarms(self):
+        self.logger.debug('Checking alarms')
         collection = self.db._check('logging','alarm_history')
         doc_filter_alarms = {'acknowledged' : {'$exists' : 0}, 'howbad' : 2}
         doc_filter_warns =  {'acknowledged' : {'$exists' : 0}, 'howbad' : 1}
         msg_format = '{name} : {when} : {msg}'
         messages = {'alarms' : [], 'warnings' : []}
         updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
-        while collection.count_documents(doc_filter_alarms):
+        self.logger.debug('%i alarms' % collection.count(doc_filter_alarms))
+        while collection.count(doc_filter_alarms):
             alarm = collection.find_one_and_update(doc_filter_alarms, updates)
             messages['alarms'].append(msg_format.format(**alarm))
-        while(collection.count_documents(doc_filter_warns)):
+        self.logger.debug('%i warnings' % collection.count(doc_filter_warns))
+        while(collection.count(doc_filter_warns)):
             warn = collection.find_one_and_update(doc_filter_warns, updates)
             messages['warnings'].append(msg_format.format(**warn))
         if messages['alarms']:
+            self.logger.warning('Found alarms! Sending message')
             self.sendMessage('\n'.join(messages['alarms']), 'alarm')
         if messages['warnings']:
+            self.logger.warning('Found warnings! Sending message')
             self.sendMessage('\n'.join(messages['warnings']), 'warning')
         return
 
@@ -286,16 +305,18 @@ class Doberman(object):
         """
         Shuts down all plugins
         """
+        self.logger.info('Shutting down')
         if self.standalone:
             return
-        for plugin in self.running_controllers:
+        while self.running_controllers:
+            plugin = self.running_controllers.pop()
             try:
                 plugin.running = False
-                plugin.close()
+                #plugin.close() # plugin closes itself automatically
                 plugin.join()
             except Exception as e:
                 self.logger.warning("Can not close %s properly. "
-                                    "Error: %s" % (plugin, e))
+                                    "Error: %s" % (plugin.name, e))
         return
 
     def __del__(self):
@@ -311,8 +332,8 @@ class Doberman(object):
         Sends a warning/alarm to the appropriate contacts
         """
         # permanent testrun?
-        runmode = self.DDB.readFromDatabase('settings','defaults',onlyone=True)['opmode']
-        mode_doc = self.DDB.readFromDatabase('settings','opmodes',
+        runmode = self.db.readFromDatabase('settings','defaults',onlyone=True)['opmode']
+        mode_doc = self.db.readFromDatabase('settings','opmodes',
                 {'mode' : runmode}, onlyone=True)
         testrun = mode_doc['testrun']
         if testrun == -1:
@@ -329,15 +350,15 @@ class Doberman(object):
                 'message timer at %i' % ((now - self.last_message_time).total_seconds()/60, mode_doc['message_time']))
             return -3
         # who to send to?
-        sms_recipients = [c.sms for c in self.DDB.getContacts('sms')]
-        mail_recipients = [c.email for c in self.DDB.getContacts('email')]
+        sms_recipients = [c.sms for c in self.db.getContacts('sms')]
+        mail_recipients = [c.email for c in self.db.getContacts('email')]
         sent_sms = False
         sent_mail = False
         if sms_recipients and howbad == 'alarm':
             if self.alarmDistr.sendSMS(sms_recipients, message) == -1:
                 self.logger.error('Could not send SMS, trying mail...')
                 additional_mail_recipients = [contact['email'] for contact
-                                              in self.DDB.getContacts()
+                                              in self.db.getContacts()
                                               if contact['sms'] in sms_recipients
                                               if '@' in contact['email']
                                               if contact['email'] not in mail_recipients]
@@ -368,22 +389,23 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(20)
     DDB = DobermanDB.DobermanDB()
-    logger.addHandler(DobermanLogger.DobermanLogger())
+    #handler = DobermanLogging.DobermanLogger()
+    logger.addHandler(DobermanLogging.DobermanLogger())
     # START PARSING ARGUMENTS
-    parser.add_argument('--runmode', default='default', type=str,
-                        action='store_true', choices=['testing','default','recovery'],
+    parser.add_argument('--runmode', default='default',type=str,
+                        choices=['testing','default','recovery'],
                         help='Which operational mode to use')
     parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
-    parser.add_argument('--standalone', action='store_true', default=False
-                        help='Run Doberman in standalone mode (ie, don\'t load
+    parser.add_argument('--standalone', action='store_true', default=False,
+                        help='Run Doberman in standalone mode (ie, don\'t load \
                         controllers here, just monitor the database)')
     opts = parser.parse_args()
     if opts.version:
         print('Doberman version %s' % __version__)
         return
-    loglevel = DDB.getDefaultSettings(opmode = opts.runmode, name=loglevel)
+    loglevel = DDB.getDefaultSettings(opmode = opts.runmode, name='loglevel')
     logger.setLevel(int(loglevel))
 
     lockfile = os.path.join(os.getcwd(), "doberman.lock")
@@ -399,11 +421,10 @@ def main():
     doberman = Doberman(opts.runmode, opts.standalone)
     try:
         if doberman.Start():
-            self.logger.error('Something went wrong here...')
+            logger.error('Something went wrong here...')
         else:
             doberman.watchBees()
-    except AttributeError:
-        pass
+            logger.info('Dem bees got dun watched')
     except Exception as e:
         print(e)
 

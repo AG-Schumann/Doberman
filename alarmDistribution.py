@@ -16,7 +16,7 @@ class alarmDistribution(object):
         Loading connections to Mail and SMS.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.db = DobermanDB.DobermanDB
+        self.db = DobermanDB.DobermanDB()
         details = self.db._check('settings','contacts').find_one(
                 {'conn_details' : {'$exists' : 1}})['conn_details']
         self.mailconnection_details = details['email']
