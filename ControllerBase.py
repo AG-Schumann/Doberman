@@ -162,7 +162,6 @@ class LANController(Controller):
                 time.sleep(5)
             else:
                 self._connected = True
-                self.logger.info('Successfully connected to device')
                 return True
         return False
 

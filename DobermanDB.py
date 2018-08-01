@@ -59,6 +59,7 @@ class DobermanDB(object):
         elif collection_name not in DobermanDB.client[db_name].collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             DobermanDB.client[db_name].create_collection(collection_name)
+            DobermanDB.client[db_name][collection_name].create_index('when')
         return DobermanDB.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
@@ -98,7 +99,7 @@ class DobermanDB(object):
         """
         collection = self._check(db_name, collection_name)
         ret = collection.update_many(cuts, updates)
-        if ret['ok'] != 1:
+        if not ret.acknowledged:
             return 1
         return 0
 
@@ -133,7 +134,11 @@ class DobermanDB(object):
         return 0
 
     def StoreCommand(self, command):
+        """
+        Adds commands to the database
+        """
         controller, cmd = command.split(maxsplit=1)
+        self.logger.debug(f"Storing command '{cmd}' for {controller}")
         if self.insertIntoDatabase('logging', 'commands',
                 {'name' : controller, 'command' : cmd,
                     'logged' : datetime.datetime.now()}):
@@ -357,13 +362,13 @@ class DobermanDB(object):
         Reads contacts from database.
         """
         if not status:
-            cuts = {}
+            cuts = {'name' : {'$exists' : 1}}  # cuts the 'conn_details' doc
         elif status == 'sms':
             cuts={'status' : {'$in' : ['ON','SMS']}}
         elif status == 'email':
             cuts={'status' : {'$in' : ['ON','MAIL']}}
         collection = self._check('settings','contacts')
-        if  collection.count_documents(cuts) == 0:
+        if collection.count(cuts) == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
             return []
         return [row for row in collection.find(cuts)]
@@ -499,9 +504,9 @@ def main():
     db = DobermanDB()
     parser.add_argument('--update', action='store_true', default=False,
                         help='Update settings/contacts/etc')
-    parser.add_argument('-- command', action='store_true', default=False,
+    parser.add_argument('--command', nargs='+',
                         help='Issue a command to the system. Format: '
-                            '<name> <command>', nargs='+')
+                            '<name> <command>')
     parser.add_argument('--add-opmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
@@ -511,6 +516,7 @@ def main():
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
+        print("Stored '%s'" % ' '.join(args.command))
     try:
         if args.add_opmode:
             db.addOpmode()

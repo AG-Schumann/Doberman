@@ -67,7 +67,7 @@ class cryocon_22c(LANController):
         if not m:
             self.logger.error('Could not understand command: %s' % command)
             return
-        val = self.SendRecv(self.commands['setSP'].format(**m.groupdict())
+        val = self.SendRecv(self.commands['setSP'].format(**m.groupdict()))
         if val['retcode']:
             self.logger.error('Could not send command: %s' % command)
         else:
