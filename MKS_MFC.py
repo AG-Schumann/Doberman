@@ -9,7 +9,7 @@ class MKS_MFC(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         super().__init__(opts, self.logger)
         self._msg_start = f"@@@{self.serialID}"
         self._msg_end = ";FF" # ignores checksum

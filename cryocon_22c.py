@@ -8,7 +8,7 @@ class cryocon_22c(LANController):
     Cryogenic controller
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
+        self.logger = logging.getLogger(opts['name'])
         self._msg_end = ';\n'
         self.commands = { # these are not case sensitive
                 'identify' : '*idn?',
@@ -20,7 +20,7 @@ class cryocon_22c(LANController):
                 'getLp2Pwr' : 'loop 2:htread?',
                 'setTempAUnits' : 'input a:units k',
                 'settempBUnits' : 'input b:units k',
-                'setSP' : f'loop {channel}:setpt {value}',
+                'setSP' : 'loop {channel}:setpt {value}',
                 'shitshitfirezemissiles' : 'stop',
                 'stop' : 'stop',
                 }
@@ -59,15 +59,15 @@ class cryocon_22c(LANController):
         setpoint <1|2> <value>
         stop
         """
-        if command in self.commands:  # handles 'stop' commands
-            self.SendRecv(self.commands[command])
-            self.logger.info('Send command %s' % command)
+        if command in self.commands or command == 'loop stop':  # handles 'stop' commands
+            self.SendRecv(self.commands['stop'])
+            self.logger.info('Sent command %s' % command)
             return
         m = self.set_pattern.search(command)
         if not m:
             self.logger.error('Could not understand command: %s' % command)
             return
-        val = self.SendRecv(self.commands['setSP'].format(**m.groupdict())
+        val = self.SendRecv(self.commands['setSP'].format(**m.groupdict()))
         if val['retcode']:
             self.logger.error('Could not send command: %s' % command)
         else:

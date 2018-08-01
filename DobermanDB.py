@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-import time
 import logging
-from argparse import ArgumentParser
-import _thread
 import datetime
 import pymongo
 import os.path
-import time
 import utils
+import argparse
 
 
 class DobermanDB(object):
@@ -16,8 +13,10 @@ class DobermanDB(object):
     """
 
     client = None
+    _access_counter = 0
 
     def __init__(self):
+        DobermanDB._access_counter += 1
         self.logger = logging.getLogger(__name__)
         # Load database connection details
         try:
@@ -30,13 +29,12 @@ class DobermanDB(object):
                     'username' : 'doberman', 'password' : 'h5jlm42'}
 
         self._connect(**conn_details)
-        # load config details
-        self._config = self.getConfig()
 
     def close(self):
-        if self.client:
-            self.client.close()
-            self.client = None
+        DobermanDB._access_counter -= 1
+        if DobermanDB._access_counter == 0:
+            DobermanDB.client.close()
+            DobermanDB.client = None
 
     def __del__(self):
         self.close()
@@ -47,21 +45,22 @@ class DobermanDB(object):
         return
 
     @classmethod
-    def _connect(cls, host, port, username, password):
+    def _connect(cls, **kwargs):
         if cls.client:
             return
-        cls.client = pymongo.MongoClient(host=host, port=port, username=username, password=password)
+        cls.client = pymongo.MongoClient(**kwargs)
 
     def _check(self, db_name, collection_name):
         """
         Returns the requested collection and logs if the database/collection don't yet exist
         """
-        if db_name not in self.client.list_database_names():
+        if db_name not in DobermanDB.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
-        elif collection_name not in self.client[db_name].collection_names(False):
+        elif collection_name not in DobermanDB.client[db_name].collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
-            self.client[db_name].create_collection(collection_name)
-        return self.client[db_name][collection_name]
+            DobermanDB.client[db_name].create_collection(collection_name)
+            DobermanDB.client[db_name][collection_name].create_index('when')
+        return DobermanDB.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
         """
@@ -71,7 +70,7 @@ class DobermanDB(object):
         if isinstance(document, (list, tuple)):
             result = collection.insert_many(document)
             if len(result.inserted_ids) != len(document):
-                self.logger.error('Inserted %i intries instead of %i into %/%s' % (
+                self.logger.error('Inserted %i entries instead of %i into %/%s' % (
                     len(result.inserted_ids), len(document), db_name, collection_name))
                 return -1
             return 0
@@ -85,11 +84,13 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts=None, projection={'_id' : 0}):
+    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}, onlyone = False):
         """
         Finds one or more documents that pass the specified cuts
         """
         collection = self._check(db_name,collection_name)
+        if onlyone:
+            return collection.find_one(cuts, projection)
         return collection.find(cuts, projection)
 
     def updateDatabase(self, db_name, collection_name, cuts, updates):
@@ -98,7 +99,7 @@ class DobermanDB(object):
         """
         collection = self._check(db_name, collection_name)
         ret = collection.update_many(cuts, updates)
-        if ret['ok'] != 1:
+        if not ret.acknowledged:
             return 1
         return 0
 
@@ -124,7 +125,7 @@ class DobermanDB(object):
             if which_document:
                 self.logger.error('Do you know what you\'re doing?')
                 return 2
-            db = self.client[db_name]
+            db = DobermanDB.client[db_name]
             self.logger.info('Dropping database %s' % db_name)
             ret = db.dropDatabase()
             if ret['ok'] != 1:
@@ -133,29 +134,18 @@ class DobermanDB(object):
         return 0
 
     def StoreCommand(self, command):
+        """
+        Adds commands to the database
+        """
         controller, cmd = command.split(maxsplit=1)
+        self.logger.debug(f"Storing command '{cmd}' for {controller}")
         if self.insertIntoDatabase('logging', 'commands',
-                {'name' : controller, 'command' : cmd}):
-            self.logger.error('Could not store command %s!')
+                {'name' : controller, 'command' : cmd,
+                    'logged' : datetime.datetime.now()}):
+            self.logger.error('Could not store command for %s!' % controller)
         return 0
 
-    def refreshConfigBackup(self):
-        """
-        Writes the current config from the Database to the file configBackup.txt
-        """
-        try:
-            with open(os.path.join('settings','configBackup.txt'), 'w') as f:
-                f.write("# Backup file of the config table in DobermanDB. "
-                        "Updated: %s\n" % str(datetime.datetime.now()))
-                self.logger.info("Writing new config to configBackup.txt...")
-                for _,controller in self._config.items():
-                    f.write('%s\n#\n' % controller)
-        except Exception as e:
-            self.logger.warning("Can not refresh configBackup.txt. %s." % e)
-            return -1
-        return 0
-
-    def addAlarmToHistory(self, document):
+    def logAlarm(self, document):
         """
         Adds the alarm to the history.
         """
@@ -174,82 +164,37 @@ class DobermanDB(object):
             return 1
         return 0
 
-    def readConfig(self, name='all'):
+    def ControllerSettings(self, name='all'):
         """
-        Reads the table config in the database.
+        Reads the settings in the database.
         """
         if name == 'all':
-            controller = self.readFromDatabase('config', 'controllers', onlyone=False)
+            cursor = self.readFromDatabase('settings', 'controllers')
         else:
-            controller = self.readFromDatabase('config', 'controllers', cuts={'name' : name}, onlyone=True)
+            return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
 
-        if not controller:
-            if name == 'all':
-                self.logger.info("Config table empty.")
-                return 'EMPTY'
-            else:
-                self.logger.warning("No controller with name '%s' "
-                                    "found in DB" % str(name))
-        elif controller == -1:
-            self.logger.warning("Can not read from config table in DobermanDB. "
-                                "Database interaction error.")
-            return -1
-
-        config_dict = {}
-        if name=='all':
-            # list of dicts
-            for row in controller:
-                controller_name = row['name']
-                config_dict[controller_name] = row
-            return config_dict
-        else:
-            return controller
-        return config_dict
+        return {row['name'] : row for row in cursor}
 
     def printParameterDescription(self):
         """
         This function prints all information for each parameter
         which should be entered in the config database table.
         """
-        text = []
-        text.append("Name: -- Name of your device. "
-                    "Make sure your Plugin class is named the same.")
-        text.append("Status: -- ON/OFF: is your instrument (or plugin) turned on or not. Resp."
-                    " should it collect data over the Doberman slow control.")
-        text.append("Alarm Status: -- ON/OFF,...: "
-                    "Should your device send warnings and alarms if your data "
-                    "is out of the limits\n "
-                    "   or your device reports an error or sends no data.\n "
-                    "   This can be individual for each value in one readout. "
-                    "E.g: ON,OFF,ON")
-        text.append("Lower Warning Level -- : Float,...: "
-                    "Enter the lower warning level for your data values.\n "
-                    "   If the values are below this limit a warning (email) "
-                    "will be sent if the alarm status is ON.\n "
-                    "   This can be set individually for each value in one "
-                    "readout. E.g: 1.25,54,0.")
-        text.append("Higher Warning Level: -- Float,...: "
-                    "Enter the higher warning level for your data values. "
-                    "Analog Lower Warning Level.")
-        text.append("Lower Alarm Level: --  Float,...: "
-                    "Enter the higher warning level for your data values.\n "
-                    "   If the values are below this limit a alarm (SMS) will "
-                    "be sent if the alarm status is ON.\n "
-                    "   This can be set individual for each value in one "
-                    "readout. E.g: 1.25,54,0.")
-        text.append("Higher Alarm Level: -- Float,...: "
-                    "Enter the higher warning level for your data values. "
-                    "Analog Lower Alarm Level.")
-        text.append("Readout interval: -- How often (in seconds) should your "
-                    "device read the data and send it to Doberman. "
-                    "Default = 5 seconds")
-        text.append("Alarm recurrence: -- How many times in a row has the "
+        print("Name: -- Name of your device. ")
+        print("Status: -- ON/OFF: is your instrument (or plugin) turned on or not.")
+        print("Alarm Status: -- ON/OFF,...: ")
+        print("Lower Warning Level -- : Float,...: ")
+        print("Higher Warning Level: -- Float,...: ")
+        print("Lower Alarm Level: --  Float,...: ")
+        print("Higher Alarm Level: -- Float,...: ")
+        print("Readout interval: -- How often (in seconds) should your "
+                    "device read the data and send it to Doberman. ")
+        print("Alarm recurrence: -- How many times in a row has the "
                     "data to be out of the warning/alarm limits before an "
                     "alarm/warning is sent.")
-        for sentence in text:
-            print("\n - " + sentence)
+        print("Run mode: which settings to use")
 
-    def changeControllerByKeyboard(self, change_all=True):
+    def updateController(self):
         n = 'n'
         print('\n' + 60 * '-' + '\nUpdate plugin settings. '
               'The following parameters can be changed:\n')
@@ -258,88 +203,98 @@ class DobermanDB(object):
         print('  - No string signs (") needed.\n  '
               '- Split arrays with comma (no spaces after it), '
               'no brackets needed!  \n  '
-              '- Enter 0 for no or default value,  \n  '
               '- Enter n for no change.')
         print('\n' + 60 * '-' + '\n Choose the controller you want to change. ')
-        devices = list(self._config.keys())
+        controllers = self.ControllerSettings()
+        devices = list(controllers.keys())
         for number, controller in enumerate(devices):
             print("%s:\t%s" % (str(number), controller))
         # Enter name to find controller
         existing_names = devices
-        existing_numbers = list(map(str, list(range(len(existing_names)))))
+        existing_numbers = list(map(str, range(len(existing_names))))
         existing_devices = existing_names + existing_numbers
         text = "\nEnter controller number or alternatively its name:"
         name = utils.getUserInput(text, input_type=[str],
                                  be_in=existing_devices)
         try:
-            controller = self._config[name]
+            controller = [name]
         except KeyError:
             name = devices[int(name)]
-            controller = self._config[name]
+            controller = controllers[name]
 
         # Print current parameters and infos.
         print('\n' + 60 * '-' + '\n')
         print('The current parameters are:\n')
-        for i,key in enumerate(controller.keys()):
-            if i == int(len(controller)/2):
-                print()
-            print("{:>16}: {} ".format(key, controller[key]))
+        keys1 = ['runmode','readout_interval']
+        keys2 = ['status','alarm_status','alarm_low','alarm_high','warning_low','warning_high']
+        for k in keys1:
+            print('{:>16}: {}'.format(k, controller[k]))
+        print()
+        for key in keys2:
+            print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
         print(60 * '-')
         print('Which parameter(s) do you want to change?')
-        which = utils.getUserInput('Parameter:', input_type=[str],be_in=controller.keys(),exceptions=['n'])
-        changes = []
+        which = utils.getUserInput('Parameter:', input_type=[str],be_in=key1+keys2,exceptions=['n'])
         while which != 'n':
             if which == 'status':
                 text = 'Controller %s: Status (ON/OFF):' % name
-                status = utils.getUserInput(text, input_type=[str], be_in['ON','OFF','n'])
+                status = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF','n'])
                 if status != 'n':
-                    controller['status'] = status
-                    changes.append(which)
+                    self.updateDatabase('settings','controllers', {'name' : name},
+                            {'$set' : {'%s.%s' % (which,controller['runmode']) : status}})
             elif which == 'alarm_status':
                 text = 'Controller %s: alarm status (ON/OFF, ON/OFF...):' % name
-                val = utils.getUserInput(text, input_type=[str], be_in['ON','OFF'],
+                val = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF'],
                         be_array=True,exceptions=['n'])
                 if val != 'n':
-                    controller[which] = utils.adjustListLength(val, controller['number_of_data'], 'OFF', which)
-                    changes.append(which)
+                    val = utils.adjustListLength(val, controller['number_of_data'], 'OFF', which)
+                    self.updateDatabase('settings','controllers', {'name' : name},
+                            {'$set' : {'%s.%s' % (which,controller['runmode']) : val}})
             elif which in ['alarm_low', 'alarm_high', 'warning_low', 'warning_high']:
                 text = 'Controller {name} {wh[1]} {wh[0]} level(s) (float(s)):'.format(
                         name=name,wh=which.split('_'))
                 vals = utils.getUserInput(text, input_type=[int, float], be_array=True, exceptions=['n'])
                 if vals != 'n':
-                    controller[which] = utils.adjustListLength(vals, controller['number_of_data'], 0, which)
-                    changes.append(which)
+                    vals = utils.adjustListLength(vals, controller['number_of_data'], 0, which)
+                    self.updateDatabase('settings','controllers', {'name' : name},
+                            {'$set' : {'%s.%s' % (which, controller['runmode']) : vals}})
             elif which == 'readout_interval':
                 text = 'Controller %s readout interval (int):' % name
-                val = utils.getUserInput(text, input_type[int, float], limits=[1, 86400], exceptions=['n'])
+                val = utils.getUserInput(text, input_type=[int, float], limits=[1, 86400], exceptions=['n'])
                 if val != 'n':
+                    self.updateDatabase('settings','controller',{'name' : name},
+                            {'$set' : {which : val}})
                     controller[which] = val
                     changes.append(which)
             elif which == 'alarm_recurrence':
-                text = 'Controller %s alarm recurrence (# consecutive values past limits before issuing warning/alarm' % name
-                val = utils.getUserInput(text, input_type[int], limits=[1,99], exceptions=['n'])
+                text = 'Controller %s alarm recurrence (# consecutive values past limits before issuing warning/alarm):' % name
+                val = utils.getUserInput(text, input_type=[int], limits=[1,99], exceptions=['n'])
                 if val != 'n':
-                    controller[which] = utils.adjustListLength(val, controller['number_of_data'], 1, which)
+                    val = utils.adjustListLength(val, controller['number_of_data'], 1, which)
+                    self.updateDatabase('settings','controllers',{'name' : name},
+                            {'$set' : {'%s.%s' % (which, controller['runmode']) : val}})
                     changes.append(which)
+            elif which == 'runmode':
+                text = 'Runmode:'
+                val = utils.getUserInput(text, input_type=[str], exceptions=['n'], be_in=['default','testing','recovery'])
+                if val != 'n':
+                    self.updateDatabase('settings','controllers',{'name' : name},
+                            {'$set' : {which : val}})
             else:
                 print('Can\'t change %s here' % which)
-            which = utils.getUserInput('Parameter:', input_type=[str],be_in=controller.keys(),exceptions=['n'])
-
-        if changes:
-            updates = {'$set' : {key: controller[key] for key in changes}}
-            if self.updateDatabase('config','controllers',cuts={'name' : name}, updates):
-                self.logger.error('Could not update controller %s' % name)
+            which = utils.getUserInput('Parameter:', input_type=[str],be_in=keys1+keys2,exceptions=['n'])
 
         print(60 * '-')
         print('New controller settings:')
-        for i, key in enumerate(controller.keys()):
-            if i == int(len(controller)):
-                print()
-            print("{:>16}: {}".format(key, str(controller[key])))
-        print(60 * '-')
-        self.addSettingToConfigHistory(controller)
+        controller = self.readFromDatabase('settings','controllers',{'name' : name}, onlyone=True)
+        for k in keys1:
+            print('{:>16}: {}'.format(k, controller[k]))
+        print()
+        for key in keys2:
+            print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
+        #self.addSettingToConfigHistory(controller)
 
-    def updateDefaultSettings(self):
+    def updateSettings(self):
         """
         Updates the default Doberman settings
         """
@@ -386,54 +341,39 @@ class DobermanDB(object):
             print('%s: %s' % (k,v))
         return
 
-    def getDefaultSettings(self, name=None):
+    def getDefaultSettings(self, opmode=None, name=None):
         """
         Reads default Doberman settings from database.
         Returns a dict or the specified value
         """
-        cursor = self.readFromDatabase('config','default_settings')
-        if cursor.count() == 0:
-            self.logger.warning('Unable to read default settings')
-            return -1
-        settings = {}
-        for row in cursor:
-            if row['parameter'] == 'tty_update':
-                settings[row['parameter']] = row['value']
-            else:
-                settings[row['parameter']] = int(row['value'])
-        if not name:
-            return settings
-        else:
-            try:
-                settings = settings[name]
-            except KeyError as e:
-                self.logger.error("Can not read default setting %s: %s" % (name, e))
-            except Exception as e:
-                self.logger.error("Can not read defaut settings. %s" % e)
-                return -1
-        return settings
+        if opmode:
+            doc = self.readFromDatabase('settings','opmodes',
+                    {'mode' : opmode},onlyone=True)
+            if name:
+                return doc[name]
+            return doc
+        doc = self.readFromDatabase('settings','defaults', onlyone=True)
+        if name:
+            return doc[name]
+        return doc
 
-    def readContacts(self,status=None):
+    def getContacts(self,status=None):
         """
         Reads contacts from database.
         """
         if not status:
-            cursor = self.readFromDatabase('config','contacts')
-        else:
-            cursor = self.readFromDatabase('config','contacts', cuts={'status' : status})
-        if cursor.count() == 0:
+            cuts = {'name' : {'$exists' : 1}}  # cuts the 'conn_details' doc
+        elif status == 'sms':
+            cuts={'status' : {'$in' : ['ON','SMS']}}
+        elif status == 'email':
+            cuts={'status' : {'$in' : ['ON','MAIL']}}
+        collection = self._check('settings','contacts')
+        if collection.count(cuts) == 0:
             self.logger.warning("No contacts found (with status %s)" % str(status))
-            contacts = {}
-        elif cursor == -1:
-            self.logger.warning("Can not read from contact table in database. "
-                                "Database interaction error.")
-            return -1
-        contacts = []
-        for row in cursor:
-            contacts.append(row)
-        return contacts
+            return []
+        return [row for row in collection.find(cuts)]
 
-    def updateContactsByKeyboard(self):
+    def updateContacts(self):
         """
         Update active contacts
         """
@@ -442,18 +382,15 @@ class DobermanDB(object):
         # Print informations
         print('\n' + 60 * '-' + '\n')
         print('  - No string signs (") needed.\n  '
-              '- Split arrays with comma (no spaces after it), '
-              'no brackets needed!\n  '
-              '- Enter 0 for no or default value\n  '
-              '- Enter n for no change (in update mode only)')
+              '- Enter n for no change')
         print('\n' + 60 * '-' +
               '\n  Saved contacts are:\n  (Name, Status, Email, Phone)\n')
         if contacts == -1:
             self.logger.error("Could not load contacts.")
             return -1
         for key in contacts:
-            for f in contacts[key]:
-                print('%s: %s' % f, contacts[key][f])
+            for field in contacts[key]:
+                print('%s: %s' % field, contacts[key][field])
             print()
         print('\n' + 60 * '-' + '\n')
 
@@ -462,21 +399,20 @@ class DobermanDB(object):
         name = utils.getUserInput(text,
                                  input_type=[str],
                                  be_in=existing_numbers)
-        original_contact = contacts[list(contacts.keys())[int(name)]]
+        contact = contacts[list(contacts.keys())[int(name)]]
         # Status
         text = ("Enter new status of contact '%s' (or n for no change). "
                     "It can be 'ON' (all notifications), "
                     "'OFF' (no notifications), 'MAIL' (only by email), "
-                    "'TEL' (only by phone)." % name)
-            status = utils.getUserInput(text,
-                                       input_type=[str],
-                                       be_in=['ON', 'OFF', 'MAIL', 'TEL', 'n'])
-            if status != 'n':
-                original_contact['status'] = status
-                if self.updateDatabase('config', 'contacts', cuts={'name' : original_contact['name']},
-                        update={'$set' : {'status' : status}}):
-                    self.logger.error()
-                    return -1
+                    "'SMS' (only by phone)." % name)
+        status = utils.getUserInput(text, input_type=[str],
+                                       be_in=['ON', 'OFF', 'MAIL', 'SMS', 'n'])
+        if status != 'n':
+            if self.updateDatabase('settings','contacts',
+                    cuts={'name' : contact['name']},
+                    update={'$set' : {'status' : status}}):
+                self.logger.error('Could not update contact!')
+                return -1
         return 0
 
     def writeDataToDatabase(self, name, when, data, status):
@@ -486,29 +422,118 @@ class DobermanDB(object):
           0 = OK,
           -1 = no connection,
           -2 = No error status aviable (ok)
-          1-9 = Warning
-          >9 = Alarm
+          1 = Warning
+          2 = Alarm
         """
-
-        if self.insertIntoDatabase('data', name, {'when' : when, 'data' : data, 'status' : status}):
+        ret = self.insertIntoDatabase('data', name,
+                {'when' : when, 'data' : data, 'status' : status})
+        if ret:
             self.logger.warning("Can not write data from %s to Database. "
                                 "Database interaction error." % name)
             return -1
+        self.logger.debug('Wrote data from %s' % name)
         return 0
 
-    def updateConfig(self, old_config):
-        """
-        Updates the config variable.
-        Takes deleted settings from the old config,
-        so that the running software is not running out of informations
-        for a certain Plugin.
-        """
-        new_config = self.getConfig()
-        if new_config in [-1, -2, -3]:
-            return -1
-        new_names = list(new_config.keys())
-        old_names = list(old_config.keys())
-        for name in old_names:
-            if name not in new_names:
-                new_config[name] = old_config[name].copy()
-        return new_config
+    def askForUpdates(self):
+        which = ''
+        to_quit = ['q','Q','n']
+        while which not in to_quit:
+            print('What do you want to update?')
+            print('contacts | controllers | settings')
+            print('(use q, Q, or n to quit)')
+            which = input('>>>')
+            if which == 'contacts':
+                self.updateContacts()
+            elif which == 'controllers':
+                self.updateController()
+            elif which == 'settings':
+                self.updateSettings()
+            elif which not in to_quit:
+                print('Invalid input: %s' % which)
+
+    def addOpmode(self):
+        print('What is the name of this opmode?')
+        name = input('>>>')
+        print('What loglevel (default 20?')
+        loglevel = utils.getUserInput('Loglevel', input_type=[int], be_in=range(10,60,10),
+                exceptions=['n'])
+        if loglevel == 'n':
+            loglevel = 20
+        print('Testrun (default 5)?')
+        testrun = utils.getUserInput('Testrun', input_type=[int],exceptions=['n'])
+        if testrun == 'n':
+            testrun = 5
+        print('Message timer (default 5)?')
+        msg_time = utils.getUserInput('Message timer', input_type=[int], exceptions=['n'])
+        if msg_time == 'n':
+            msg_time = 5
+        if self.insertIntoDatabase('settings','opmodes',{'mode' : name,
+            'loglevel' : loglevel, 'testrun' : testrun, 'message_time' : msg_time}):
+            print('Could not add runmode!')
+        return
+
+    def addContact(self):
+        print('Contact name:')
+        name = input('>>>')
+        print('Contact sms')
+        sms = input('>>>')
+        print('Contact email')
+        email = input('>>>')
+        print('Contact status')
+        status = utils.getUserInput('Status', input_type[str], be_in=['ON','SMS','MAIL','OFF'], exceptions=['n'])
+        if status == 'n':
+            status = 'OFF'
+        if self.insertIntoDatabase('settings','contacts',{'name' : name, 'sms' : sms,
+            'email' : email, 'status' : status}):
+            print('Could not add contact!')
+        return
+
+    def addController(self, filename):
+        with open(filename, 'r') as f:
+            try:
+                d = eval(f.read())
+            except Exception as e:
+                print('Could not read file! Error: %s' % e)
+            if self.insertIntoDatabase('settings','controllers',d):
+                print('Could not add controller!')
+        return
+
+def main():
+    parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n DobermanDB interface')
+
+    db = DobermanDB()
+    parser.add_argument('--update', action='store_true', default=False,
+                        help='Update settings/contacts/etc')
+    parser.add_argument('--command', nargs='+',
+                        help='Issue a command to the system. Format: '
+                            '<name> <command>')
+    parser.add_argument('--add-opmode', action='store_true', default=False,
+                        help='Add a new operation preset')
+    parser.add_argument('--add-contact', action='store_true', default=False,
+                        help='Add a new contact')
+    parser.add_argument('--add-controller', default=None, type=str,
+                        help='Specify a new controller config file to load')
+    args = parser.parse_args()
+    if args.command:
+        db.StoreCommand(' '.join(args.command))
+        print("Stored '%s'" % ' '.join(args.command))
+    try:
+        if args.add_opmode:
+            db.addOpmode()
+        if args.add_contact:
+            db.addContact()
+        if args.add_controller:
+            db.addController(args.add_controller)
+        if args.update:
+            db.askForUpdates()
+    except KeyboardInterrupt:
+        print('Interrupted!')
+    except Exception as e:
+        print('Exception! %s' % e)
+
+    print('Ciao!')
+    db.close()
+    return
+
+if __name__ == '__main__':
+    main()
