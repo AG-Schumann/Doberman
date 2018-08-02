@@ -479,7 +479,7 @@ class DobermanDB(object):
         sms = input('>>>')
         print('Contact email')
         email = input('>>>')
-        print('Contact status')
+        print('Contact status (ON,SMS,MAIL,OFF)')
         status = utils.getUserInput('Status', input_type[str], be_in=['ON','SMS','MAIL','OFF'], exceptions=['n'])
         if status == 'n':
             status = 'OFF'
