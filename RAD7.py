@@ -1,5 +1,4 @@
 from ControllerBase import SerialController
-import logging
 
 
 class RAD7(SerialController):
@@ -7,12 +6,11 @@ class RAD7(SerialController):
     RAD7
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts.name)
         self._msg_end = '\r\n'
         self._msg_start = ''
         self.commands = {'read' : 'SPECIAL STATUS',
                 }
-        super().__init__(opts, logger)
+        super().__init__(opts)
 
     def isThisMe(self, dev):
         return False
@@ -64,7 +62,4 @@ class RAD7(SerialController):
         data = [cycle, status, mode, counts, activity, activity_err, temperature,
                 humidity, battery, pump, HV, dutycycle, leakage, signal]
         return {'retcode' : [0]*len(data), 'data' : data}
-
-    def ExecuteCommand(self, command):
-        return
 

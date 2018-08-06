@@ -1,5 +1,4 @@
 from ControllerBase import SerialController
-import logging
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK
 
@@ -10,7 +9,6 @@ class smartec_uti(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts['name'])
         self.commands = {
                 'greet' : '@',
                 'help' : '?',
@@ -25,7 +23,7 @@ class smartec_uti(SerialController):
                 }
         self._msg_start = ''
         self._msg_end = '\r\n'
-        super().__init__(opts, self.logger)
+        super().__init__(opts)
 
     def _getControl(self):
         if not super()._getControl():
@@ -91,7 +89,6 @@ class smartec_uti(SerialController):
             else:
                 resp = [-1]*len(values[2:])
                 stat = [-2]*len(values[2:])
-            self.logger.debug('UTI evaluates to %s' % resp)
 
             val['data'] = resp
             val['retcode'] = stat
@@ -101,5 +98,3 @@ class smartec_uti(SerialController):
             val['data'] = None
         return val
 
-    def ExecuteCommand(self, command):
-        return
