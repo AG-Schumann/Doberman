@@ -1,5 +1,5 @@
 from ControllerBase import SerialController
-import logging
+import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
 class iseries(SerialController):
@@ -8,7 +8,6 @@ class iseries(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts['name'])
         self._msg_start = '*'
         self._msg_end = '\r\n'
         self.commands = {
@@ -31,7 +30,8 @@ class iseries(SerialController):
                 'getAlarm1Low' : 'R12',
                 'getAlarm2Low' : 'R15',
                 }
-        super().__init__(opts, self.logger)
+        super().__init__(opts)
+        self.read_pattern = re.compile(r'%s(?P<value>-?[0-9]+(?:\.[0-9]+)?)' % self.commands['getDisplayedValue'])
 
     def isThisMe(self, dev):
         info = self.SendRecv(self.commands['getAddress'], dev)
@@ -48,15 +48,14 @@ class iseries(SerialController):
 
     def Readout(self):
         val = self.SendRecv(self.commands['getDisplayedValue'])
-        if not val['data']:
+        if not val['data'] or val['retcode']:
             self.logger.error('No data??')
             return val
-        if self.commands['getDisplayedValue'] not in val['data']:
+        m = self.read_pattern.search(val['data'])
+        if not m:
             self.logger.error('Device didn\'t echo correct command')
             val['data'] = -1
             return val
-        val['data'] = float(val['data'].split(self.commands['getDisplayedValue'])[-1])
+        val['data'] = float(m.group('value'))
         return val
 
-    def ExecuteCommand(self, command):
-        return

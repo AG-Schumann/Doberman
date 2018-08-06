@@ -1,5 +1,6 @@
 from ControllerBase import SerialController
 import logging
+import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
 class caen_n1470(SerialController):
@@ -14,43 +15,40 @@ class caen_n1470(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(__name__)
-        self.__msg_start = '$'
-        self.__msg_end = '\r\n'
-        self.channels = opts.channels
-        self._bd = opts.board
-        self.SN = opts.SN
-        self.commands = {'read' : 'BD:{},CMD:MON,CH{},PAR:{}',
-                        'write' : 'BD:{},CMD:SET,CH{},PAR:{},VAL:{:06.2f}',
-                        'name' : 'BD:{},CMD:MON,PAR:BDNAME',
-                        'snum' : 'BD:{},CMD:MON,PAR:BDSNUM'}
         super().__init__(opts)
+        self._msg_start = '$'
+        self._msg_end = '\r\n'
+        self.commands = {'read' : f'BD:{self.board},' + 'CMD:MON,CH{ch},PAR:{par}',
+                        'write' : f'BD:{self.board},' + 'CMD:SET,CH{ch},PAR:{par},VAL:{val}',
+                        'name' : f'BD:{self.board},CMD:MON,PAR:BDNAME',
+                        'snum' : f'BD:{self.board},CMD:MON,PAR:BDSNUM'}
+        self.setcommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par},VAL:{val}'
+        self.powercommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par}'
+        self.error_pattern = re.compile(',[A-Z]{2,3}:ERR')
+        self.read_pattern = re.compile('VAL:(?P<val>-?[0-9]+(?:\\.[0-9]+)?)')
+        self.command_patterns = [
+                (re.compile('channel (?P<ch>anode|cathode) (?P<par>on|off)'),
+                    lambda x : self.powercommand.format(
+                        ch=self.channel_map[x.group('ch')],par=x.group('par'))),
+                (re.compile('channel (?P<ch>anode|cathode) (?P<par>vset|rup|rdw) (?P<val>-?[0-9]+(?:\\.[0-9]+)?)'),
+                    lambda x : self.setcommand.format(ch=self.channel_map[x.group('ch')],
+                        par=x.group('par').upper(), val=x.group('val'))),
+                ]
 
-    def checkController(self):
-        val = self.SendRecv(self.commands['name'].format(self._bd))
-        if val['retcode']:
-            self.logger.error('Could not confirm device')
-            self.__connected = False
-            return -1
+    def isThisMe(self, dev):
+        val = self.SendRecv(self.commands['name'], dev)
+        if not val['data'] or val['retcode']:
+            return False
         if 'N1470' not in val['data']:
-            self.logger.error('Connected to %s instead of N1470?' % val['data'].split(',')[2].split(':')[1])
-            self.__connected = False
-            return -2
-        val = self.SendRecv(self.commands['snum'].format(self._bd))
-        if val['retcode']:
-            self.logger.error('Could not check serial number')
-            self.__connected = False
-            return -3
-        sn = val['data'].split(',')[2].split(':')[1]
-        if sn != self.SN:
-            self.logger.error('Serial number doesn\'t check out, expected %s got %s' % (self.SN, sn))
-            self.__connected = False
-            return -4
+            return False
+        val = self.SendRecv(self.commands['snum'])
+        if not val['data'] or val['retcode']:
+            return False
+        sn = val['data'].split('VAL:')[1]
+        if sn != self.serialID:
+            return False
         else:
-            self.logger.debug('Successfully connected')
-            self.add_ttyusb(self.ttyUSB)
-            return 0
-        return -3
+            return True
 
     def Readout(self):
         """
@@ -58,9 +56,9 @@ class caen_n1470(SerialController):
         """
         readings = []
         status = []
-        for com in ['VMON','IMON']:
+        for com in ['VMON','IMON','STAT']:
             for ch in self.channels:
-                res = SendRecv(self.commands['read'].format(BD=self._bd,ch,com))
+                res = SendRecv(self.commands['read'].format(ch=ch,par=com))
                 if res['retcode'] or 'ERR' in res['data']:
                     readings.append[-1]
                     status.append[-1]
@@ -70,3 +68,4 @@ class caen_n1470(SerialController):
                     val = res['data'].split(',')[2]
                     readings.append(float(val))
         return {'retcode' : status, 'data' : readings}
+
