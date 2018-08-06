@@ -368,7 +368,7 @@ def main():
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
-                self.logger.error('%s died! Restarting...' % plugin.name)
+                logger.error('%s died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
                     plugin.close()
@@ -382,9 +382,11 @@ def main():
                     plugin.join()
                     running = False
     except KeyboardInterrupt:
-        self.logger.fatal('Killed by ctrl-c')
+        logger.fatal('Killed by ctrl-c')
     finally:
-        plugin.close()
+        plugin.running = False
+        plugin.join()
+        #plugin.close()
 
     return
 
