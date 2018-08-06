@@ -25,6 +25,10 @@ class MKS_MFC(SerialController):
                          'ValvePosition' : 'VO',
                          'SoftStartRate' : 'SS',
                          }
+        self.valve_map = {'close' : 'FLOW_OFF',
+                          'normal' : 'NORMAL',
+                          'purge' : 'PURGE'
+                          }
         self.errorcodes = {
                 '01' : 'Checksum error',
                 '10' : 'Syntax error',
@@ -49,7 +53,7 @@ class MKS_MFC(SerialController):
         self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
         self.spt_val = re.compile(r'setpoint (?P<value>-?[0-9]+(\.[0-9]+)?)')
-        self.valve_status = re.compile(r'valve (?P<mode>(auto)|(close)|(purge))')
+        self.valve_status = re.compile(r'valve (?P<mode>(normal)|(close)|(purge))')
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.getCommand.format(cmd=self.commands['Address']), dev)
@@ -119,7 +123,7 @@ class MKS_MFC(SerialController):
         mv = self.valve_status.search(command)
         if mv:
             command_out = self.setCommand.format(cmd=self.commands['ValvePosition'],
-                    value=mv.group('mode'))
+                    value=self.valve_map[mv.group('mode')])
         else:
             mp = self.spt_val.search(command)
             if mp:
