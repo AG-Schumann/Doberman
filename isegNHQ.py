@@ -10,7 +10,6 @@ class isegNHQ(SerialController):
     def __init__(self, opts):
         self._msg_end = '\r\n'
         self._msg_start = ''
-        super().__init__(opts)
         self.basecommand = '{cmd}'
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
@@ -30,6 +29,7 @@ class isegNHQ(SerialController):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
+        super().__init__(opts)
 
         self.command_patterns = [
                 (re.compile(f'{cmd} (?P<value>-?[0-9]+(?:\\.[0-9]+)?)'),

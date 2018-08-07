@@ -1,5 +1,5 @@
 from ControllerBase import LANController
-import re  # EVERYBODY STAND BACK xckd.com/208
+import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
 class cryocon_22c(LANController):
