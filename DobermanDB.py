@@ -519,10 +519,20 @@ def main():
                         help='Add a new contact')
     parser.add_argument('--add-controller', default=None, type=str,
                         help='Specify a new controller config file to load')
+    parser.add_argument('--running', action='store_true', default=False,
+                        help='List currently running controllers')
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
         print("Stored '%s'" % ' '.join(args.command))
+    if args.running:
+        cursor = db.readFromDatabase('settings','controllers',{'online' : True})
+        print('Currently running controllers:')
+        print('Name : Status : Runmode')
+        for row in cursor:
+            runmode = row['runmode']
+            status = row['status'][runmode]
+            print('  %s: %s : %s' % (row['name'], status, runmode)))
     try:
         if args.add_runmode:
             db.addOpmode()

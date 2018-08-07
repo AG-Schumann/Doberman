@@ -76,7 +76,7 @@ class Plugin(threading.Thread):
                 {'name' : self.name}, onlyone=True)
         if config_doc['online'] and not force:
             self.logger.fatal(f'{self.name} is already running!')
-            raise Exception
+            raise ValueError('Already running')
         else:
             self.db.updateDatabase('settings','controllers', {'name' : self.name},
                     {'$set' : {'online' : True}})
@@ -242,7 +242,7 @@ class Plugin(threading.Thread):
         alarm_high = rundoc['alarm_high'][runmode]
         warning_low = rundoc['warning_low'][runmode]
         warning_high = rundoc['warning_high'][runmode]
-        message_time = self.db.getDefaultSettings(opmode=runmode,name='message_time')
+        message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
         dt = (datetime.datetime.now() - self.last_message_time).total_seconds()
@@ -342,6 +342,14 @@ class Plugin(threading.Thread):
                 self.running = False
                 # in standalone mode Doberman will restart the plugin when it stops
                 self.has_quit = True
+            elif command == 'start':
+                runmode = self.db.ControllerSettings(name=self.name)['runmode']
+                self.db.updateDatabase('settings','controllers', {'name' : self.name},
+                        {'$set' : {'status.%s' % runmode : 'ON'}})
+            elif command == 'sleep':
+                runmode = self.db.ControllerSettings(name=self.name)['runmode']
+                self.db.updateDatabase('settings','controllers', {'name' : self.name},
+                        {'$set' : {'status.%s' % runmode : 'OFF'}})
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:
@@ -361,7 +369,7 @@ def main():
     logger = logging.getLogger(args.plugin_name)
     logger.addHandler(DobermanLogging.DobermanLogger())
     db = DobermanDB.DobermanDB()
-    loglevel = db.getDefaultSettings(opmode=args.runmode,name='loglevel')
+    loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode}})
