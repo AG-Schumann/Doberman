@@ -3,6 +3,7 @@ import serial
 import os.path
 import socket
 import time
+import logging
 
 
 class Controller(object):
@@ -12,12 +13,12 @@ class Controller(object):
     _msg_start = ''
     _msg_end = ''
 
-    def __init__(self, opts, logger):
+    def __init__(self, opts):
         """
         opts is a dict with all the options needed for initialization
         (addresses, configuration options, etc)
         """
-        self.logger = logger
+        self.logger = logging.getLogger(opts['name'])
         for key, value in opts.items():
             setattr(self, key, value)
         self._connected = False
@@ -63,7 +64,17 @@ class Controller(object):
         Allows Doberman to issue commands to the controller (change setpoints, valve
         positions, etc)
         """
-        raise NotImplementedError()
+        if not hasattr(self, 'command_patterns'):
+            raise NotImplementedError()
+        for pattern, func in self.pattern_commands:
+            m = pattern.search(command)
+            if not m:
+                continue
+            resp = self.SendRecv(func(m))
+            if resp['retval']:
+                self.logger.error("Did not accept command '%s'" % command)
+            return
+        self.logger.error("Did not understand command '%s'" % command)
 
     def close(self):
         #self.logger.debug('Shutting down %s' % self.name)
@@ -85,7 +96,7 @@ class SerialController(Controller):
     Serial controller class. Implements more direct serial connection specifics
     """
 
-    def __init__(self, opts, logger):
+    def __init__(self, opts):
         self.ttyUSB = -1
         self._device = serial.Serial()
         self._device.baudrate=9600
@@ -93,7 +104,7 @@ class SerialController(Controller):
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
         self._device.write_timeout = 5
-        super().__init__(opts, logger)
+        super().__init__(opts)
 
     def _getControl(self):
         if self.ttyUSB == -1:
@@ -143,9 +154,9 @@ class LANController(Controller):
     Class for LAN-connected controllers
     """
 
-    def __init__(self, opts, logger):
+    def __init__(self, opts):
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        super().__init__(opts, logger)
+        super().__init__(opts)
 
     def _getControl(self):
         """

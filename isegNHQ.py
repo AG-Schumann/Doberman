@@ -1,6 +1,6 @@
 from ControllerBase import SerialController
-import logging
 import time
+import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
 class isegNHQ(SerialController):
@@ -8,10 +8,8 @@ class isegNHQ(SerialController):
     iseg NHQ controller
     """
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts['name'])
         self._msg_end = '\r\n'
         self._msg_start = ''
-        super().__init__(opts, self.logger)
         self.basecommand = '{cmd}'
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
@@ -31,6 +29,14 @@ class isegNHQ(SerialController):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
+        super().__init__(opts)
+
+        self.command_patterns = [
+                (re.compile(f'{cmd} (?P<value>-?[0-9]+(?:\\.[0-9]+)?)'),
+                    lambda x : self.setcommand.format(cmd=self.commands[f'{cmd}'],
+                        value=x.group('value'))) for cmd in ['Vset','Itrip','Vramp']
+                ]
+
 
     def _getControl(self):
         super()._getControl()
@@ -104,22 +110,4 @@ class isegNHQ(SerialController):
             time.sleep(self.delay)
         ret['data'] = response.rstrip()
         return ret
-
-    def ExecuteCommand(self, command):
-        """
-        Accepts the following commands:
-        <Vset|Itrip|Vramp> <value>
-        """
-        try:
-            which, value = command.split()
-            value = float(value)
-            com = self.setcommand.format(cmd=self.commands[which],
-                    value=value)
-        except Exception as e:
-            self.logger.error("Could not parse command: %s. Error: %s" % (command,e))
-        resp = self.SendRecv(com)
-        if resp['retval']:
-            self.logger.error('Device did not accept command: %s' % command)
-        else:
-            self.logger.debug('Successfully sent command: %s' % command)
 
