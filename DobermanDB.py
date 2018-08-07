@@ -139,10 +139,16 @@ class DobermanDB(object):
         """
         controller, cmd = command.split(maxsplit=1)
         self.logger.debug(f"Storing command '{cmd}' for {controller}")
-        if self.insertIntoDatabase('logging', 'commands',
-                {'name' : controller, 'command' : cmd,
+        if controller == 'all':
+            controller = self.client['settings']['controllers'].distinct('name',
+                    {'online' : True})
+        else:
+            controller = [controller]
+        for ctrl in controllers:
+            if self.insertIntoDatabase('logging', 'commands',
+                {'name' : ctrl, 'command' : cmd,
                     'logged' : datetime.datetime.now()}):
-            self.logger.error('Could not store command for %s!' % controller)
+                self.logger.error('Could not store command for %s!' % ctrl)
         return 0
 
     def logAlarm(self, document):
@@ -341,14 +347,14 @@ class DobermanDB(object):
             print('%s: %s' % (k,v))
         return
 
-    def getDefaultSettings(self, opmode=None, name=None):
+    def getDefaultSettings(self, runmode=None, name=None):
         """
         Reads default Doberman settings from database.
         Returns a dict or the specified value
         """
-        if opmode:
-            doc = self.readFromDatabase('settings','opmodes',
-                    {'mode' : opmode},onlyone=True)
+        if runmode:
+            doc = self.readFromDatabase('settings','runmodes',
+                    {'mode' : runmode},onlyone=True)
             if name:
                 return doc[name]
             return doc
@@ -452,7 +458,7 @@ class DobermanDB(object):
                 print('Invalid input: %s' % which)
 
     def addOpmode(self):
-        print('What is the name of this opmode?')
+        print('What is the name of this runmode?')
         name = input('>>>')
         print('What loglevel (default 20?')
         loglevel = utils.getUserInput('Loglevel', input_type=[int], be_in=range(10,60,10),
@@ -467,7 +473,7 @@ class DobermanDB(object):
         msg_time = utils.getUserInput('Message timer', input_type=[int], exceptions=['n'])
         if msg_time == 'n':
             msg_time = 5
-        if self.insertIntoDatabase('settings','opmodes',{'mode' : name,
+        if self.insertIntoDatabase('settings','runmodes',{'mode' : name,
             'loglevel' : loglevel, 'testrun' : testrun, 'message_time' : msg_time}):
             print('Could not add runmode!')
         return
@@ -507,7 +513,7 @@ def main():
     parser.add_argument('--command', nargs='+',
                         help='Issue a command to the system. Format: '
                             '<name> <command>')
-    parser.add_argument('--add-opmode', action='store_true', default=False,
+    parser.add_argument('--add-runmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
                         help='Add a new contact')
@@ -518,7 +524,7 @@ def main():
         db.StoreCommand(' '.join(args.command))
         print("Stored '%s'" % ' '.join(args.command))
     try:
-        if args.add_opmode:
+        if args.add_runmode:
             db.addOpmode()
         if args.add_contact:
             db.addContact()
