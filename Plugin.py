@@ -350,6 +350,9 @@ class Plugin(threading.Thread):
                 runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
                         {'$set' : {'status.%s' % runmode : 'OFF'}})
+            elif command == 'restart':
+                self.running = False
+                # don't set has_quit here, so main() restarts us
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:
@@ -388,22 +391,20 @@ def main():
                 logger.error('%s died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
-                    plugin.close()
                     plugin.join()
                     plugin = Plugin(args.plugin_name, plugin_paths, args.force)
                     plugin.start()
                 except Exception as e:
                     logger.critical('Could not restart %s' % plugin.name)
                     plugin.running = False
-                    plugin.close()
                     plugin.join()
                     running = False
     except KeyboardInterrupt:
         logger.fatal('Killed by ctrl-c')
     finally:
-        db.close()
         plugin.running = False
         plugin.join()
+        db.close()
 
     return
 
