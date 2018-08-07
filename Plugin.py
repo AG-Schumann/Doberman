@@ -393,8 +393,9 @@ def main():
     except KeyboardInterrupt:
         logger.fatal('Killed by ctrl-c')
     finally:
-        plugin.close()
         db.close()
+        plugin.running = False
+        plugin.join()
 
     return
 
