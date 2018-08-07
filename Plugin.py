@@ -48,7 +48,7 @@ class Plugin(threading.Thread):
     to the database.
     """
 
-    def __init__(self, name, plugin_paths):
+    def __init__(self, name, plugin_paths, force=False):
         """
         Constructor
 
@@ -68,13 +68,18 @@ class Plugin(threading.Thread):
         None
         """
         threading.Thread.__init__(self)
-        self.Tevent = threading.Event()
         self.logger = logging.getLogger(name)
         self.name = name
         self.logger.debug('Starting plugin...')
         self.db = DobermanDB.DobermanDB()
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
+        if config_doc['online'] and not force:
+            self.logger.fatal(f'{self.name} is already running!')
+            raise Exception
+        else:
+            self.db.updateDatabase('settings','controllers', {'name' : self.name},
+                    {'$set' : {'online' : True}})
         if self.name != 'RAD7':
             plugin_name = self.name.rstrip('0123456789')
         else:
@@ -103,13 +108,15 @@ class Plugin(threading.Thread):
     def close(self):
         """Closes the controller, and sets the threading event"""
         self.running = False
-        self.Tevent.set()
         if self.controller:
             self.logger.info('Stopping...')
             self.controller.close()
         else:
             self.logger.info('Already stopped!')
         self.controller = None
+        self.db.updateDatabase('settings','controllers',{'name' : self.name},
+                {'$set' : {'online' : False}})
+        self.db.close()
         return
 
     def OpenController(self):
@@ -166,7 +173,7 @@ class Plugin(threading.Thread):
                     self.logger.debug('Reopened controller')
             self.HandleCommands()
             while (time.time() - loop_start_time) < rundoc['readout_interval'] and self.running:
-                self.Tevent.wait(1)
+                time.sleep(1)
                 self.HandleCommands()
         self.close()
 
@@ -327,7 +334,7 @@ class Plugin(threading.Thread):
                 try:
                     _, runmode = command.split()
                 except ValueError:
-                    self.logger.error("Could not understand command '%s'" % command)
+                    self.logger.error(f"Could not understand command '{command}'")
                 else:
                     self.db.updateDatabase('settings','controllers',
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
@@ -347,6 +354,8 @@ def main():
                         help='Name of the controller')
     parser.add_argument('--runmode', type=str, dest='runmode',
                         help='Which run mode to use', default='default')
+    parser.add_argument('--force', action='store_true', default=False,
+                        help='Force the plugin to load (if it didn\'t reset)')
     args = parser.parse_args()
     plugin_paths=['.']
     logger = logging.getLogger(args.plugin_name)
@@ -357,7 +366,7 @@ def main():
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode}})
 
-    plugin = Plugin(args.plugin_name, plugin_paths)
+    plugin = Plugin(args.plugin_name, plugin_paths, args.force)
     plugin.start()
     running = True
     try:
@@ -368,12 +377,12 @@ def main():
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
-                self.logger.error('%s died! Restarting...' % plugin.name)
+                logger.error('%s died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
                     plugin.close()
                     plugin.join()
-                    plugin = Plugin(args.plugin_name, plugin_paths)
+                    plugin = Plugin(args.plugin_name, plugin_paths, args.force)
                     plugin.start()
                 except Exception as e:
                     logger.critical('Could not restart %s' % plugin.name)
@@ -382,9 +391,10 @@ def main():
                     plugin.join()
                     running = False
     except KeyboardInterrupt:
-        self.logger.fatal('Killed by ctrl-c')
+        logger.fatal('Killed by ctrl-c')
     finally:
         plugin.close()
+        db.close()
 
     return
 
