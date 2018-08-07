@@ -13,7 +13,6 @@ from Plugin import Plugin, FindPlugin
 import psutil
 from subprocess import Popen, PIPE, TimeoutExpired
 import serial
-import atexit
 
 __version__ = '2.0.0'
 
@@ -26,24 +25,24 @@ class Doberman(object):
     Closes all processes in the end.
     '''
 
-    def __init__(self, runmode, standalone=False):
+    def __init__(self, runmode, overlord, force):
         self.runmode = runmode
         self.logger = logging.getLogger(self.__class__.__name__)
         self.last_message_time = datetime.datetime.now()
-        self.standalone = standalone
+        self.overlord = overlord
+        self.force=force
 
         self.db = DobermanDB.DobermanDB()
-
-        self.db.updateDatabase('settings','defaults',{},{'$set' : {'opmode' : runmode}})
-        self.db.updateDatabase('settings','controllers',{},
+        self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
+            'runmode' : runmode}})
+        self.db.updateDatabase('settings','controllers',{'online' : False},
                 {'$set' : {'runmode' : runmode}})
 
         self.plugin_paths = ['.']
         self.alarmDistr = alarmDistribution.alarmDistribution()
-        self.running_controllers = []
 
     def Start(self):
-        if self.standalone:
+        if not self.overlord:
             return 0
         last_tty_update_time = self.db.getDefaultSettings(name='tty_update')
         boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
@@ -55,9 +54,6 @@ class Doberman(object):
                 return -1
         else:
             self.logger.debug('Not updating tty settings')
-        if self.importAllPlugins():
-            self.logger.error('Could not import all plugins!')
-            return -2
         self.startAllControllers()
         return 0
 
@@ -66,6 +62,10 @@ class Doberman(object):
         Brute-force matches sensors to ttyUSB assignments by trying
         all possible combinations, and updates the database
         """
+        collection = self.db._check('settings','controllers')
+        if collection.count({'online' : True, 'address.ttyUSB' : {'$exists' : 1}}):
+            self.logger.error('Some USB controllers are running! Can\'t refresh TTY settings')
+            return False
         self.db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
         self.logger.info('Refreshing ttyUSB mapping...')
         proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
@@ -119,7 +119,7 @@ class Doberman(object):
                     dev.close()
                     break
                 self.logger.debug('Not %s' % name)
-                time.sleep(0.5)  # devices are slow.....
+                time.sleep(0.5)  # devices are slow
             else:
                 self.logger.error('Could not assign %s!' % tty)
             dev.close()
@@ -130,86 +130,38 @@ class Doberman(object):
             self.logger.debug('Matched %s to %s via n-1' % (name, tty))
             self.db.updateDatabase('settings','controllers',{'name' : name},
                     {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
-            self.db.updateDatabase('settings','defaults', {},
-                    {'$set' : {'tty_update' : datetime.datetime.now()}})
         elif len(matched['sensors']) != len(sensors):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
-        else:
-            self.db.updateDatabase('settings','opmodes', {},
+        self.db.updateDatabase('settings','defaults', {},
                     {'$set' : {'tty_update' : datetime.datetime.now()}})
         return True
-
-    def importAllPlugins(self):
-        '''
-        This function tries to import all programs of the controllers
-        which are saved in the database.
-        '''
-        self.failed_import = []
-        imported_plugins = []
-        devices = self.db.ControllerSettings()
-        for name, controller in devices.items():
-            try:
-                self.logger.debug('Importing %s' % name)
-                plugin = Plugin(name, self.plugin_paths)
-            except Exception as e:
-                self.logger.error('Could not import %s: %s' % (name, e))
-                self.failed_import.append(name)
-            else:
-                self.logger.debug('Imported %s' % name)
-                imported_plugins.append(plugin)
-
-        self.logger.info("The following plugins were successfully imported "
-                         "(%i/%i): %s" % (len(imported_plugins),
-                                          len(devices),
-                                          [p.name for p in imported_plugins]))
-        self.imported_plugins = imported_plugins
-        return 0
 
     def startAllControllers(self):
         """
         Function that starts the master programs of all devices
         with status = ON, in different threats.
         """
-        running_controllers = []
-        failed_controllers = []
-        settings = self.db.ControllerSettings()
-        while self.imported_plugins:
-            plugin = self.imported_plugins.pop()
-            # Try to start the plugin.
-            self.logger.debug("Trying to start %s ..." % plugin.name)
-            plugin.start()
-            time.sleep(0.5)  # Makes sure the plugin has time to react.
-            if plugin.running:
-                running_controllers.append(plugin)
-                self.logger.info("Successfully started %s" % plugin.name)
-            else:
-                failed_controllers.append(plugin.name)
-                self.logger.info("Could not start %s" % plugin.name)
-                plugin.close()
+        collection = self.db._check('settings','controllers')
+        self.logger.info('Starting all offline controllers')
+        for name in collection.distinct('name', {'online' : False}):
+            self.logger.info('Starting %s' % name)
+            cmd = './Plugin.py --name %s --runmode %s' % (name, self.runmode)
+            if self.force:
+                cmd += ' --force'
+            Popen(cmd,shell=True)
+        time.sleep(5)
 
-        # Summarize which plugins were started/imported/failed.
-        # Also get alarm statuses and Testrun status.
-        if running_controllers:
-            print("\n--Alarm statuses:")
-            for controller in running_controllers:
-                name = controller.name
-                alarm_status = settings[name]['alarm_status'][settings[name]['runmode']]
-                print("  %s: %s" % (name, alarm_status))
+        print('\n--Alarm status:')
+        for name,config in self.db.ControllerSettings().items():
+            if not config['online']:
+                continue
+            alarm_status = config[name]['alarm_status'][config[name]['runmode']]
+            print('  %s: %s' : (name, alarm_status))
 
-            print("\n--Enabled contacts, status:")
-            for contact in self.db.getContacts():
-                print("  %s, %s" % (contact['name'], contact['status']))
-
-            self.running_controllers = running_controllers
-            return 0
-        else:
-            self.logger.critical("No controller was started (Failed to import: "
-                                 "%s, Failed to start: %s)" %
-                                 (str(len(self.failed_import)),
-                                  str(len(failed_controllers))))
-            self.running_controllers = []
-            return -1
+        print("\n--Contacts, status:")
+        for contact in self.db.getContacts():
+            print("  %s, %s" % (contact['name'], contact['status']))
 
     def watchBees(self):
         '''
@@ -223,27 +175,6 @@ class Doberman(object):
                 self.logger.info('Still watching the bees...')
                 loop_start_time = time.time()
                 self.checkAlarms()
-                if not self.standalone:
-                    for i,plugin in enumerate(self.running_controllers):
-                        if not (plugin.running and plugin.is_alive()):
-                            self.logger.warning('%s died! Restarting...' % plugin.name)
-                            try:
-                                plugin.running = False
-                                plugin.close()
-                                plugin.join()
-                                # can't restart threads, so remake the plugin
-                                plugin = Plugin(plugin.name, self.plugin_paths)
-                                plugin.start()
-                                self.running_controllers[i] = plugin
-                            except Exception as e:
-                                self.logger.critical('Could not restart %s! %s' % (plugin.name, e))
-                                plugin.running = False
-                                plugin.close()
-                                plugin.join()
-                                self.running_controllers.pop(i)
-                        else:
-                            #self.logger.debug('%s is still live' % plugin.name)
-                            pass
                 self.checkCommands()
                 while (time.time()-loop_start_time) < self.loop_time and self.running:
                     time.sleep(1)
@@ -294,10 +225,10 @@ class Doberman(object):
             warn = collection.find_one_and_update(doc_filter_warns, updates)
             messages['warnings'].append(msg_format.format(**warn))
         if messages['alarms']:
-            self.logger.warning('Found alarms! Sending message')
+            self.logger.warning(f'Found {len(messages["alarms"])} alarms!')
             self.sendMessage('\n'.join(messages['alarms']), 'alarm')
         if messages['warnings']:
-            self.logger.warning('Found warnings! Sending message')
+            self.logger.warning(f'Found {len(messages["warnings"])} warnings!')
             self.sendMessage('\n'.join(messages['warnings']), 'warning')
         return
 
@@ -306,17 +237,10 @@ class Doberman(object):
         Shuts down all plugins
         """
         self.logger.info('Shutting down')
-        if self.standalone:
-            return
-        while self.running_controllers:
-            plugin = self.running_controllers.pop()
-            try:
-                plugin.running = False
-                #plugin.close() # plugin closes itself automatically
-                plugin.join()
-            except Exception as e:
-                self.logger.warning("Can not close %s properly. "
-                                    "Error: %s" % (plugin.name, e))
+        self.db.updateDatabase('settings','defaults',{'$set' : {'online' : False}})
+        if self.overlord:
+            self.db.StoreCommand('all stop')
+        self.db.close()
         return
 
     def __del__(self):
@@ -332,8 +256,8 @@ class Doberman(object):
         Sends a warning/alarm to the appropriate contacts
         """
         # permanent testrun?
-        runmode = self.db.readFromDatabase('settings','defaults',onlyone=True)['opmode']
-        mode_doc = self.db.readFromDatabase('settings','opmodes',
+        runmode = self.db.readFromDatabase('settings','defaults',onlyone=True)['runmode']
+        mode_doc = self.db.readFromDatabase('settings','runmodes',
                 {'mode' : runmode}, onlyone=True)
         testrun = mode_doc['testrun']
         if testrun == -1:
@@ -388,7 +312,7 @@ def main():
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     logger = logging.getLogger()
     logger.setLevel(20)
-    DDB = DobermanDB.DobermanDB()
+    db = DobermanDB.DobermanDB()
     #handler = DobermanLogging.DobermanLogger()
     logger.addHandler(DobermanLogging.DobermanLogger())
     # START PARSING ARGUMENTS
@@ -398,27 +322,23 @@ def main():
     parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
-    parser.add_argument('--standalone', action='store_true', default=False,
-                        help='Run Doberman in standalone mode (ie, don\'t load \
-                        controllers here, just monitor the database)')
+    parser.add_argument('--start-all', action='store_true', default=False,
+                        help='Starts all (not running) controllers, otherwise'
+                        ' just monitor the alarms', dest='overlord')
+    parser.add_argument('--force', action='store_true', default=False,
+                        help='Ignore online status in database')
     opts = parser.parse_args()
+    if db.getDefaultSettings(name='online') and not parser.force:
+        print('Is there an instance of Doberman already running?')
+        return
     if opts.version:
         print('Doberman version %s' % __version__)
         return
-    loglevel = DDB.getDefaultSettings(opmode = opts.runmode, name='loglevel')
+    loglevel = DDB.getDefaultSettings(runmode = opts.runmode, name='loglevel')
     logger.setLevel(int(loglevel))
 
-    lockfile = os.path.join(os.getcwd(), "doberman.lock")
-    if os.path.exists(lockfile):
-        print("The lockfile exists: is there an instance of Doberman already running?")
-        return
-    else:
-        with open(lockfile, 'w') as f:
-            f.write('\0')
-        atexit.register(lambda x : os.remove(x), lockfile)
-
     # Load and start script
-    doberman = Doberman(opts.runmode, opts.standalone)
+    doberman = Doberman(opts.runmode, opts.overlord, args.force)
     try:
         if doberman.Start():
             logger.error('Something went wrong here...')
@@ -427,7 +347,7 @@ def main():
             logger.info('Dem bees got dun watched')
     except Exception as e:
         print(e)
-
+    db.close()
     return
 
 if __name__ == '__main__':
