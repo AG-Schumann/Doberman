@@ -9,7 +9,7 @@ class labjack(Controller):
     than Controller
     """
     def __init__(self, opts):
-        self.name = opts.name
+        self.name = opts['name']
         for k, v in opts.items():
             setattr(self, k, v)
         self.logger = logging.getLogger(opts['name'])
@@ -63,5 +63,3 @@ class labjack(Controller):
 
         return {'retcode' : status, 'data' : data}
 
-    def ExecuteCommand(self, command):
-        return

@@ -1,5 +1,4 @@
 from ControllerBase import SerialController
-import logging
 import re  # EVERYBODY STAND BACK xkcd.com/208
 
 
@@ -9,8 +8,7 @@ class MKS_MFC(SerialController):
     """
 
     def __init__(self, opts):
-        self.logger = logging.getLogger(opts['name'])
-        super().__init__(opts, self.logger)
+        super().__init__(opts)
         self._msg_start = f"@@@{self.serialID}"
         self._msg_end = ";FF" # ignores checksum
         self.commands = {'Address' : 'CA',
@@ -25,10 +23,6 @@ class MKS_MFC(SerialController):
                          'ValvePosition' : 'VO',
                          'SoftStartRate' : 'SS',
                          }
-        self.valve_map = {'close' : 'FLOW_OFF',
-                          'normal' : 'NORMAL',
-                          'purge' : 'PURGE'
-                          }
         self.errorcodes = {
                 '01' : 'Checksum error',
                 '10' : 'Syntax error',
@@ -52,8 +46,15 @@ class MKS_MFC(SerialController):
         self._NAK == 'NAK'
         self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
-        self.spt_val = re.compile(r'setpoint (?P<value>-?[0-9]+(\.[0-9]+)?)')
-        self.valve_status = re.compile(r'valve (?P<mode>(normal)|(close)|(purge))')
+        self.setpoint_map = {'auto' : 'NORMAL', 'purge' : 'PURGE', 'close' : 'FLOW_OFF'}
+        self.command_patterns = [
+                (re.compile(r'setpoint (?P<value>-?[0-9]+(?:\.[0-9]+)?)'),
+                    lambda x : self.setCommand.format(cmd=self.commands['SetpointValue'],
+                        **x.groupdict())),
+                (re.compile(r'valve (?P<value>auto|close|purge)'),
+                    lambda x : self.setCommand.format(cmd=self.commands['ValvePosition'],
+                        value=self.setpoint_map[x.group('value')]))
+                ]
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.getCommand.format(cmd=self.commands['Address']), dev)
@@ -81,7 +82,7 @@ class MKS_MFC(SerialController):
             else:
                 try:
                     values.append(float(resp['data']))
-                except:
+                except ValueError:
                     values.append(-1)
                     status.append(-4)
                 else:
@@ -112,30 +113,4 @@ class MKS_MFC(SerialController):
             return {'retcode' : 0, 'data' : None}
         else:
             return {'retcode' : 0, 'data' : m.group('value')}
-
-    def ExecuteCommand(self, command):
-        """
-        Currently implemented commands:
-        setpoint <value>
-        valve <auto|close|purge>
-        """
-        command_out = ''
-        mv = self.valve_status.search(command)
-        if mv:
-            command_out = self.setCommand.format(cmd=self.commands['ValvePosition'],
-                    value=self.valve_map[mv.group('mode')])
-        else:
-            mp = self.spt_val.search(command)
-            if mp:
-                command_out = self.setCommand.format(cmd=self.commands['SetpointValue'],
-                        value=mv.group('value'))
-        if not command_out:
-            self.logger.error('Could not understand command: %s' % command)
-            return
-        resp = self.SendRecv(command_out)
-        if resp['retcode']:
-            self.logger.error('Did not accept command: %s' % command)
-        else:
-            self.logger.debug('Successfully sent command %s' % command)
-        return
 
