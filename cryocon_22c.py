@@ -1,5 +1,6 @@
 from ControllerBase import LANController
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class cryocon_22c(LANController):
@@ -21,16 +22,21 @@ class cryocon_22c(LANController):
                 'setSP' : 'loop {ch}:setpt {value}',
                 }
         super().__init__(opts)
-        self.read_pattern = re.compile(r'(?P<value>[0-9]+(?:\.[0-9]+)?)')
+        self.read_pattern = re.compile(r'(?P<value>%s)' % number_regex)
         self.command_patterns = [
-                (re.compile(r'setpoint (?P<ch>1|2) (?P<value>[0-9]+(?:\.[0-9]+)?)'),
+                (re.compile(r'setpoint (?P<ch>1|2) (?P<value>%s)' % number_regex),
                     lambda x : self.commands['setSP'].format(**x.groupdict())),
                 (re.compile('(shitshitfirezemissiles)|(loop stop)'),
-                    lambda x : 'stop'),
+                    self.FireMissiles),
                 ]
 
     def isThisMe(self, dev):
         return True  # don't have the same problems with LAN controllers
+
+    def FireMissiles(self, m):  # worth it for an entire function? Totally
+        if 'missiles' in m.group(0):
+            self.logger.warning('But I am leh tired...')
+        return 'stop'
 
     def Readout(self):
         resp = []

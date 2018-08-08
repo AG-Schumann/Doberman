@@ -1,6 +1,7 @@
 from ControllerBase import SerialController
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class isegNHQ(SerialController):
@@ -32,9 +33,9 @@ class isegNHQ(SerialController):
         super().__init__(opts)
 
         self.command_patterns = [
-                (re.compile(f'{cmd} (?P<value>-?[0-9]+(?:\\.[0-9]+)?)'),
-                    lambda x : self.setcommand.format(cmd=self.commands[f'{cmd}'],
-                        value=x.group('value'))) for cmd in ['Vset','Itrip','Vramp']
+                (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
+                    lambda x : self.setcommand.format(cmd=self.commands[m.group('cmd'),
+                        value=m.group('value'))),
                 ]
 
 
