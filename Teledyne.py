@@ -1,5 +1,6 @@
 from ControllerBase import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class Teledyne(SerialController):
@@ -22,7 +23,7 @@ class Teledyne(SerialController):
         self.setcommand = self.basecommand + ' {params}'
         self.getcommand = self.basecommand + '?'
 
-        self.get_reading = re.compile(r'READ:(?P<value>-?[0-9]+(?:\.[0-9]+)?)')
+        self.get_reading = re.compile(r'READ:(?P<value>%s)' % number_regex)
         self.get_addr = re.compile(r'ADDR: *(?P<addr>[a-z])')
         self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
@@ -30,7 +31,7 @@ class Teledyne(SerialController):
         self.setpoint_map = {'auto' : 0, 'open' : 1, 'close' : 2}
 
         self.command_patterns = [
-                (re.compile(r'setpoint (?P<params>-?[0-9]+(?:\.[0-9]+)?)'),
+                (re.compile(r'setpoint (?P<params>%s)' % number_regex),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointValue'],
                         **x.groupdict())),
                 (re.compile(r'valve (?P<params>auto|open|close)'),
