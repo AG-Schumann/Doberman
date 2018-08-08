@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 import time
 import logging
-import os
 import DobermanDB
 import alarmDistribution
 import datetime
-import sys
+from datetime.datetime import now as dtnow
 from argparse import ArgumentParser
-import signal
 import DobermanLogging
 from Plugin import Plugin, FindPlugin
 import psutil
@@ -28,7 +26,7 @@ class Doberman(object):
     def __init__(self, runmode, overlord, force):
         self.runmode = runmode
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.last_message_time = datetime.datetime.now()
+        self.last_message_time = dtnow()
         self.overlord = overlord
         self.force=force
 
@@ -40,6 +38,25 @@ class Doberman(object):
 
         self.plugin_paths = ['.']
         self.alarmDistr = alarmDistribution.alarmDistribution()
+
+    def close(self):
+        """
+        Shuts down all plugins (if it started them)
+        """
+        self.logger.info('Shutting down')
+        self.db.updateDatabase('settings','defaults',{'$set' : {'online' : False}})
+        if self.overlord:
+            self.db.StoreCommand('all stop')
+        self.db.close()
+        return
+
+    def __del__(self):
+        self.close()
+        return
+
+    def __exit__(self):
+        self.close()
+        return
 
     def Start(self):
         if not self.overlord:
@@ -134,22 +151,20 @@ class Doberman(object):
             self.logger.error('Didn\'t find the expected number of sensors!')
             return False
         self.db.updateDatabase('settings','defaults', {},
-                    {'$set' : {'tty_update' : datetime.datetime.now()}})
+                {'$set' : {'tty_update' : dtnow()}})
         return True
 
     def startAllControllers(self):
         """
-        Function that starts the master programs of all devices
-        with status = ON, in different threats.
+        Starts all not-running controllers and release them into the wild
         """
-        collection = self.db._check('settings','controllers')
         self.logger.info('Starting all offline controllers')
-        for name in collection.distinct('name', {'online' : False}):
+        for name in seld.db.Distinct('settings','controllers','name', {'online' : False}):
             self.logger.info('Starting %s' % name)
             cmd = './Plugin.py --name %s --runmode %s' % (name, self.runmode)
             if self.force:
                 cmd += ' --force'
-            Popen(cmd,shell=True)
+            Popen(cmd + ' &',shell=True)
         time.sleep(5)
 
         print('\n--Alarm status:')
@@ -185,11 +200,11 @@ class Doberman(object):
             self.close()
 
     def checkCommands(self):
-        #self.logger.debug('Checking commands')
         collection = self.db._check('logging','commands')
         doc_filter = {'name' : 'doberman', 'acknowledged' : {'$exists' : 0}}
-        while collection.count(doc_filter):
-            updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+        update_filter = lambda : {'logged' : {'$leq' : dtnow()}}
+        while collection.count(doc_filter.update(update_filter()):
+            updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
             self.logger.debug(f"Found '{command}'")
             if command == 'stop':
@@ -203,19 +218,18 @@ class Doberman(object):
                 except ValueError:
                     self.logger.error("Could not understand command '%s'" % command)
                 else:
-                    self.db.updateDatabase('settings','controllers',{},{'$set' : {'runmode' : runmode}})
+                    self.db.updateDatabase('settings','defaults',{},{'$set' : {'runmode' : runmode}})
             else:
                 self.logger.error('Command %s not understood' % command)
         return
 
     def checkAlarms(self):
-        self.logger.debug('Checking alarms')
         collection = self.db._check('logging','alarm_history')
         doc_filter_alarms = {'acknowledged' : {'$exists' : 0}, 'howbad' : 2}
         doc_filter_warns =  {'acknowledged' : {'$exists' : 0}, 'howbad' : 1}
         msg_format = '{name} : {when} : {msg}'
         messages = {'alarms' : [], 'warnings' : []}
-        updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+        updates = {'$set' : {'acknowledged' : dtnow()}}
         self.logger.debug('%i alarms' % collection.count(doc_filter_alarms))
         while collection.count(doc_filter_alarms):
             alarm = collection.find_one_and_update(doc_filter_alarms, updates)
@@ -232,38 +246,18 @@ class Doberman(object):
             self.sendMessage('\n'.join(messages['warnings']), 'warning')
         return
 
-    def close(self):
-        """
-        Shuts down all plugins
-        """
-        self.logger.info('Shutting down')
-        self.db.updateDatabase('settings','defaults',{'$set' : {'online' : False}})
-        if self.overlord:
-            self.db.StoreCommand('all stop')
-        self.db.close()
-        return
-
-    def __del__(self):
-        self.close()
-        return
-
-    def __exit__(self):
-        self.close()
-        return
-
     def sendMessage(self, message, howbad):
         """
         Sends a warning/alarm to the appropriate contacts
         """
         # permanent testrun?
-        runmode = self.db.readFromDatabase('settings','defaults',onlyone=True)['runmode']
-        mode_doc = self.db.readFromDatabase('settings','runmodes',
-                {'mode' : runmode}, onlyone=True)
+        runmode = self.db.getDefaultSettings(name='runmode')
+        mode_doc = self.db.getDefaultSettings(runmode=runmode)
         testrun = mode_doc['testrun']
         if testrun == -1:
             self.logger.warning('Testrun, no alarm sent. Message: %s' % msg)
             return -1
-        now = datetime.datetime.now()
+        now = dtnow()
         runtime = (now - self.__startTime).total_seconds()/60
         # still a testrun?
         if runtime < testrun:

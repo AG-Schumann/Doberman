@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import datetime
+from datetime.datetime import now as dtnow
 import pymongo
 import os.path
 import utils
@@ -140,14 +141,12 @@ class DobermanDB(object):
         controller, cmd = command.split(maxsplit=1)
         self.logger.debug(f"Storing command '{cmd}' for {controller}")
         if controller == 'all':
-            controller = self.client['settings']['controllers'].distinct('name',
-                    {'online' : True})
+            controller = self.Distinct('settings','controllers','name',{'online' : True})
         else:
             controller = [controller]
         for ctrl in controllers:
             if self.insertIntoDatabase('logging', 'commands',
-                {'name' : ctrl, 'command' : cmd,
-                    'logged' : datetime.datetime.now()}):
+                {'name' : ctrl, 'command' : cmd, 'logged' : dtnow()}):
                 self.logger.error('Could not store command for %s!' % ctrl)
         return 0
 
@@ -158,16 +157,6 @@ class DobermanDB(object):
         if self.insertIntoDatabase('logging','alarm_history',document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
-        return 0
-
-    def addSettingToConfigHistory(self, controller):
-        """
-        Adds the current setting of a controller to the config history
-        """
-        if self.insertIntoDatabase("logging","config_hist",
-                controller.update({'when' : datetime.datetime.now()})):
-            self.logger.warning('Could not add %s to config history' % controller['name'])
-            return 1
         return 0
 
     def ControllerSettings(self, name='all'):
@@ -426,8 +415,10 @@ class DobermanDB(object):
         Writes data to the database
         Status:
           0 = OK,
-          -1 = no connection,
-          -2 = No error status aviable (ok)
+          -1 = No connection to controller
+          -2 = Could not communicate with controller
+          -3 = Wrong number of data received
+          -4 = Error parsing data
           1 = Warning
           2 = Alarm
         """

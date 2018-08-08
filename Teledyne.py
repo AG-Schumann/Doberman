@@ -57,6 +57,6 @@ class Teledyne(SerialController):
             return resp
         m = self.get_reading.search(resp['data'])
         if not m:
-            return {'retcode' : -3, 'data' : -1}
+            return {'retcode' : -4, 'data' : -1}
         return {'retcode' : 0, 'data' : float(m.group('value'))}
 
