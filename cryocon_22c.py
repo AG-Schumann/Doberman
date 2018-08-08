@@ -48,9 +48,9 @@ class cryocon_22c(LANController):
                         stats.append(0)
                     else:
                         resp.append(-1)
-                        stats.append(-2)
+                        stats.append(-4)
                 except Exception as e:
                     self.logger.error('Could not read device! Error: %s' % e)
-                    return {'retcode' : -2, 'data' : None}
+                    return {'retcode' : -4, 'data' : None}
         return {'retcode' : stats, 'data' : resp}
 

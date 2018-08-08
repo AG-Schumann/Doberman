@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import threading
 import datetime
+from datetime.datetime import now as dtnow
 import time
 import logging
 import DobermanDB
@@ -96,9 +97,9 @@ class Plugin(threading.Thread):
         self.number_of_data = int(config_doc['number_of_data'])
         self.description = config_doc['description']
         self.recurrence_counter = [0] * self.number_of_data
-        self.last_message_time = datetime.datetime.now()
+        self.last_message_time = dtnow()
         self.late_counter = 0
-        self.last_measurement_time = datetime.datetime.now()
+        self.last_measurement_time = dtnow()
         self.controller = None
         #self.logger.debug('Opening controller...')
         self.OpenController()
@@ -210,7 +211,7 @@ class Plugin(threading.Thread):
             vals['retcode'] = [vals['retcode']]
         if len(vals['retcode']) != self.number_of_data:
             vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
-        upstream = [datetime.datetime.now(), vals['data'], vals['retcode']]
+        upstream = [dtnow(), vals['data'], vals['retcode']]
         self.logger.debug('Measured %s' % vals['data'])
         return upstream
 
@@ -245,7 +246,7 @@ class Plugin(threading.Thread):
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
-        dt = (datetime.datetime.now() - self.last_message_time).total_seconds()
+        dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
         for i in range(self.number_of_data):
             try:
@@ -325,9 +326,10 @@ class Plugin(threading.Thread):
         doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0}}
         collection = self.db._check('logging','commands')
         #self.logger.debug('Checking commands')
+        update_filter = lambda : {'logged' : {'$leq' : dtnow()}}
 
-        while collection.count(doc_filter):
-            updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+        while collection.count(doc_filter.update(update_filter()):
+            updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
             self.logger.debug(f"Found command '{command}'")
             if 'runmode' in command:
