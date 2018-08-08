@@ -27,13 +27,13 @@ class Teledyne(SerialController):
         self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
 
-        self.setpoint_map = {'auto' : 0, 'open' : 1, 'closed' : 2}
+        self.setpoint_map = {'auto' : 0, 'open' : 1, 'close' : 2}
 
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<params>-?[0-9]+(?:\.[0-9]+)?)'),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointValue'],
                         **x.groupdict())),
-                (re.compile(r'setpoint (?P<params>auto|open|closed)'),
+                (re.compile(r'valve (?P<params>auto|open|close)'),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointMode'],
                         params=self.setpoint_map[x.group('params')])),
                 ]

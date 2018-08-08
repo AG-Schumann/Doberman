@@ -210,8 +210,9 @@ class Doberman(object):
             if command == 'stop':
                 self.running = False
             elif command == 'restart':
-                self.close()
-                self.Start()
+                self.db.StoreCommand('all stop')
+                time.sleep(10)
+                self.startAllControllers()
             elif 'runmode' in command:
                 try:
                     _, runmode = command.split()

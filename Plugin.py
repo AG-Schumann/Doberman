@@ -342,8 +342,8 @@ class Plugin(threading.Thread):
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
             elif command == 'stop':
                 self.running = False
-                # in standalone mode Doberman will restart the plugin when it stops
                 self.has_quit = True
+                # makes sure we don't get restarted
             elif command == 'start':
                 runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
