@@ -141,9 +141,10 @@ class DobermanDB(object):
         controller, cmd = command.split(maxsplit=1)
         self.logger.debug(f"Storing command '{cmd}' for {controller}")
         if controller == 'all':
-            controller = self.Distinct('settings','controllers','name',{'online' : True})
+            coll = self._check('settings','controllers')
+            controllers = coll.distinct('name',{'online' : True})
         else:
-            controller = [controller]
+            controllers = [controller]
         for ctrl in controllers:
             if self.insertIntoDatabase('logging', 'commands',
                 {'name' : ctrl, 'command' : cmd, 'logged' : dtnow()}):

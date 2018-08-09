@@ -7,7 +7,7 @@ import datetime
 from datetime.datetime import now as dtnow
 from argparse import ArgumentParser
 import DobermanLogging
-from Plugin import Plugin, FindPlugin
+import Plugin
 import psutil
 from subprocess import Popen, PIPE, TimeoutExpired
 import serial
@@ -44,7 +44,7 @@ class Doberman(object):
         Shuts down all plugins (if it started them)
         """
         self.logger.info('Shutting down')
-        self.db.updateDatabase('settings','defaults',{'$set' : {'online' : False}})
+        self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False}})
         if self.overlord:
             self.db.StoreCommand('all stop')
         self.db.close()
@@ -112,7 +112,7 @@ class Doberman(object):
                 plugin_name = sensor
             else:
                 plugin_name = sensor.rstrip('0123456789')
-            sensors[sensor] = FindPlugin(plugin_name, self.plugin_paths)(opts)
+            sensors[sensor] = Plugin.FindPlugin(plugin_name, self.plugin_paths)(opts)
 
         dev = serial.Serial()
         for tty in ttyUSBs:
@@ -159,19 +159,20 @@ class Doberman(object):
         Starts all not-running controllers and release them into the wild
         """
         self.logger.info('Starting all offline controllers')
-        for name in seld.db.Distinct('settings','controllers','name', {'online' : False}):
+        coll = self.db._check('settings','controllers')
+        for name in coll.distinct('name', {'online' : False}):
             self.logger.info('Starting %s' % name)
-            cmd = './Plugin.py --name %s --runmode %s' % (name, self.runmode)
+            args = '--name %s --runmode %s' % (name, self.runmode)
             if self.force:
-                cmd += ' --force'
-            Popen(cmd + ' &',shell=True)
+                args += ' --force'
+            Thread(target=plugin.main, daemon=True, args=args.split()).start()
         time.sleep(5)
 
         print('\n--Alarm status:')
         for name,config in self.db.ControllerSettings().items():
             if not config['online']:
                 continue
-            alarm_status = config[name]['alarm_status'][config[name]['runmode']]
+            alarm_status = config['alarm_status'][config[name]['runmode']]
             print('  %s: %s' : (name, alarm_status))
 
         print("\n--Contacts, status:")
@@ -201,11 +202,12 @@ class Doberman(object):
 
     def checkCommands(self):
         collection = self.db._check('logging','commands')
-        doc_filter = {'name' : 'doberman', 'acknowledged' : {'$exists' : 0}}
-        update_filter = lambda : {'logged' : {'$leq' : dtnow()}}
-        while collection.count(doc_filter.update(update_filter()):
+        select = lambda : {'name' : 'doberman', 'acknowledged' : {'$exists' : 0},
+                'logged' : {'$leq' : dtnow()}}
+        updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
+        while collection.count(select()):
             updates = {'$set' : {'acknowledged' : dtnow()}}
-            command = collection.find_one_and_update(doc_filter, updates)['command']
+            command = collection.find_one_and_update(doc_filter, updates())['command']
             self.logger.debug(f"Found '{command}'")
             if command == 'stop':
                 self.running = False
@@ -221,7 +223,7 @@ class Doberman(object):
                 else:
                     self.db.updateDatabase('settings','defaults',{},{'$set' : {'runmode' : runmode}})
             else:
-                self.logger.error('Command %s not understood' % command)
+                self.logger.error("Command '%s' not understood" % command)
         return
 
     def checkAlarms(self):
