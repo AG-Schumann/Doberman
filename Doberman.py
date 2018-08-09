@@ -4,13 +4,13 @@ import logging
 import DobermanDB
 import alarmDistribution
 import datetime
-from datetime.datetime import now as dtnow
 from argparse import ArgumentParser
 import DobermanLogging
 import Plugin
 import psutil
 from subprocess import Popen, PIPE, TimeoutExpired
 import serial
+dtnow = datetime.datetime.now
 
 __version__ = '2.0.0'
 
@@ -173,7 +173,7 @@ class Doberman(object):
             if not config['online']:
                 continue
             alarm_status = config['alarm_status'][config[name]['runmode']]
-            print('  %s: %s' : (name, alarm_status))
+            print('  %s: %s' % (name, alarm_status))
 
         print("\n--Contacts, status:")
         for contact in self.db.getContacts():
@@ -203,7 +203,7 @@ class Doberman(object):
     def checkCommands(self):
         collection = self.db._check('logging','commands')
         select = lambda : {'name' : 'doberman', 'acknowledged' : {'$exists' : 0},
-                'logged' : {'$leq' : dtnow()}}
+                'logged' : {'$lte' : dtnow()}}
         updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
         while collection.count(select()):
             updates = {'$set' : {'acknowledged' : dtnow()}}
@@ -331,11 +331,11 @@ def main():
     if opts.version:
         print('Doberman version %s' % __version__)
         return
-    loglevel = DDB.getDefaultSettings(runmode = opts.runmode, name='loglevel')
+    loglevel = db.getDefaultSettings(runmode = opts.runmode, name='loglevel')
     logger.setLevel(int(loglevel))
 
     # Load and start script
-    doberman = Doberman(opts.runmode, opts.overlord, args.force)
+    doberman = Doberman(opts.runmode, opts.overlord, opts.force)
     try:
         if doberman.Start():
             logger.error('Something went wrong here...')

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import logging
 import datetime
-from datetime.datetime import now as dtnow
 import pymongo
 import os.path
 import utils
 import argparse
+dtnow = datetime.datetime.now
 
 
 class DobermanDB(object):
@@ -524,7 +524,7 @@ def main():
         for row in cursor:
             runmode = row['runmode']
             status = row['status'][runmode]
-            print('  %s: %s : %s' % (row['name'], status, runmode)))
+            print('  %s: %s : %s' % (row['name'], status, runmode))
     try:
         if args.add_runmode:
             db.addOpmode()
