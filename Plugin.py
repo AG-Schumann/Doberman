@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import threading
 import datetime
-from datetime.datetime import now as dtnow
 import time
 import logging
 import DobermanDB
@@ -9,6 +8,7 @@ import importlib
 import importlib.machinery
 import argparse
 import DobermanLogging
+dtnow = datetime.datetime.now
 
 
 def FindPlugin(name, path):
@@ -75,12 +75,6 @@ class Plugin(threading.Thread):
         self.db = DobermanDB.DobermanDB()
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
-        if config_doc['online'] and not force:
-            self.logger.fatal(f'{self.name} is already running!')
-            raise ValueError('Already running')
-        else:
-            self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                    {'$set' : {'online' : True}})
         if self.name != 'RAD7':
             plugin_name = self.name.rstrip('0123456789')
         else:
@@ -115,8 +109,6 @@ class Plugin(threading.Thread):
         else:
             self.logger.info('Already stopped!')
         self.controller = None
-        self.db.updateDatabase('settings','controllers',{'name' : self.name},
-                {'$set' : {'online' : False}})
         self.db.close()
         return
 
@@ -203,7 +195,7 @@ class Plugin(threading.Thread):
         None
         """
         vals = self.controller.Readout()
-        if vals['data'] and not isinstance(vals['data'], (list, tuple)):
+        if not isinstance(vals['data'], (list, tuple)):
             vals['data'] = [vals['data']]
         if len(vals['data']) != self.number_of_data:
             vals['data'] += [None]*(self.number_of_data - len(vals['data']))
@@ -323,12 +315,12 @@ class Plugin(threading.Thread):
         ------
         None
         """
-        doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0}}
+        doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0},
+                'logged' : {'$lte' : dtnow()}}
         collection = self.db._check('logging','commands')
         #self.logger.debug('Checking commands')
-        update_filter = lambda : {'logged' : {'$leq' : dtnow()}}
-
-        while collection.count(doc_filter.update(update_filter()):
+        update_filter = lambda : {'logged' : {'$lte' : dtnow()}}
+        while collection.count(doc_filter):
             updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
             self.logger.debug(f"Found command '{command}'")
@@ -379,8 +371,13 @@ def main(args_in=None):
     db = DobermanDB.DobermanDB()
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
+    doc = db.readFromDatabase('settings','controllers',{'name' : args.plugin_name},onlyone=True)
+    if doc['online'] and not args.force:
+        logger.fatal('%s already running!' % args.plugin_name)
+        db.close()
+        return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
-            {'$set' : {'runmode' : args.runmode}})
+            {'$set' : {'runmode' : args.runmode, 'online' : True}})
 
     plugin = Plugin(args.plugin_name, plugin_paths, args.force)
     plugin.start()
@@ -409,6 +406,8 @@ def main(args_in=None):
     finally:
         plugin.running = False
         plugin.join()
+        db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
+                {'$set' : {'online' : False}})
         db.close()
 
     return

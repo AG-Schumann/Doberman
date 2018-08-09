@@ -10,7 +10,7 @@ class DobermanLogger(logging.Handler):
     Custom logging interface for Doberman. Gives us the option to log to
     the database (with disk as backup).
     """
-    def __init__(self, stilltesting = False):
+    def __init__(self, stilltesting = True):
         logging.Handler.__init__(self)
         self.db = DobermanDB()
         self.db_name = 'logging'
@@ -31,7 +31,7 @@ class DobermanLogger(logging.Handler):
         if record.levelno == logging.DEBUG or self.testing:
             self.emit_to_stdout(record)
             return
-        rec = dict(when     = record.asctime,
+        rec = dict(when     = datetime.datetime.fromtimestamp(record.created),
                 msg         = record.message,
                 level       = record.levelno,
                 name        = record.name,

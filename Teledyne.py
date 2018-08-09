@@ -44,7 +44,7 @@ class Teledyne(SerialController):
         resp = self.SendRecv(command, dev)
         if resp['retcode'] or not resp['data']:
             return False
-        m = self.get_addr.search.search(resp['data'])
+        m = self.get_addr.search(resp['data'])
         if not m:
             return False
         if self.device_address != m.group('addr'):
