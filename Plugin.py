@@ -104,7 +104,7 @@ class Plugin(threading.Thread):
         #self.logger.debug('Opening controller...')
         self.OpenController()
         self.running = False
-        self.has_quit = False  # only used in standalone mode
+        self.has_quit = False
 
     def close(self):
         """Closes the controller, and sets the threading event"""
@@ -361,7 +361,7 @@ class Plugin(threading.Thread):
                 self.logger.error(f"Command '{command}' not accepted")
         return
 
-def main():
+def main(args_in=None):
     parser = argparse.ArgumentParser(description='Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the controller')
@@ -369,7 +369,10 @@ def main():
                         help='Which run mode to use', default='default')
     parser.add_argument('--force', action='store_true', default=False,
                         help='Force the plugin to load (if it didn\'t reset)')
-    args = parser.parse_args()
+    if args_in:
+        args = parser.parse_args(args_in)
+    else:
+        args = parser.parse_args()
     plugin_paths=['.']
     logger = logging.getLogger(args.plugin_name)
     logger.addHandler(DobermanLogging.DobermanLogger())
