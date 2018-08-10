@@ -1,4 +1,8 @@
 from ast import literal_eval
+import DobermanDB
+from Plugin import FindPlugin
+import serial
+
 
 number_regex = r'-?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 
@@ -110,3 +114,79 @@ def input_eval(inputstr, literaleval=True):
             pass
     return str(input_str)
 
+def refreshTTY():
+    """
+    Brute-force matches sensors to ttyUSB assignments by trying
+    all possible combinations, and updates the database
+    """
+    db = DobermanDB.DobermanDB()
+    collection = db._check('settings','controllers')
+    if collection.count({'online' : True, 'address.ttyUSB' : {'$exists' : 1}}):
+        print('Some USB controllers are running! Can\'t refresh TTY settings')
+        return False
+    db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
+    print('Refreshing ttyUSB mapping...')
+    proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
+    try:
+        out, err = proc.communicate(timeout=5)
+    except TimeoutExpired:
+        proc.kill()
+        out, err = proc.communicate()
+    if not len(out) or len(err):
+        raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
+    ttyUSBs = out.decode().splitlines()
+    cursor = db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+    sensor_config = {row['name'] : row for row in cursor}
+    sensor_names = list(sensor_config.keys())
+    sensors = {name: None for name in sensor_names}
+    matched = {'sensors' : [], 'ttys' : []}
+    for sensor in sensor_names:
+        opts = {}
+        opts['name'] = sensor
+        opts['initialize'] = False
+        opts.update(sensor_config[sensor]['address'])
+        if 'additional_params' in sensor_config[sensor]:
+            opts.update(sensor_config[sensor]['additional_params'])
+        if sensor == 'RAD7': # I dislike edge cases
+            plugin_name = sensor
+        else:
+            plugin_name = sensor.rstrip('0123456789')
+        sensors[sensor] = FindPlugin(plugin_name, self.plugin_paths)(opts)
+    dev = serial.Serial()
+    for tty in ttyUSBs:
+        tty_num = int(tty.split('USB')[-1])
+        print('Checking %s' % tty)
+        dev.port = tty
+        try:
+            dev.open()
+        except serial.SerialException as e:
+            print('Could not connect to %s: %s' % (tty, e))
+            continue
+        for name, sensor in sensors.items():
+            if name in matched['sensors']:
+                continue
+            if sensor.isThisMe(dev):
+                print('Matched %s to %s' % (tty_num, name))
+                matched['sensors'].append(name)
+                matched['ttys'].append(tty_num)
+                db.updateDatabase('settings','controllers',
+                        {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                dev.close()
+                break
+            #print('Not %s' % name)
+            time.sleep(0.5)  # devices are slow
+        else:
+            print('Could not assign %s!' % tty)
+        dev.close()
+    if len(matched['sensors']) == len(sensors)-1: # n-1 case
+        name = (set(sensors.keys())-set(matched['sensors'])).pop()
+        tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
+        print('Matched %s to %s via n-1' % (name, tty))
+        db.updateDatabase('settings','controllers',{'name' : name},
+                {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+    elif len(matched['sensors']) != len(sensors):
+        print('Didn\'t find the expected number of sensors!')
+        return False
+    db.updateDatabase('settings','defaults', {},
+            {'$set' : {'tty_update' : dtnow()}})
+    return True

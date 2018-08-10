@@ -9,7 +9,8 @@ import DobermanLogging
 import Plugin
 import psutil
 from subprocess import Popen, PIPE, TimeoutExpired
-import serial
+from threading import Thread
+import utils
 dtnow = datetime.datetime.now
 
 __version__ = '2.0.0'
@@ -59,100 +60,19 @@ class Doberman(object):
         return
 
     def Start(self):
-        if not self.overlord:
-            return 0
         last_tty_update_time = self.db.getDefaultSettings(name='tty_update')
         boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
         self.logger.debug('tty settings last set %s, boot time %s' % (
             last_tty_update_time, boot_time))
         if boot_time > last_tty_update_time:
-            if not self.refreshTTY():
+            if not utils.refreshTTY():
                 self.logger.fatal('Could not assign tty ports!')
                 return -1
         else:
             self.logger.debug('Not updating tty settings')
-        self.startAllControllers()
+        if self.overlord:
+            self.startAllControllers()
         return 0
-
-    def refreshTTY(self):
-        """
-        Brute-force matches sensors to ttyUSB assignments by trying
-        all possible combinations, and updates the database
-        """
-        collection = self.db._check('settings','controllers')
-        if collection.count({'online' : True, 'address.ttyUSB' : {'$exists' : 1}}):
-            self.logger.error('Some USB controllers are running! Can\'t refresh TTY settings')
-            return False
-        self.db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
-        self.logger.info('Refreshing ttyUSB mapping...')
-        proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
-        try:
-            out, err = proc.communicate(timeout=5)
-        except TimeoutExpired:
-            proc.kill()
-            out, err = proc.communicate()
-        if not len(out) or len(err):
-            raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
-        ttyUSBs = out.decode().splitlines()
-        cursor = self.db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
-        sensor_config = {}
-        for row in cursor:
-            sensor_config[row['name']] = row
-        sensor_names = list(sensor_config.keys())
-        sensors = {name: None for name in sensor_names}
-        matched = {'sensors' : [], 'ttys' : []}
-        for sensor in sensor_names:
-            opts = {}
-            opts['name'] = sensor
-            opts['initialize'] = False
-            opts.update(sensor_config[sensor]['address'])
-            if 'additional_params' in sensor_config[sensor]:
-                opts.update(sensor_config[sensor]['additional_params'])
-            if sensor == 'RAD7': # I dislike edge cases
-                plugin_name = sensor
-            else:
-                plugin_name = sensor.rstrip('0123456789')
-            sensors[sensor] = Plugin.FindPlugin(plugin_name, self.plugin_paths)(opts)
-
-        dev = serial.Serial()
-        for tty in ttyUSBs:
-            tty_num = int(tty.split('USB')[-1])
-            self.logger.debug('Checking %s' % tty)
-            dev.port = tty
-            try:
-                dev.open()
-            except serial.SerialException as e:
-                self.logger.error('Could not connect to %s: %s' % (tty, e))
-                continue
-            for name, sensor in sensors.items():
-                if name in matched['sensors']:
-                    continue
-                if sensor.isThisMe(dev):
-                    self.logger.debug('Matched %s to %s' % (tty_num, name))
-                    matched['sensors'].append(name)
-                    matched['ttys'].append(tty_num)
-                    self.db.updateDatabase('settings','controllers',
-                            {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
-                    dev.close()
-                    break
-                self.logger.debug('Not %s' % name)
-                time.sleep(0.5)  # devices are slow
-            else:
-                self.logger.error('Could not assign %s!' % tty)
-            dev.close()
-
-        if len(matched['sensors']) == len(sensors)-1: # n-1 case
-            name = (set(sensors.keys())-set(matched['sensors'])).pop()
-            tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
-            self.logger.debug('Matched %s to %s via n-1' % (name, tty))
-            self.db.updateDatabase('settings','controllers',{'name' : name},
-                    {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
-        elif len(matched['sensors']) != len(sensors):
-            self.logger.error('Didn\'t find the expected number of sensors!')
-            return False
-        self.db.updateDatabase('settings','defaults', {},
-                {'$set' : {'tty_update' : dtnow()}})
-        return True
 
     def startAllControllers(self):
         """
@@ -165,7 +85,7 @@ class Doberman(object):
             args = '--name %s --runmode %s' % (name, self.runmode)
             if self.force:
                 args += ' --force'
-            Thread(target=plugin.main, daemon=True, args=args.split()).start()
+            Thread(target=Plugin.main, daemon=True, args=args.split()).start()
         time.sleep(5)
 
         print('\n--Alarm status:')
@@ -206,7 +126,6 @@ class Doberman(object):
                 'logged' : {'$lte' : dtnow()}}
         updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
         while collection.count(select()):
-            updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates())['command']
             self.logger.debug(f"Found '{command}'")
             if command == 'stop':
