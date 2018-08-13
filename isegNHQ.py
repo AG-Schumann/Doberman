@@ -47,10 +47,10 @@ class isegNHQ(SerialController):
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.commands['open'], dev)
-        if resp['retval']:
+        if resp['retcode']:
             return False
         resp = self.SendRecv(self.commands['identify'], dev)
-        if resp['retval'] or not resp['data']:
+        if resp['retcode'] or not resp['data']:
             return False
         if resp['data'].split(';')[0] == self.serialID:
             return True
@@ -65,7 +65,7 @@ class isegNHQ(SerialController):
         for com,func in zip(coms,funcs):
             cmd = self.getcommand.format(cmd=self.commands[com])
             resp = self.SendRecv(cmd)
-            status.append(resp['retval'])
+            status.append(resp['retcode'])
             if status[-1]:
                 vals.append[-1]
             else:

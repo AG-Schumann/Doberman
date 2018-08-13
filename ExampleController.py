@@ -25,7 +25,7 @@ class ExampleController(SerialController):
         This function makes sure you connected to the correct controller
         """
         resp = self.SendRecv(self.commands['check_id'])
-        if resp['retval']:
+        if resp['retcode']:
             self.logger.error('An error')
             self._connected = False
             return -1
@@ -48,13 +48,13 @@ class ExampleController(SerialController):
         status = []
         for coms in ['read','also_read']:
             resp = self.SendRecv(self.commands[com])
-            if resp['retval']:
+            if resp['retcode']:
                 status.append(-1)
                 vals.append(-1)
             else:
                 status.append(0)
                 vals.append(float(resp['data']))
-        return {'retval' : status, 'data' : vals}
+        return {'retcode' : status, 'data' : vals}
 
     def ExecuteCommand(self, command):
         """
@@ -66,7 +66,7 @@ class ExampleController(SerialController):
         task, value = command.split()
         com = self.setcommand.format(cmd=self.commands[task],value=value)
         resp = self.SendRecv(com)
-        if resp['retval']:
+        if resp['retcode']:
             self.logger.error('Could not send command %s' % command)
         else:
             self.logger.debug('Successfully sent command %s' % command)
