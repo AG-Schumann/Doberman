@@ -2,9 +2,9 @@
 import logging
 import datetime
 import pymongo
-import os.path
 import utils
 import argparse
+import os
 dtnow = datetime.datetime.now
 
 
@@ -13,29 +13,22 @@ class DobermanDB(object):
     Class to handle interfacing with the Doberman database
     """
 
-    client = None
-    _access_counter = 0
-
     def __init__(self):
-        DobermanDB._access_counter += 1
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
-            with open(os.path.join('settings','Database_connectiondetails.txt'), 'r') as f:
-                conn_details = eval(f.read())
+            conn_str = os.environ['DOBERMAN_CONN']
         except Exception as e:
-            print("Can not load database connection details. "
-                                "Trying default details. Error %s" % e)
-            conn_details = {'host' : 'localhost', 'port' : 13178,
-                    'username' : 'doberman', 'password' : 'h5jlm42'}
+            print("Can not load database connection details. Error %s" % e)
+            raise
 
-        self._connect(**conn_details)
+        self.client = None
+        self._connect(conn_str)
 
     def close(self):
-        DobermanDB._access_counter -= 1
-        if DobermanDB._access_counter == 0:
-            DobermanDB.client.close()
-            DobermanDB.client = None
+        if self.client is not None:
+            self.client.close()
+            self.client = None
 
     def __del__(self):
         self.close()
@@ -45,23 +38,22 @@ class DobermanDB(object):
         self.close()
         return
 
-    @classmethod
-    def _connect(cls, **kwargs):
-        if cls.client:
+    def _connect(self, conn_str):
+        if self.client is not None:
             return
-        cls.client = pymongo.MongoClient(**kwargs)
+        self.client = pymongo.MongoClient(conn_str)
 
     def _check(self, db_name, collection_name):
         """
         Returns the requested collection and logs if the database/collection don't yet exist
         """
-        if db_name not in DobermanDB.client.list_database_names():
+        if db_name not in self.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
-        elif collection_name not in DobermanDB.client[db_name].collection_names(False):
+        elif collection_name not in self.client[db_name].collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
-            DobermanDB.client[db_name].create_collection(collection_name)
-            DobermanDB.client[db_name][collection_name].create_index('when')
-        return DobermanDB.client[db_name][collection_name]
+            self.client[db_name].create_collection(collection_name)
+            self.client[db_name][collection_name].create_index('when')
+        return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
         """
@@ -126,7 +118,7 @@ class DobermanDB(object):
             if which_document:
                 self.logger.error('Do you know what you\'re doing?')
                 return 2
-            db = DobermanDB.client[db_name]
+            db = self.client[db_name]
             self.logger.info('Dropping database %s' % db_name)
             ret = db.dropDatabase()
             if ret['ok'] != 1:

@@ -4,7 +4,7 @@ from Plugin import FindPlugin
 import serial
 
 
-number_regex = r'-?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
+number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 
 def getUserInput(text, input_type=None, be_in=None, be_not_in=None, be_array=False, limits=None, string_length=None, exceptions=None):
     """

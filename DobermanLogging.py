@@ -1,6 +1,6 @@
 import logging
 import logging.handlers
-from DobermanDB import DobermanDB
+import DobermanDB
 import datetime
 import os
 
@@ -12,7 +12,7 @@ class DobermanLogger(logging.Handler):
     """
     def __init__(self, stilltesting = True):
         logging.Handler.__init__(self)
-        self.db = DobermanDB()
+        self.db = DobermanDB.DobermanDB()
         self.db_name = 'logging'
         self.collection_name = 'logs'
         backup_filename = datetime.date.today().isoformat()
@@ -26,6 +26,9 @@ class DobermanLogger(logging.Handler):
                 '%(lineno)d | %(message)s')
         self.setFormatter(f)
         self.stream.setFormatter(f)
+
+    def __del__(self):
+        self.db.close()
 
     def emit(self, record):
         if record.levelno == logging.DEBUG or self.testing:
