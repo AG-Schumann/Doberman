@@ -1,6 +1,7 @@
 from ControllerBase import Controller
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class heartbeat(Controller):
@@ -10,9 +11,8 @@ class heartbeat(Controller):
     def __init__(self, opts):
         super().__init__(opts)
         self.command = f'ping -c {self.ping_count} {self.address}'
-        number = r'[0-9]+(?:\.[0-9]+)?'
         self.value_count = 4  # number of values returned
-        pattern = '/'.join([f'({number})']*self.value_count)
+        pattern = '/'.join([f'({number_regex})']*self.value_count)
         self.time_taken = re.compile(pattern)
         self.popen_args = {'shell' : True, 'stdout' : PIPE, 'stderr' : PIPE}
 

@@ -1,5 +1,6 @@
 from ControllerBase import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class iseries(SerialController):
@@ -31,7 +32,7 @@ class iseries(SerialController):
                 'getAlarm2Low' : 'R15',
                 }
         super().__init__(opts)
-        self.read_pattern = re.compile(r'%s(?P<value>-?[0-9]+(?:\.[0-9]+)?)' % self.commands['getDisplayedValue'])
+        self.read_pattern = re.compile(r'%s(?P<value>%s)' % (self.commands['getDisplayedValue'], number_regex))
 
     def isThisMe(self, dev):
         info = self.SendRecv(self.commands['getAddress'], dev)

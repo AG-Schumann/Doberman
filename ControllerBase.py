@@ -71,7 +71,7 @@ class Controller(object):
             if not m:
                 continue
             resp = self.SendRecv(func(m))
-            if resp['retval']:
+            if resp['retcode']:
                 self.logger.error("Did not accept command '%s'" % command)
             return
         self.logger.error("Did not understand command '%s'" % command)

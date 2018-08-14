@@ -2,9 +2,10 @@
 import logging
 import datetime
 import pymongo
-import os.path
 import utils
 import argparse
+import os
+dtnow = datetime.datetime.now
 
 
 class DobermanDB(object):
@@ -12,29 +13,22 @@ class DobermanDB(object):
     Class to handle interfacing with the Doberman database
     """
 
-    client = None
-    _access_counter = 0
-
     def __init__(self):
-        DobermanDB._access_counter += 1
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
-            with open(os.path.join('settings','Database_connectiondetails.txt'), 'r') as f:
-                conn_details = eval(f.read())
+            conn_str = os.environ['DOBERMAN_CONN']
         except Exception as e:
-            print("Can not load database connection details. "
-                                "Trying default details. Error %s" % e)
-            conn_details = {'host' : 'localhost', 'port' : 13178,
-                    'username' : 'doberman', 'password' : 'h5jlm42'}
+            print("Can not load database connection details. Error %s" % e)
+            raise
 
-        self._connect(**conn_details)
+        self.client = None
+        self._connect(conn_str)
 
     def close(self):
-        DobermanDB._access_counter -= 1
-        if DobermanDB._access_counter == 0:
-            DobermanDB.client.close()
-            DobermanDB.client = None
+        if self.client is not None:
+            self.client.close()
+            self.client = None
 
     def __del__(self):
         self.close()
@@ -44,23 +38,22 @@ class DobermanDB(object):
         self.close()
         return
 
-    @classmethod
-    def _connect(cls, **kwargs):
-        if cls.client:
+    def _connect(self, conn_str):
+        if self.client is not None:
             return
-        cls.client = pymongo.MongoClient(**kwargs)
+        self.client = pymongo.MongoClient(conn_str)
 
     def _check(self, db_name, collection_name):
         """
         Returns the requested collection and logs if the database/collection don't yet exist
         """
-        if db_name not in DobermanDB.client.list_database_names():
+        if db_name not in self.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
-        elif collection_name not in DobermanDB.client[db_name].collection_names(False):
+        elif collection_name not in self.client[db_name].collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
-            DobermanDB.client[db_name].create_collection(collection_name)
-            DobermanDB.client[db_name][collection_name].create_index('when')
-        return DobermanDB.client[db_name][collection_name]
+            self.client[db_name].create_collection(collection_name)
+            self.client[db_name][collection_name].create_index('when')
+        return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
         """
@@ -125,7 +118,7 @@ class DobermanDB(object):
             if which_document:
                 self.logger.error('Do you know what you\'re doing?')
                 return 2
-            db = DobermanDB.client[db_name]
+            db = self.client[db_name]
             self.logger.info('Dropping database %s' % db_name)
             ret = db.dropDatabase()
             if ret['ok'] != 1:
@@ -139,10 +132,15 @@ class DobermanDB(object):
         """
         controller, cmd = command.split(maxsplit=1)
         self.logger.debug(f"Storing command '{cmd}' for {controller}")
-        if self.insertIntoDatabase('logging', 'commands',
-                {'name' : controller, 'command' : cmd,
-                    'logged' : datetime.datetime.now()}):
-            self.logger.error('Could not store command for %s!' % controller)
+        if controller == 'all':
+            coll = self._check('settings','controllers')
+            controllers = coll.distinct('name',{'online' : True})
+        else:
+            controllers = [controller]
+        for ctrl in controllers:
+            if self.insertIntoDatabase('logging', 'commands',
+                {'name' : ctrl, 'command' : cmd, 'logged' : dtnow()}):
+                self.logger.error('Could not store command for %s!' % ctrl)
         return 0
 
     def logAlarm(self, document):
@@ -152,16 +150,6 @@ class DobermanDB(object):
         if self.insertIntoDatabase('logging','alarm_history',document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
-        return 0
-
-    def addSettingToConfigHistory(self, controller):
-        """
-        Adds the current setting of a controller to the config history
-        """
-        if self.insertIntoDatabase("logging","config_hist",
-                controller.update({'when' : datetime.datetime.now()})):
-            self.logger.warning('Could not add %s to config history' % controller['name'])
-            return 1
         return 0
 
     def ControllerSettings(self, name='all'):
@@ -341,14 +329,14 @@ class DobermanDB(object):
             print('%s: %s' % (k,v))
         return
 
-    def getDefaultSettings(self, opmode=None, name=None):
+    def getDefaultSettings(self, runmode=None, name=None):
         """
         Reads default Doberman settings from database.
         Returns a dict or the specified value
         """
-        if opmode:
-            doc = self.readFromDatabase('settings','opmodes',
-                    {'mode' : opmode},onlyone=True)
+        if runmode:
+            doc = self.readFromDatabase('settings','runmodes',
+                    {'mode' : runmode},onlyone=True)
             if name:
                 return doc[name]
             return doc
@@ -420,8 +408,10 @@ class DobermanDB(object):
         Writes data to the database
         Status:
           0 = OK,
-          -1 = no connection,
-          -2 = No error status aviable (ok)
+          -1 = No connection to controller
+          -2 = Could not communicate with controller
+          -3 = Wrong number of data received
+          -4 = Error parsing data
           1 = Warning
           2 = Alarm
         """
@@ -452,7 +442,7 @@ class DobermanDB(object):
                 print('Invalid input: %s' % which)
 
     def addOpmode(self):
-        print('What is the name of this opmode?')
+        print('What is the name of this runmode?')
         name = input('>>>')
         print('What loglevel (default 20?')
         loglevel = utils.getUserInput('Loglevel', input_type=[int], be_in=range(10,60,10),
@@ -467,7 +457,7 @@ class DobermanDB(object):
         msg_time = utils.getUserInput('Message timer', input_type=[int], exceptions=['n'])
         if msg_time == 'n':
             msg_time = 5
-        if self.insertIntoDatabase('settings','opmodes',{'mode' : name,
+        if self.insertIntoDatabase('settings','runmodes',{'mode' : name,
             'loglevel' : loglevel, 'testrun' : testrun, 'message_time' : msg_time}):
             print('Could not add runmode!')
         return
@@ -507,18 +497,28 @@ def main():
     parser.add_argument('--command', nargs='+',
                         help='Issue a command to the system. Format: '
                             '<name> <command>')
-    parser.add_argument('--add-opmode', action='store_true', default=False,
+    parser.add_argument('--add-runmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
                         help='Add a new contact')
     parser.add_argument('--add-controller', default=None, type=str,
                         help='Specify a new controller config file to load')
+    parser.add_argument('--running', action='store_true', default=False,
+                        help='List currently running controllers')
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
         print("Stored '%s'" % ' '.join(args.command))
+    if args.running:
+        cursor = db.readFromDatabase('settings','controllers',{'online' : True})
+        print('Currently running controllers:')
+        print('Name : Status : Runmode')
+        for row in cursor:
+            runmode = row['runmode']
+            status = row['status'][runmode]
+            print('  %s: %s : %s' % (row['name'], status, runmode))
     try:
-        if args.add_opmode:
+        if args.add_runmode:
             db.addOpmode()
         if args.add_contact:
             db.addContact()
