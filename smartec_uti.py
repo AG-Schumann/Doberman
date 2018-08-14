@@ -94,7 +94,7 @@ class smartec_uti(SerialController):
             val['retcode'] = stat
         except Exception as e:
             self.logger.error('LM error: %s' % e)
-            val['retcode'] = -3
+            val['retcode'] = -4
             val['data'] = None
         return val
 

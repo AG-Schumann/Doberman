@@ -1,5 +1,6 @@
 from ControllerBase import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class Teledyne(SerialController):
@@ -22,18 +23,18 @@ class Teledyne(SerialController):
         self.setcommand = self.basecommand + ' {params}'
         self.getcommand = self.basecommand + '?'
 
-        self.get_reading = re.compile(r'READ:(?P<value>-?[0-9]+(?:\.[0-9]+)?)')
+        self.get_reading = re.compile(r'READ:(?P<value>%s)' % number_regex)
         self.get_addr = re.compile(r'ADDR: *(?P<addr>[a-z])')
         self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
 
-        self.setpoint_map = {'auto' : 0, 'open' : 1, 'closed' : 2}
+        self.setpoint_map = {'auto' : 0, 'open' : 1, 'close' : 2}
 
         self.command_patterns = [
-                (re.compile(r'setpoint (?P<params>-?[0-9]+(?:\.[0-9]+)?)'),
+                (re.compile(r'setpoint (?P<params>%s)' % number_regex),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointValue'],
                         **x.groupdict())),
-                (re.compile(r'setpoint (?P<params>auto|open|closed)'),
+                (re.compile(r'valve (?P<params>auto|open|close)'),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointMode'],
                         params=self.setpoint_map[x.group('params')])),
                 ]
@@ -43,7 +44,7 @@ class Teledyne(SerialController):
         resp = self.SendRecv(command, dev)
         if resp['retcode'] or not resp['data']:
             return False
-        m = self.get_addr.search.search(resp['data'])
+        m = self.get_addr.search(resp['data'])
         if not m:
             return False
         if self.device_address != m.group('addr'):
@@ -57,6 +58,6 @@ class Teledyne(SerialController):
             return resp
         m = self.get_reading.search(resp['data'])
         if not m:
-            return {'retcode' : -3, 'data' : -1}
+            return {'retcode' : -4, 'data' : -1}
         return {'retcode' : 0, 'data' : float(m.group('value'))}
 

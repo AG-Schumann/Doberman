@@ -1,5 +1,6 @@
 from ControllerBase import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class MKS_MFC(SerialController):
@@ -48,7 +49,7 @@ class MKS_MFC(SerialController):
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
         self.setpoint_map = {'auto' : 'NORMAL', 'purge' : 'PURGE', 'close' : 'FLOW_OFF'}
         self.command_patterns = [
-                (re.compile(r'setpoint (?P<value>-?[0-9]+(?:\.[0-9]+)?)'),
+                (re.compile(r'setpoint (?P<value>%s)' % number_regex),
                     lambda x : self.setCommand.format(cmd=self.commands['SetpointValue'],
                         **x.groupdict())),
                 (re.compile(r'valve (?P<value>auto|close|purge)'),

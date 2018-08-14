@@ -1,6 +1,7 @@
 from ControllerBase import SerialController
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from utils import number_regex
 
 
 class isegNHQ(SerialController):
@@ -32,9 +33,9 @@ class isegNHQ(SerialController):
         super().__init__(opts)
 
         self.command_patterns = [
-                (re.compile(f'{cmd} (?P<value>-?[0-9]+(?:\\.[0-9]+)?)'),
-                    lambda x : self.setcommand.format(cmd=self.commands[f'{cmd}'],
-                        value=x.group('value'))) for cmd in ['Vset','Itrip','Vramp']
+                (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
+                    lambda x : self.setcommand.format(cmd=self.commands[m.group('cmd'),
+                        value=m.group('value'))),
                 ]
 
 
@@ -46,10 +47,10 @@ class isegNHQ(SerialController):
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.commands['open'], dev)
-        if resp['retval']:
+        if resp['retcode']:
             return False
         resp = self.SendRecv(self.commands['identify'], dev)
-        if resp['retval'] or not resp['data']:
+        if resp['retcode'] or not resp['data']:
             return False
         if resp['data'].split(';')[0] == self.serialID:
             return True
@@ -64,7 +65,7 @@ class isegNHQ(SerialController):
         for com,func in zip(coms,funcs):
             cmd = self.getcommand.format(cmd=self.commands[com])
             resp = self.SendRecv(cmd)
-            status.append(resp['retval'])
+            status.append(resp['retcode'])
             if status[-1]:
                 vals.append[-1]
             else:

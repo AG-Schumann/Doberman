@@ -8,6 +8,7 @@ import importlib
 import importlib.machinery
 import argparse
 import DobermanLogging
+dtnow = datetime.datetime.now
 
 
 def FindPlugin(name, path):
@@ -74,12 +75,6 @@ class Plugin(threading.Thread):
         self.db = DobermanDB.DobermanDB()
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
-        if config_doc['online'] and not force:
-            self.logger.fatal(f'{self.name} is already running!')
-            raise Exception
-        else:
-            self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                    {'$set' : {'online' : True}})
         if self.name != 'RAD7':
             plugin_name = self.name.rstrip('0123456789')
         else:
@@ -96,14 +91,14 @@ class Plugin(threading.Thread):
         self.number_of_data = int(config_doc['number_of_data'])
         self.description = config_doc['description']
         self.recurrence_counter = [0] * self.number_of_data
-        self.last_message_time = datetime.datetime.now()
+        self.last_message_time = dtnow()
         self.late_counter = 0
-        self.last_measurement_time = datetime.datetime.now()
+        self.last_measurement_time = dtnow()
         self.controller = None
         #self.logger.debug('Opening controller...')
         self.OpenController()
         self.running = False
-        self.has_quit = False  # only used in standalone mode
+        self.has_quit = False
 
     def close(self):
         """Closes the controller, and sets the threading event"""
@@ -114,8 +109,6 @@ class Plugin(threading.Thread):
         else:
             self.logger.info('Already stopped!')
         self.controller = None
-        self.db.updateDatabase('settings','controllers',{'name' : self.name},
-                {'$set' : {'online' : False}})
         self.db.close()
         return
 
@@ -202,7 +195,7 @@ class Plugin(threading.Thread):
         None
         """
         vals = self.controller.Readout()
-        if vals['data'] and not isinstance(vals['data'], (list, tuple)):
+        if not isinstance(vals['data'], (list, tuple)):
             vals['data'] = [vals['data']]
         if len(vals['data']) != self.number_of_data:
             vals['data'] += [None]*(self.number_of_data - len(vals['data']))
@@ -210,7 +203,7 @@ class Plugin(threading.Thread):
             vals['retcode'] = [vals['retcode']]
         if len(vals['retcode']) != self.number_of_data:
             vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
-        upstream = [datetime.datetime.now(), vals['data'], vals['retcode']]
+        upstream = [dtnow(), vals['data'], vals['retcode']]
         self.logger.debug('Measured %s' % vals['data'])
         return upstream
 
@@ -242,10 +235,10 @@ class Plugin(threading.Thread):
         alarm_high = rundoc['alarm_high'][runmode]
         warning_low = rundoc['warning_low'][runmode]
         warning_high = rundoc['warning_high'][runmode]
-        message_time = self.db.getDefaultSettings(opmode=runmode,name='message_time')
+        message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
-        dt = (datetime.datetime.now() - self.last_message_time).total_seconds()
+        dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
         for i in range(self.number_of_data):
             try:
@@ -322,12 +315,13 @@ class Plugin(threading.Thread):
         ------
         None
         """
-        doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0}}
+        doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0},
+                'logged' : {'$lte' : dtnow()}}
         collection = self.db._check('logging','commands')
         #self.logger.debug('Checking commands')
-
+        update_filter = lambda : {'logged' : {'$lte' : dtnow()}}
         while collection.count(doc_filter):
-            updates = {'$set' : {'acknowledged' : datetime.datetime.now()}}
+            updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
             self.logger.debug(f"Found command '{command}'")
             if 'runmode' in command:
@@ -340,15 +334,26 @@ class Plugin(threading.Thread):
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
             elif command == 'stop':
                 self.running = False
-                # in standalone mode Doberman will restart the plugin when it stops
                 self.has_quit = True
+                # makes sure we don't get restarted
+            elif command == 'start':
+                runmode = self.db.ControllerSettings(name=self.name)['runmode']
+                self.db.updateDatabase('settings','controllers', {'name' : self.name},
+                        {'$set' : {'status.%s' % runmode : 'ON'}})
+            elif command == 'sleep':
+                runmode = self.db.ControllerSettings(name=self.name)['runmode']
+                self.db.updateDatabase('settings','controllers', {'name' : self.name},
+                        {'$set' : {'status.%s' % runmode : 'OFF'}})
+            elif command == 'restart':
+                self.running = False
+                # don't set has_quit here, so main() restarts us
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
         return
 
-def main():
+def main(args_in=None):
     parser = argparse.ArgumentParser(description='Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the controller')
@@ -356,15 +361,23 @@ def main():
                         help='Which run mode to use', default='default')
     parser.add_argument('--force', action='store_true', default=False,
                         help='Force the plugin to load (if it didn\'t reset)')
-    args = parser.parse_args()
+    if args_in:
+        args = parser.parse_args(args_in)
+    else:
+        args = parser.parse_args()
     plugin_paths=['.']
     logger = logging.getLogger(args.plugin_name)
     logger.addHandler(DobermanLogging.DobermanLogger())
     db = DobermanDB.DobermanDB()
-    loglevel = db.getDefaultSettings(opmode=args.runmode,name='loglevel')
+    loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
+    doc = db.readFromDatabase('settings','controllers',{'name' : args.plugin_name},onlyone=True)
+    if doc['online'] and not args.force:
+        logger.fatal('%s already running!' % args.plugin_name)
+        db.close()
+        return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
-            {'$set' : {'runmode' : args.runmode}})
+            {'$set' : {'runmode' : args.runmode, 'online' : True}})
 
     plugin = Plugin(args.plugin_name, plugin_paths, args.force)
     plugin.start()
@@ -380,22 +393,22 @@ def main():
                 logger.error('%s died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
-                    plugin.close()
                     plugin.join()
                     plugin = Plugin(args.plugin_name, plugin_paths, args.force)
                     plugin.start()
                 except Exception as e:
                     logger.critical('Could not restart %s' % plugin.name)
                     plugin.running = False
-                    plugin.close()
                     plugin.join()
                     running = False
     except KeyboardInterrupt:
         logger.fatal('Killed by ctrl-c')
     finally:
-        db.close()
         plugin.running = False
         plugin.join()
+        db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
+                {'$set' : {'online' : False}})
+        db.close()
 
     return
 
