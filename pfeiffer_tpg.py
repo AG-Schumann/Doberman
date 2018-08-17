@@ -7,16 +7,16 @@ class pfeiffer_tpg(LANController):
     def __init__(self, opts):
         self._msg_begin = ''
         self._msg_end = '\r\n\x05'
-        super().__init__(opts)
         self.commands = {
                 'identify' : 'AYT',
                 'read' : 'PR1',
                 }
+        super().__init__(opts)
         self.read_command = re.compile(r'(?P<status>[0-9]),(?P<value>%s)' % number_regex)
 
     def _getControl(self):
         super()._getControl()
-        self.SendRecv(self.commands['AYT'])
+        self.SendRecv(self.commands['identify'])
         # stops the continuous flow of data
 
     def Readout(self):
