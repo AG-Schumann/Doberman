@@ -24,14 +24,14 @@ class Doberman(object):
     Closes all processes in the end.
     '''
 
-    def __init__(self, runmode, overlord, force):
+    def __init__(self, db, runmode, overlord, force):
         self.runmode = runmode
         self.logger = logging.getLogger(self.__class__.__name__)
         self.last_message_time = dtnow()
         self.overlord = overlord
         self.force=force
 
-        self.db = DobermanDB.DobermanDB()
+        self.db = db
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
             'runmode' : runmode}})
         self.db.updateDatabase('settings','controllers',{'online' : False},
@@ -48,7 +48,6 @@ class Doberman(object):
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False}})
         if self.overlord:
             self.db.StoreCommand('all stop')
-        self.db.close()
         return
 
     def __del__(self):
@@ -65,7 +64,7 @@ class Doberman(object):
         self.logger.debug('tty settings last set %s, boot time %s' % (
             last_tty_update_time, boot_time))
         if boot_time > last_tty_update_time:
-            if not utils.refreshTTY():
+            if not utils.refreshTTY(self.db):
                 self.logger.fatal('Could not assign tty ports!')
                 return -1
         else:
@@ -125,7 +124,7 @@ class Doberman(object):
         select = lambda : {'name' : 'doberman', 'acknowledged' : {'$exists' : 0},
                 'logged' : {'$lte' : dtnow()}}
         updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
-        while collection.count(select()):
+        while collection.count_documents(select()):
             command = collection.find_one_and_update(doc_filter, updates())['command']
             self.logger.debug(f"Found '{command}'")
             if command == 'stop':
@@ -152,12 +151,12 @@ class Doberman(object):
         msg_format = '{name} : {when} : {msg}'
         messages = {'alarms' : [], 'warnings' : []}
         updates = {'$set' : {'acknowledged' : dtnow()}}
-        self.logger.debug('%i alarms' % collection.count(doc_filter_alarms))
-        while collection.count(doc_filter_alarms):
+        self.logger.debug('%i alarms' % collection.count_documents(doc_filter_alarms))
+        while collection.count_documents(doc_filter_alarms):
             alarm = collection.find_one_and_update(doc_filter_alarms, updates)
             messages['alarms'].append(msg_format.format(**alarm))
-        self.logger.debug('%i warnings' % collection.count(doc_filter_warns))
-        while(collection.count(doc_filter_warns)):
+        self.logger.debug('%i warnings' % collection.count_documents(doc_filter_warns))
+        while(collection.count_documents(doc_filter_warns)):
             warn = collection.find_one_and_update(doc_filter_warns, updates)
             messages['warnings'].append(msg_format.format(**warn))
         if messages['alarms']:
@@ -243,6 +242,8 @@ def main():
                         ' just monitor the alarms', dest='overlord')
     parser.add_argument('--force', action='store_true', default=False,
                         help='Ignore online status in database')
+    parser.add_argument('--refresh', action='store_true', default=False,
+                        help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
     if db.getDefaultSettings(name='online') and not parser.force:
         print('Is there an instance of Doberman already running?')
@@ -252,9 +253,13 @@ def main():
         return
     loglevel = db.getDefaultSettings(runmode = opts.runmode, name='loglevel')
     logger.setLevel(int(loglevel))
-
+    if opts.refresh:
+        if not utils.refreshTTY(db):
+            print('Failed!')
+            db.close()
+            return
     # Load and start script
-    doberman = Doberman(opts.runmode, opts.overlord, opts.force)
+    doberman = Doberman(db, opts.runmode, opts.overlord, opts.force)
     try:
         if doberman.Start():
             logger.error('Something went wrong here...')
@@ -263,7 +268,8 @@ def main():
             logger.info('Dem bees got dun watched')
     except Exception as e:
         print(e)
-    db.close()
+    finally:
+        db.close()
     return
 
 if __name__ == '__main__':
