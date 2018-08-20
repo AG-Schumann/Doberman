@@ -5,7 +5,6 @@ import pymongo
 import utils
 import argparse
 import os
-from Plugin import FindPlugin
 dtnow = datetime.datetime.now
 
 
@@ -142,7 +141,7 @@ class DobermanDB(object):
             print('runmode <runmode>: changes the active runmode')
 
             if controller in coll.distinct('name'):
-                ctrl_cls = FindPlugin(controller, ['.'])
+                ctrl_cls = utils.FindPlugin(controller, ['.'])
                 if not hasattr(ctrl_cls, 'accepted_commands'):
                     return
                 for row in ctrl_cls.accepted_commands:
