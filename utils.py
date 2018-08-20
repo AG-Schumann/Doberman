@@ -1,7 +1,8 @@
 from ast import literal_eval
-from Plugin import FindPlugin
 import serial
 from subprocess import Popen, PIPE, TimeoutExpired
+import importlib
+import importlib.machinery
 import time
 import datetime
 dtnow = datetime.datetime.now
@@ -149,11 +150,7 @@ def refreshTTY(db):
         opts.update(sensor_config[sensor]['address'])
         if 'additional_params' in sensor_config[sensor]:
             opts.update(sensor_config[sensor]['additional_params'])
-        if sensor == 'RAD7': # I dislike edge cases
-            plugin_name = sensor
-        else:
-            plugin_name = sensor.rstrip('0123456789')
-        sensors[sensor] = FindPlugin(plugin_name, ['.'])(opts)
+        sensors[sensor] = FindPlugin(sensor, ['.'])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
         tty_num = int(tty.split('USB')[-1])
@@ -192,3 +189,32 @@ def refreshTTY(db):
     db.updateDatabase('settings','defaults', {},
             {'$set' : {'tty_update' : dtnow()}})
     return True
+
+def FindPlugin(name, path):
+    """
+    Finds the controller constructor with the specified name, in the specified paths
+
+    Parameters
+    ---------
+    name : str
+        The name of the controller to load
+    path : [str]
+        The paths to look through to find the file named `name.py`
+
+    Returns
+    -------
+    fcn
+        The constructor of the controller
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file can't be found
+    """
+    if name != 'RAD7':
+        name = name.strip('0123456789')
+    spec = importlib.machinery.PathFinder.find_spec(name, path)
+    if spec is None:
+        raise FileNotFoundError('Could not find a controller named %s' % name)
+    controller_ctor = getattr(spec.loader.load_module(), name)
+    return controller_ctor
