@@ -8,6 +8,10 @@ class Teledyne(SerialController):
     Teledyne flow controller
     THCD-100
     """
+    accepted_commands = [
+            'setpoint <value>: change setpoint',
+            'valve <auto|open|close>: change valve status',
+        ]
     def __init__(self, opts):
         self._msg_end = '\r\n'
         self.commands = {

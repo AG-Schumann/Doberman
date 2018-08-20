@@ -8,6 +8,11 @@ class isegNHQ(SerialController):
     """
     iseg NHQ controller
     """
+    accepted_commands = [
+            'Vset <value>: voltage setpoint',
+            'Ilim <value>: current limit',
+            'Vramp <value>: voltage ramp speed',
+        ]
     def __init__(self, opts):
         self._msg_end = '\r\n'
         self._msg_start = ''
