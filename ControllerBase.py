@@ -66,7 +66,7 @@ class Controller(object):
         """
         if not hasattr(self, 'command_patterns'):
             raise NotImplementedError()
-        for pattern, func in self.pattern_commands:
+        for pattern, func in self.command_patterns:
             m = pattern.search(command)
             if not m:
                 continue
