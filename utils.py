@@ -3,6 +3,8 @@ from Plugin import FindPlugin
 import serial
 from subprocess import Popen, PIPE, TimeoutExpired
 import time
+import datetime
+dtnow = datetime.datetime.now
 
 
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -168,7 +170,7 @@ def refreshTTY(db):
             if sensor.isThisMe(dev):
                 print('Matched %s to %s' % (tty_num, name))
                 matched['sensors'].append(name)
-                matched['ttys'].append(tty_num)
+                matched['ttys'].append(tty)
                 db.updateDatabase('settings','controllers',
                         {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                 dev.close()
