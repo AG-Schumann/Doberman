@@ -254,7 +254,7 @@ def main():
     loglevel = db.getDefaultSettings(runmode = opts.runmode, name='loglevel')
     logger.setLevel(int(loglevel))
     if opts.refresh:
-        if utils.refreshTTY(db):
+        if not utils.refreshTTY(db):
             print('Failed!')
             db.close()
             return
