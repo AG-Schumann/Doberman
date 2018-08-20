@@ -4,39 +4,11 @@ import datetime
 import time
 import logging
 import DobermanDB
-import importlib
-import importlib.machinery
 import argparse
 import DobermanLogging
+import utils
 dtnow = datetime.datetime.now
 
-
-def FindPlugin(name, path):
-    """
-    Finds the controller constructor with the specified name, in the specified paths
-
-    Parameters
-    ---------
-    name : str
-        The name of the controller to load
-    path : [str]
-        The paths to look through to find the file named `name.py`
-
-    Returns
-    -------
-    fcn
-        The constructor of the controller
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified file can't be found
-    """
-    spec = importlib.machinery.PathFinder.find_spec(name, path)
-    if spec is None:
-        raise FileNotFoundError('Could not find a controller named %s' % name)
-    controller_ctor = getattr(spec.loader.load_module(), name)
-    return controller_ctor
 
 def clip(val, low, high):
     """Clips `val` to be at least `low` and at most `high`"""
@@ -75,12 +47,8 @@ class Plugin(threading.Thread):
         self.db = DobermanDB.DobermanDB()
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
-        if self.name != 'RAD7':
-            plugin_name = self.name.rstrip('0123456789')
-        else:
-            plugin_name = self.name
         #self.logger.debug('Finding plugin...')
-        self.controller_ctor = FindPlugin(plugin_name, plugin_paths)
+        self.controller_ctor = utils.FindPlugin(self.name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
         self.ctor_opts['initialize'] = True
