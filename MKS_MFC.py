@@ -7,7 +7,10 @@ class MKS_MFC(SerialController):
     """
     MKS flow controller
     """
-
+    accepted_commands = [
+            'setpoint <value>: change the setpoint',
+            'valve <auto|close|purge>: change valve status',
+        ]
     def __init__(self, opts):
         super().__init__(opts)
         self._msg_start = f"@@@{self.serialID}"

@@ -5,6 +5,7 @@ import pymongo
 import utils
 import argparse
 import os
+from Plugin import FindPlugin
 dtnow = datetime.datetime.now
 
 
@@ -49,7 +50,7 @@ class DobermanDB(object):
         """
         if db_name not in self.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
-        elif collection_name not in self.client[db_name].collection_names(False):
+        elif collection_name not in self.client[db_name].list_collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             self.client[db_name].create_collection(collection_name)
             self.client[db_name][collection_name].create_index('when')
@@ -131,16 +132,31 @@ class DobermanDB(object):
         Adds commands to the database
         """
         controller, cmd = command.split(maxsplit=1)
-        self.logger.debug(f"Storing command '{cmd}' for {controller}")
+        coll = self._check('settings','controllers')
+        if cmd == 'help':
+            print('Accepted commands for %s:' % controller)
+            print('start: sets status to "ON"')
+            print('stop: shuts down the controller')
+            print('sleep: sets status to "OFF" (but does not shut down)')
+            print('restart: restarts the controller')
+            print('runmode <runmode>: changes the active runmode')
+
+            if controller in coll.distinct('name'):
+                ctrl_cls = FindPlugin(controller, ['.'])
+                if not hasattr(ctrl_cls, 'accepted_commands'):
+                    return
+                for row in ctrl_cls.accepted_commands:
+                    print(row)
+            return
+        print(f"Storing command '{cmd}' for {controller}")
         if controller == 'all':
-            coll = self._check('settings','controllers')
             controllers = coll.distinct('name',{'online' : True})
         else:
             controllers = [controller]
         for ctrl in controllers:
             if self.insertIntoDatabase('logging', 'commands',
                 {'name' : ctrl, 'command' : cmd, 'logged' : dtnow()}):
-                self.logger.error('Could not store command for %s!' % ctrl)
+                print('Could not store command for %s!' % ctrl)
         return 0
 
     def logAlarm(self, document):
@@ -496,7 +512,8 @@ def main():
                         help='Update settings/contacts/etc')
     parser.add_argument('--command', nargs='+',
                         help='Issue a command to the system. Format: '
-                            '<name> <command>')
+                            '<name> <command>. <command> == \'help\' prints '
+                            'accepted commands for <name>')
     parser.add_argument('--add-runmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
@@ -508,7 +525,6 @@ def main():
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
-        print("Stored '%s'" % ' '.join(args.command))
     if args.running:
         cursor = db.readFromDatabase('settings','controllers',{'online' : True})
         print('Currently running controllers:')
