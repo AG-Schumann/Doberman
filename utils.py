@@ -1,7 +1,8 @@
 from ast import literal_eval
-import DobermanDB
 from Plugin import FindPlugin
 import serial
+from subprocess import Popen, PIPE, TimeoutExpired
+import time
 
 
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -114,14 +115,13 @@ def input_eval(inputstr, literaleval=True):
             pass
     return str(input_str)
 
-def refreshTTY():
+def refreshTTY(db):
     """
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
-    db = DobermanDB.DobermanDB()
     collection = db._check('settings','controllers')
-    if collection.count({'online' : True, 'address.ttyUSB' : {'$exists' : 1}}):
+    if collection.count_documents({'online' : True, 'address.ttyUSB' : {'$exists' : 1}}):
         print('Some USB controllers are running! Can\'t refresh TTY settings')
         return False
     db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
@@ -151,7 +151,7 @@ def refreshTTY():
             plugin_name = sensor
         else:
             plugin_name = sensor.rstrip('0123456789')
-        sensors[sensor] = FindPlugin(plugin_name, self.plugin_paths)(opts)
+        sensors[sensor] = FindPlugin(plugin_name, ['.'])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
         tty_num = int(tty.split('USB')[-1])
