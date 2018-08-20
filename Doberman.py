@@ -256,7 +256,7 @@ def main():
     if opts.refresh:
         if utils.refreshTTY(db):
             print('Failed!')
-            db.close(db)
+            db.close()
             return
     # Load and start script
     doberman = Doberman(db, opts.runmode, opts.overlord, opts.force)
