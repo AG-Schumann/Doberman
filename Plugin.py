@@ -318,9 +318,7 @@ class Plugin(threading.Thread):
         doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0},
                 'logged' : {'$lte' : dtnow()}}
         collection = self.db._check('logging','commands')
-        #self.logger.debug('Checking commands')
-        update_filter = lambda : {'logged' : {'$lte' : dtnow()}}
-        while collection.count(doc_filter):
+        while collection.count_documents(doc_filter):
             updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
             self.logger.debug(f"Found command '{command}'")
