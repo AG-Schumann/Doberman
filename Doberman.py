@@ -243,6 +243,8 @@ def main():
                         ' just monitor the alarms', dest='overlord')
     parser.add_argument('--force', action='store_true', default=False,
                         help='Ignore online status in database')
+    parser.add_argument('--refresh', action='store_true', default=False,
+                        help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
     if db.getDefaultSettings(name='online') and not parser.force:
         print('Is there an instance of Doberman already running?')
