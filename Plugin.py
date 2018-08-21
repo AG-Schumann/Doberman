@@ -47,7 +47,6 @@ class Plugin(threading.Thread):
         self.db = DobermanDB.DobermanDB()
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
-        #self.logger.debug('Finding plugin...')
         self.controller_ctor = utils.FindPlugin(self.name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
@@ -63,7 +62,6 @@ class Plugin(threading.Thread):
         self.late_counter = 0
         self.last_measurement_time = dtnow()
         self.controller = None
-        #self.logger.debug('Opening controller...')
         self.OpenController()
         self.running = False
         self.has_quit = False
@@ -172,7 +170,7 @@ class Plugin(threading.Thread):
         if len(vals['retcode']) != self.number_of_data:
             vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
         upstream = [dtnow(), vals['data'], vals['retcode']]
-        self.logger.debug('Measured %s' % vals['data'])
+        self.logger.debug('Measured %s' % ['%.3f' % v for v in vals['data']])
         return upstream
 
     def ProcessData(self, data, rundoc):
@@ -289,7 +287,7 @@ class Plugin(threading.Thread):
         while collection.count_documents(doc_filter):
             updates = {'$set' : {'acknowledged' : dtnow()}}
             command = collection.find_one_and_update(doc_filter, updates)['command']
-            self.logger.debug(f"Found command '{command}'")
+            self.logger.info(f"Found command '{command}'")
             if 'runmode' in command:
                 try:
                     _, runmode = command.split()
@@ -298,6 +296,8 @@ class Plugin(threading.Thread):
                 else:
                     self.db.updateDatabase('settings','controllers',
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
+                    loglevel = db.getDefaultSettings(runmode=runmode,name='loglevel')
+                    self.logger.setLevel(int(loglevel))
             elif command == 'stop':
                 self.running = False
                 self.has_quit = True
@@ -320,10 +320,13 @@ class Plugin(threading.Thread):
         return
 
 def main(args_in=None):
+    db = DobermanDB.DobermanDB()
+    names = db._check('settings','controllers').distinct('name')
+    runmodes = db._check('settings','runmodes').distinct('mode')
     parser = argparse.ArgumentParser(description='Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
-                        help='Name of the controller')
-    parser.add_argument('--runmode', type=str, dest='runmode',
+                        help='Name of the controller',choices=names)
+    parser.add_argument('--runmode', type=str, dest='runmode', choices=runmodes,
                         help='Which run mode to use', default='default')
     parser.add_argument('--force', action='store_true', default=False,
                         help='Force the plugin to load (if it didn\'t reset)')
@@ -333,8 +336,7 @@ def main(args_in=None):
         args = parser.parse_args()
     plugin_paths=['.']
     logger = logging.getLogger(args.plugin_name)
-    logger.addHandler(DobermanLogging.DobermanLogger())
-    db = DobermanDB.DobermanDB()
+    logger.addHandler(DobermanLogging.DobermanLogger(db))
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
     doc = db.readFromDatabase('settings','controllers',{'name' : args.plugin_name},onlyone=True)
@@ -350,7 +352,7 @@ def main(args_in=None):
     running = True
     try:
         while running:
-            logger.info('I\'m still here')
+            logger.debug('I\'m still here')
             time.sleep(30)
             if plugin.has_quit:
                 logger.info('Plugin stopped')

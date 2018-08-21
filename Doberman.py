@@ -34,8 +34,8 @@ class Doberman(object):
         self.db = db
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
             'runmode' : runmode}})
-        self.db.updateDatabase('settings','controllers',{'online' : False},
-                {'$set' : {'runmode' : runmode}})
+        #self.db.updateDatabase('settings','controllers',{'online' : False},
+        #        {'$set' : {'runmode' : runmode}})
 
         self.plugin_paths = ['.']
         self.alarmDistr = alarmDistribution.alarmDistribution()
@@ -126,7 +126,7 @@ class Doberman(object):
         updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
         while collection.count_documents(select()):
             command = collection.find_one_and_update(doc_filter, updates())['command']
-            self.logger.debug(f"Found '{command}'")
+            self.logger.info(f"Found '{command}'")
             if command == 'stop':
                 self.running = False
             elif command == 'restart':
@@ -202,7 +202,6 @@ class Doberman(object):
                                               if '@' in contact['email']
                                               if contact['email'] not in mail_recipients]
                 mail_recipients = mail_recipients + additional_mail_recipients
-                sms_recipients = []
                 if not mail_recipients:
                     self.logger.error('No one to email :(')
             else:
@@ -213,7 +212,6 @@ class Doberman(object):
             if self.alarmDistr.sendEmail(toaddr=mail_recipients, subject=subject,
                                          message=message) == -1:
                 self.logger.error('Could not send %s email!' % howbad)
-                mail_recipients = []
             else:
                 self.logger.info('Sent %s email to %s' % (howbad, mail_recipients))
                 sent_mail = True
@@ -228,11 +226,11 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(20)
     db = DobermanDB.DobermanDB()
-    #handler = DobermanLogging.DobermanLogger()
-    logger.addHandler(DobermanLogging.DobermanLogger())
+    runmodes = db._check('settings','runmodes').distinct('mode')
+    logger.addHandler(DobermanLogging.DobermanLogger(db))
     # START PARSING ARGUMENTS
     parser.add_argument('--runmode', default='default',type=str,
-                        choices=['testing','default','recovery'],
+                        choices=runmodes,
                         help='Which operational mode to use')
     parser.add_argument("--version",
                        action="store_true",
@@ -265,7 +263,7 @@ def main():
             logger.error('Something went wrong here...')
         else:
             doberman.watchBees()
-            logger.info('Dem bees got dun watched')
+            logger.debug('Dem bees got dun watched')
     except Exception as e:
         print(e)
     finally:
