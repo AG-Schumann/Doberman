@@ -34,20 +34,23 @@ class Doberman(object):
         self.db = db
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
             'runmode' : runmode}})
-        self.db.updateDatabase('settings','controllers',{'online' : False},
-                {'$set' : {'runmode' : runmode}})
+        #self.db.updateDatabase('settings','controllers',{'online' : False},
+        #        {'$set' : {'runmode' : runmode}})
 
         self.plugin_paths = ['.']
-        self.alarmDistr = alarmDistribution.alarmDistribution()
+        self.alarmDistr = alarmDistribution.alarmDistribution(db)
 
     def close(self):
         """
         Shuts down all plugins (if it started them)
         """
+        if self.db is None:  # already shut down
+            return
         self.logger.info('Shutting down')
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False}})
         if self.overlord:
             self.db.StoreCommand('all stop')
+        self.db = None  # not responsible for cleanup here
         return
 
     def __del__(self):
@@ -105,6 +108,7 @@ class Doberman(object):
         self.running = True
         self.loop_time = 30
         self.logger.info('Watch ALL the bees!')
+        self.start_time = dtnow()
         try:
             while self.running:
                 self.logger.info('Still watching the bees...')
@@ -115,7 +119,7 @@ class Doberman(object):
                     time.sleep(1)
                     self.checkCommands()
         except KeyboardInterrupt:
-            self.logger.fatal("\n\n Program killed by ctrl-c \n\n")
+            self.logger.fatal("Program killed by ctrl-c")
         finally:
             self.close()
 
@@ -126,7 +130,7 @@ class Doberman(object):
         updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
         while collection.count_documents(select()):
             command = collection.find_one_and_update(doc_filter, updates())['command']
-            self.logger.debug(f"Found '{command}'")
+            self.logger.info(f"Found '{command}'")
             if command == 'stop':
                 self.running = False
             elif command == 'restart':
@@ -140,6 +144,8 @@ class Doberman(object):
                     self.logger.error("Could not understand command '%s'" % command)
                 else:
                     self.db.updateDatabase('settings','defaults',{},{'$set' : {'runmode' : runmode}})
+                    loglevel = self.db.getDefaultSettings(runmode=runmode,name=loglevel)
+                    self.logger.setLevel(int(loglevel))
             else:
                 self.logger.error("Command '%s' not understood" % command)
         return
@@ -175,22 +181,23 @@ class Doberman(object):
         runmode = self.db.getDefaultSettings(name='runmode')
         mode_doc = self.db.getDefaultSettings(runmode=runmode)
         testrun = mode_doc['testrun']
+        testrun = 0
         if testrun == -1:
-            self.logger.warning('Testrun, no alarm sent. Message: %s' % msg)
+            self.logger.warning('Testrun, no alarm sent. Message: %s' % message)
             return -1
         now = dtnow()
-        runtime = (now - self.__startTime).total_seconds()/60
+        runtime = (now - self.start_time).total_seconds()/60
         # still a testrun?
         if runtime < testrun:
-            self.logger.warning('Testrun still active (%.1f/%i min). Message (%s) not sent' % (runtime, testrun, msg))
+            self.logger.warning('Testrun still active (%.1f/%i min). Message (%s) not sent' % (runtime, testrun, message))
             return -2
         if (now - self.last_message_time).total_seconds()/60 < mode_doc['message_time']:
             self.logger.warning('Sent a message too recently (%i minutes), '
                 'message timer at %i' % ((now - self.last_message_time).total_seconds()/60, mode_doc['message_time']))
-            return -3
+            #return -3
         # who to send to?
-        sms_recipients = [c.sms for c in self.db.getContacts('sms')]
-        mail_recipients = [c.email for c in self.db.getContacts('email')]
+        sms_recipients = [c['sms'] for c in self.db.getContacts('sms')]
+        mail_recipients = [c['email'] for c in self.db.getContacts('email')]
         sent_sms = False
         sent_mail = False
         if sms_recipients and howbad == 'alarm':
@@ -202,7 +209,6 @@ class Doberman(object):
                                               if '@' in contact['email']
                                               if contact['email'] not in mail_recipients]
                 mail_recipients = mail_recipients + additional_mail_recipients
-                sms_recipients = []
                 if not mail_recipients:
                     self.logger.error('No one to email :(')
             else:
@@ -213,7 +219,6 @@ class Doberman(object):
             if self.alarmDistr.sendEmail(toaddr=mail_recipients, subject=subject,
                                          message=message) == -1:
                 self.logger.error('Could not send %s email!' % howbad)
-                mail_recipients = []
             else:
                 self.logger.info('Sent %s email to %s' % (howbad, mail_recipients))
                 sent_mail = True
@@ -228,11 +233,11 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(20)
     db = DobermanDB.DobermanDB()
-    #handler = DobermanLogging.DobermanLogger()
-    logger.addHandler(DobermanLogging.DobermanLogger())
+    runmodes = db._check('settings','runmodes').distinct('mode')
+    logger.addHandler(DobermanLogging.DobermanLogger(db))
     # START PARSING ARGUMENTS
     parser.add_argument('--runmode', default='default',type=str,
-                        choices=['testing','default','recovery'],
+                        choices=runmodes,
                         help='Which operational mode to use')
     parser.add_argument("--version",
                        action="store_true",
@@ -265,10 +270,11 @@ def main():
             logger.error('Something went wrong here...')
         else:
             doberman.watchBees()
-            logger.info('Dem bees got dun watched')
+            logger.debug('Dem bees got dun watched')
     except Exception as e:
         print(e)
     finally:
+        doberman.close()
         db.close()
     return
 
