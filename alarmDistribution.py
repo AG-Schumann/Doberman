@@ -11,12 +11,12 @@ class alarmDistribution(object):
     Class that sends an email or sms to a given address
     """
 
-    def __init__(self):
+    def __init__(self, db):
         """
         Loading connections to Mail and SMS.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.db = DobermanDB.DobermanDB()
+        self.db = db
         details = self.db._check('settings','contacts').find_one(
                 {'conn_details' : {'$exists' : 1}})['conn_details']
         self.mailconnection_details = details['email']
@@ -27,6 +27,13 @@ class alarmDistribution(object):
         if not self.smsconnection_details:
             self.logger.critical("No SMS connection details loaded! Will not "
                                  "be able to send alarms by sms!")
+    def close(self):
+        self.db = None
+        return
+
+    def __del__(self):
+        self.close()
+        return
 
     def getConnectionDetails(self, which):
         try:
@@ -54,7 +61,7 @@ class alarmDistribution(object):
             # Compose connection details and addresses
             now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             server = self.mailconnection_details['server']
-            port = self.mailconnection_details['port']
+            port = int(self.mailconnection_details['port'])
             fromaddr = self.mailconnection_details['fromaddr']
             password = self.mailconnection_details['password']
             if not isinstance(toaddr, list):

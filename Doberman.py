@@ -38,16 +38,19 @@ class Doberman(object):
         #        {'$set' : {'runmode' : runmode}})
 
         self.plugin_paths = ['.']
-        self.alarmDistr = alarmDistribution.alarmDistribution()
+        self.alarmDistr = alarmDistribution.alarmDistribution(db)
 
     def close(self):
         """
         Shuts down all plugins (if it started them)
         """
+        if self.db is None:  # already shut down
+            return
         self.logger.info('Shutting down')
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False}})
         if self.overlord:
             self.db.StoreCommand('all stop')
+        self.db = None  # not responsible for cleanup here
         return
 
     def __del__(self):
@@ -105,6 +108,7 @@ class Doberman(object):
         self.running = True
         self.loop_time = 30
         self.logger.info('Watch ALL the bees!')
+        self.start_time = dtnow()
         try:
             while self.running:
                 self.logger.info('Still watching the bees...')
@@ -115,7 +119,7 @@ class Doberman(object):
                     time.sleep(1)
                     self.checkCommands()
         except KeyboardInterrupt:
-            self.logger.fatal("\n\n Program killed by ctrl-c \n\n")
+            self.logger.fatal("Program killed by ctrl-c")
         finally:
             self.close()
 
@@ -140,6 +144,8 @@ class Doberman(object):
                     self.logger.error("Could not understand command '%s'" % command)
                 else:
                     self.db.updateDatabase('settings','defaults',{},{'$set' : {'runmode' : runmode}})
+                    loglevel = self.db.getDefaultSettings(runmode=runmode,name=loglevel)
+                    self.logger.setLevel(int(loglevel))
             else:
                 self.logger.error("Command '%s' not understood" % command)
         return
@@ -175,22 +181,23 @@ class Doberman(object):
         runmode = self.db.getDefaultSettings(name='runmode')
         mode_doc = self.db.getDefaultSettings(runmode=runmode)
         testrun = mode_doc['testrun']
+        testrun = 0
         if testrun == -1:
-            self.logger.warning('Testrun, no alarm sent. Message: %s' % msg)
+            self.logger.warning('Testrun, no alarm sent. Message: %s' % message)
             return -1
         now = dtnow()
-        runtime = (now - self.__startTime).total_seconds()/60
+        runtime = (now - self.start_time).total_seconds()/60
         # still a testrun?
         if runtime < testrun:
-            self.logger.warning('Testrun still active (%.1f/%i min). Message (%s) not sent' % (runtime, testrun, msg))
+            self.logger.warning('Testrun still active (%.1f/%i min). Message (%s) not sent' % (runtime, testrun, message))
             return -2
         if (now - self.last_message_time).total_seconds()/60 < mode_doc['message_time']:
             self.logger.warning('Sent a message too recently (%i minutes), '
                 'message timer at %i' % ((now - self.last_message_time).total_seconds()/60, mode_doc['message_time']))
-            return -3
+            #return -3
         # who to send to?
-        sms_recipients = [c.sms for c in self.db.getContacts('sms')]
-        mail_recipients = [c.email for c in self.db.getContacts('email')]
+        sms_recipients = [c['sms'] for c in self.db.getContacts('sms')]
+        mail_recipients = [c['email'] for c in self.db.getContacts('email')]
         sent_sms = False
         sent_mail = False
         if sms_recipients and howbad == 'alarm':
@@ -267,6 +274,7 @@ def main():
     except Exception as e:
         print(e)
     finally:
+        doberman.close()
         db.close()
     return
 
