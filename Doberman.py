@@ -181,7 +181,6 @@ class Doberman(object):
         runmode = self.db.getDefaultSettings(name='runmode')
         mode_doc = self.db.getDefaultSettings(runmode=runmode)
         testrun = mode_doc['testrun']
-        testrun = 0
         if testrun == -1:
             self.logger.warning('Testrun, no alarm sent. Message: %s' % message)
             return -1
@@ -194,7 +193,7 @@ class Doberman(object):
         if (now - self.last_message_time).total_seconds()/60 < mode_doc['message_time']:
             self.logger.warning('Sent a message too recently (%i minutes), '
                 'message timer at %i' % ((now - self.last_message_time).total_seconds()/60, mode_doc['message_time']))
-            #return -3
+            return -3
         # who to send to?
         sms_recipients = [c['sms'] for c in self.db.getContacts('sms')]
         mail_recipients = [c['email'] for c in self.db.getContacts('email')]

@@ -201,8 +201,7 @@ class Plugin(threading.Thread):
         alarm_high = rundoc['alarm_high'][runmode]
         warning_low = rundoc['warning_low'][runmode]
         warning_high = rundoc['warning_high'][runmode]
-        #message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
-        message_time = 0
+        message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
         dt = (dtnow() - self.last_message_time).total_seconds()
