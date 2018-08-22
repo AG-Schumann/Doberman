@@ -127,7 +127,7 @@ class Plugin(threading.Thread):
                     self.logger.debug('Reopening controller...')
                     self.OpenController()
                 except:
-                    pass
+                    self.logger.error('Could not reopen controller!')
                 else:
                     self.logger.debug('Reopened controller')
             self.HandleCommands()
@@ -201,7 +201,8 @@ class Plugin(threading.Thread):
         alarm_high = rundoc['alarm_high'][runmode]
         warning_low = rundoc['warning_low'][runmode]
         warning_high = rundoc['warning_high'][runmode]
-        message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
+        #message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
+        message_time = 0
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
         dt = (dtnow() - self.last_message_time).total_seconds()
@@ -222,28 +223,28 @@ class Plugin(threading.Thread):
                     status[i] = 2
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
                         msg = (f'Reading {i} ({self.description[i]}, '
-                               f'{data[i]:.2f}) is outside the alarm range '
+                               f'{values[i]:.2f}) is outside the alarm range '
                                f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
                         self.logger.critical(msg)
                         self.db.logAlarm({'name' : self.name, 'index' : i,
                             'when' : when, 'status' : status[i], 'data' : values[i],
                             'reason' : 'A', 'howbad' : 2, 'msg' : msg})
                         self.recurrence_counter[i] = 0
-                        self.last_message_time = now
+                        self.last_message_time = dtnow()
                 elif clip(values[i], warning_low[i], warning_high[i]) in \
                     [warning_low[i], warning_high[i]]:
                     self.recurrence_counter[i] += 1
                     status[i] = 1
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
                         msg = (f'Reading {i} ({self.description[i]}, '
-                                f'{data[i]:.2f}) is outside the warning range '
+                                f'{values[i]:.2f}) is outside the warning range '
                                 f'({warning_low[i]:.2f}, {warning_high[i]:.2f})')
                         self.logger.warning(msg)
                         self.db.logAlarm({'name' : self.name, 'index' : i,
                             'when' : when, 'status' : status[i], 'data' : values[i],
                             'reason' : 'W', 'howbad' : 1, 'msg' : msg})
                         self.recurrence_counter[i] = 0
-                        self.last_message_time = now
+                        self.last_message_time = dtnow()
                 else:
                     self.recurrence_counter[i] = 0
             except Exception as e:
@@ -256,7 +257,7 @@ class Plugin(threading.Thread):
             if self.late_counter >= 3 and not too_soon:
                 msg = f'{self.name} last sent data {time_diff:.1f} sec ago instead of {readout_interval}'
                 self.logger.warning(msg)
-                self.db.logAlarm({'name' : self.name, 'when' : now, 'status' : status,
+                self.db.logAlarm({'name' : self.name, 'when' : dtnow(), 'status' : status,
                     'data' : data, 'reason' : 'TD', 'howbad' : 1})
                 self.late_counter = 0
         else:
