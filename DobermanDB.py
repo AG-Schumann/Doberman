@@ -52,7 +52,7 @@ class DobermanDB(object):
         elif collection_name not in self.client[db_name].list_collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             self.client[db_name].create_collection(collection_name)
-            self.client[db_name][collection_name].create_index('when')
+            self.client[db_name][collection_name].create_index([('when',-1)])
         return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document):
