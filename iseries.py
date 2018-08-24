@@ -1,6 +1,7 @@
 from ControllerBase import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
+import time
 
 
 class iseries(SerialController):
@@ -50,11 +51,16 @@ class iseries(SerialController):
     def Readout(self):
         val = self.SendRecv(self.commands['getDisplayedValue'])
         if not val['data'] or val['retcode']:
-            self.logger.error('No data??')
-            return val
+            self.logger.debug('No data?')
+            time.sleep(1)
+            val = self.SendRecv(self.commands['getDisplayedValue'])
+            if not val['data'] or val['retcode']:
+                self.logger.error('No data!')
+                return val
         m = self.read_pattern.search(val['data'])
         if not m:
             self.logger.error('Device didn\'t echo correct command')
+            val['retcode'] = -4
             val['data'] = -1
             return val
         val['data'] = float(m.group('value'))
