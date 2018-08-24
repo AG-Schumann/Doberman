@@ -134,7 +134,7 @@ class SerialController(Controller):
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(0.5)
+            time.sleep(1.0)
             if device.in_waiting:
                 ret['data'] = device.read(device.in_waiting).decode().rstrip()
         except serial.SerialException as e:
