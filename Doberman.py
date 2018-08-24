@@ -13,7 +13,7 @@ from threading import Thread
 import utils
 dtnow = datetime.datetime.now
 
-__version__ = '2.0.0'
+__version__ = '2.1.1'
 
 class Doberman(object):
     '''
