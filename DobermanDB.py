@@ -209,20 +209,18 @@ class DobermanDB(object):
               '- Enter n for no change.')
         print('\n' + 60 * '-' + '\n Choose the controller you want to change. ')
         controllers = self.ControllerSettings()
-        devices = list(controllers.keys())
-        for number, controller in enumerate(devices):
-            print("%s:\t%s" % (str(number), controller))
+        names = list(controllers.keys())
+        for i, name in enumerate(names):
+            print("%i:\t%s" % (i, name))
         # Enter name to find controller
-        existing_names = devices
-        existing_numbers = list(map(str, range(len(existing_names))))
-        existing_devices = existing_names + existing_numbers
-        text = "\nEnter controller number or alternatively its name:"
-        name = utils.getUserInput(text, input_type=[str],
+        existing_devices = names + list(map(str, range(len(names))))
+        print("\nEnter controller number or alternatively its name:")
+        name = utils.getUserInput('>>> ', input_type=[str],
                                  be_in=existing_devices)
         try:
-            controller = [name]
+            controller = controllers[name]
         except KeyError:
-            name = devices[int(name)]
+            name = names[int(name)]
             controller = controllers[name]
 
         # Print current parameters and infos.
@@ -237,16 +235,16 @@ class DobermanDB(object):
             print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
         print(60 * '-')
         print('Which parameter(s) do you want to change?')
-        which = utils.getUserInput('Parameter:', input_type=[str],be_in=key1+keys2,exceptions=['n'])
+        which = utils.getUserInput('Parameter: ', input_type=[str], be_in=key1 + keys2, exceptions=['n'])
         while which != 'n':
             if which == 'status':
-                text = 'Controller %s: Status (ON/OFF):' % name
-                status = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF','n'])
-                if status != 'n':
+                text = 'Status (ON/OFF): '
+                val = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF'], exceptions=['n'])
+                if val != 'n':
                     self.updateDatabase('settings','controllers', {'name' : name},
-                            {'$set' : {'%s.%s' % (which,controller['runmode']) : status}})
+                            {'$set' : {'%s.%s' % (which,controller['runmode']) : val}})
             elif which == 'alarm_status':
-                text = 'Controller %s: alarm status (ON/OFF, ON/OFF...):' % name
+                text = 'Alarm status (ON/OFF, ON/OFF...): '
                 val = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF'],
                         be_array=True,exceptions=['n'])
                 if val != 'n':
@@ -254,15 +252,15 @@ class DobermanDB(object):
                     self.updateDatabase('settings','controllers', {'name' : name},
                             {'$set' : {'%s.%s' % (which,controller['runmode']) : val}})
             elif which in ['alarm_low', 'alarm_high', 'warning_low', 'warning_high']:
-                text = 'Controller {name} {wh[1]} {wh[0]} level(s) (float(s)):'.format(
-                        name=name,wh=which.split('_'))
+                wh = which.split('_')
+                text = f'{wh[1]} {wh[0]} level(s) (float(s)): '
                 vals = utils.getUserInput(text, input_type=[int, float], be_array=True, exceptions=['n'])
                 if vals != 'n':
                     vals = utils.adjustListLength(vals, controller['number_of_data'], 0, which)
                     self.updateDatabase('settings','controllers', {'name' : name},
                             {'$set' : {'%s.%s' % (which, controller['runmode']) : vals}})
             elif which == 'readout_interval':
-                text = 'Controller %s readout interval (int):' % name
+                text = 'Readout interval (int):'
                 val = utils.getUserInput(text, input_type=[int, float], limits=[1, 86400], exceptions=['n'])
                 if val != 'n':
                     self.updateDatabase('settings','controller',{'name' : name},
@@ -270,15 +268,15 @@ class DobermanDB(object):
                     controller[which] = val
                     changes.append(which)
             elif which == 'alarm_recurrence':
-                text = 'Controller %s alarm recurrence (# consecutive values past limits before issuing warning/alarm):' % name
+                text = 'Alarm recurrence (# consecutive values past limits before issuing warning/alarm): '
                 val = utils.getUserInput(text, input_type=[int], limits=[1,99], exceptions=['n'])
                 if val != 'n':
-                    val = utils.adjustListLength(val, controller['number_of_data'], 1, which)
+                    val = utils.adjustListLength(val, controller['number_of_data'], 3, which)
                     self.updateDatabase('settings','controllers',{'name' : name},
                             {'$set' : {'%s.%s' % (which, controller['runmode']) : val}})
                     changes.append(which)
             elif which == 'runmode':
-                text = 'Runmode:'
+                text = 'Runmode: '
                 val = utils.getUserInput(text, input_type=[str], exceptions=['n'], be_in=['default','testing','recovery'])
                 if val != 'n':
                     self.updateDatabase('settings','controllers',{'name' : name},
@@ -295,54 +293,8 @@ class DobermanDB(object):
         print()
         for key in keys2:
             print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
-        #self.addSettingToConfigHistory(controller)
-
-    def updateSettings(self):
-        """
-        Updates the default Doberman settings
-        """
-        settings = self.getDefaultSettings()
-        if settings == -1:
-            return -1
-        q, Q = 'q', 'q'
-        print("\nThe following Doberman settings are stored:")
-        for k, v in settings.items():
-            print('%s: %s' % (k, v))
-        while True:
-            text= ("\nEnter name of entry you would like to change or 'q' "
-                   "to quit.")
-            key = utils.getUserInput(text,
-                                    input_type=[str],
-                                    be_in=list(settings.keys()),
-                                    exceptions = [q, Q])
-            if key in [q, Q]:
-                break
-            if key == 'tty_update':
-                print('Can\'t update that here!')
-                continue
-            text = ("Enter new value for %s:" % (user_input))
-            if user_input == "loglevel":
-                input_type = [int]
-                be_in = [0, 10, 20, 30, 40, 50]
-                be_array = False
-            else:
-                input_type = [int]
-                be_in = None
-                be_array = False
-            value = utils.getUserInput(text,
-                                      input_type=input_type,
-                                      be_in=be_in,
-                                      be_array=be_array)
-            if self.updateDatabase('config','default_settings',cuts={'parameter' : key},
-                    update = {'$set' : {'value' : value}}):
-                self.logger.error('Could not update %s' % key)
-            else:
-                self.logger.info("Updated %s." % key)
-        print("New settings are:")
-        newsettings = self.getDefaultSettings()
-        for k,v in newsettings.items():
-            print('%s: %s' % (k,v))
-        return
+        print()
+        print()
 
     def getDefaultSettings(self, runmode=None, name=None):
         """
@@ -387,35 +339,36 @@ class DobermanDB(object):
         print('  - No string signs (") needed.\n  '
               '- Enter n for no change')
         print('\n' + 60 * '-' +
-              '\n  Saved contacts are:\n  (Name, Status, Email, Phone)\n')
+              '\n  Saved contacts are:\n  (Name, Status)\n')
         if contacts == -1:
             self.logger.error("Could not load contacts.")
             return -1
-        for key in contacts:
-            for field in contacts[key]:
-                print('%s: %s' % field, contacts[key][field])
-            print()
+        for i, contact in enumerate(contacts):
+            print('(%i) %s: %s' % (i, contact['name'], contact['status']))
         print('\n' + 60 * '-' + '\n')
 
         # Change contact
-        text = "Enter the number of the contact you would like to update"
-        name = utils.getUserInput(text,
-                                 input_type=[str],
-                                 be_in=existing_numbers)
-        contact = contacts[list(contacts.keys())[int(name)]]
+        text = "Enter the number of the contact you would like to update: "
+        num = utils.getUserInput(text,
+                                 input_type=[int],
+                                 be_in=range(len(contacts)))
+        contact = contacts[num]
+        name = contact['name']
         # Status
-        text = ("Enter new status of contact '%s' (or n for no change). "
+        text = ("Enter new status of %s (or n for no change). "
                     "It can be 'ON' (all notifications), "
                     "'OFF' (no notifications), 'MAIL' (only by email), "
-                    "'SMS' (only by phone)." % name)
+                    "'SMS' (only by phone): " % name)
         status = utils.getUserInput(text, input_type=[str],
                                        be_in=['ON', 'OFF', 'MAIL', 'SMS', 'n'])
         if status != 'n':
             if self.updateDatabase('settings','contacts',
                     cuts={'name' : contact['name']},
-                    update={'$set' : {'status' : status}}):
+                    updates={'$set' : {'status' : status}}):
                 self.logger.error('Could not update contact!')
                 return -1
+            print('Done!')
+        print()
         return 0
 
     def writeDataToDatabase(self, name, when, data, status):
@@ -444,32 +397,30 @@ class DobermanDB(object):
         to_quit = ['q','Q','n']
         while which not in to_quit:
             print('What do you want to update?')
-            print('contacts | controllers | settings')
+            print(' contacts | controllers')
             print('(use q, Q, or n to quit)')
-            which = input('>>>')
+            which = input('>>> ')
             if which == 'contacts':
                 self.updateContacts()
             elif which == 'controllers':
                 self.updateController()
-            elif which == 'settings':
-                self.updateSettings()
             elif which not in to_quit:
                 print('Invalid input: %s' % which)
 
     def addOpmode(self):
         print('What is the name of this runmode?')
-        name = input('>>>')
-        print('What loglevel (default 20?')
-        loglevel = utils.getUserInput('Loglevel', input_type=[int], be_in=range(10,60,10),
+        name = input('>>> ')
+        print('What loglevel (default 20 = \'info\')?')
+        loglevel = utils.getUserInput('>>> ', input_type=[int], be_in=range(10,60,10),
                 exceptions=['n'])
         if loglevel == 'n':
             loglevel = 20
-        print('Testrun (default 5)?')
-        testrun = utils.getUserInput('Testrun', input_type=[int],exceptions=['n'])
+        print('Testrun - how soon after starting can alarms be issued (default 5)?')
+        testrun = utils.getUserInput('>>> ', input_type=[int],exceptions=['n'])
         if testrun == 'n':
             testrun = 5
-        print('Message timer (default 5)?')
-        msg_time = utils.getUserInput('Message timer', input_type=[int], exceptions=['n'])
+        print('Message timer - how often (in minutes) alarms can be issued (default 5)?')
+        msg_time = utils.getUserInput('>>> ', input_type=[int], exceptions=['n'])
         if msg_time == 'n':
             msg_time = 5
         if self.insertIntoDatabase('settings','runmodes',{'mode' : name,
@@ -479,13 +430,13 @@ class DobermanDB(object):
 
     def addContact(self):
         print('Contact name:')
-        name = input('>>>')
+        name = input('>>> ')
         print('Contact sms')
-        sms = input('>>>')
+        sms = input('>>> ')
         print('Contact email')
-        email = input('>>>')
+        email = input('>>> ')
         print('Contact status (ON,SMS,MAIL,OFF)')
-        status = utils.getUserInput('Status', input_type[str], be_in=['ON','SMS','MAIL','OFF'], exceptions=['n'])
+        status = utils.getUserInput('>>> ', input_type[str], be_in=['ON','SMS','MAIL','OFF'], exceptions=['n'])
         if status == 'n':
             status = 'OFF'
         if self.insertIntoDatabase('settings','contacts',{'name' : name, 'sms' : sms,
