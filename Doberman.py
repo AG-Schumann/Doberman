@@ -249,7 +249,7 @@ def main():
     parser.add_argument('--refresh', action='store_true', default=False,
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
-    if db.getDefaultSettings(name='online') and not parser.force:
+    if db.getDefaultSettings(name='online') and not opts.force:
         print('Is there an instance of Doberman already running?')
         return
     if opts.version:
