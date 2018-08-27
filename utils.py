@@ -116,7 +116,7 @@ def input_eval(inputstr, literaleval=True):
             return literal_eval(inputstr)
         except:
             pass
-    return str(input_str)
+    return str(inputstr)
 
 def refreshTTY(db):
     """
