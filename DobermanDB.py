@@ -183,7 +183,6 @@ class DobermanDB(object):
         This function prints all information for each parameter
         which should be entered in the config database table.
         """
-        print("Name: -- Name of your device. ")
         print("Status: -- ON/OFF: is your instrument (or plugin) turned on or not.")
         print("Alarm Status: -- ON/OFF,...: ")
         print("Lower Warning Level -- : Float,...: ")
@@ -293,8 +292,7 @@ class DobermanDB(object):
         print()
         for key in keys2:
             print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
-        print()
-        print()
+        print('\n')
 
     def getDefaultSettings(self, runmode=None, name=None):
         """
