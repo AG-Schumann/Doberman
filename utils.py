@@ -217,13 +217,21 @@ def FindPlugin(name, path):
     ------
     FileNotFoundError
         If the specified file can't be found
+    AttributeError
+        If the constructor can't be found
     """
-    if name != 'RAD7':
-        name = name.strip('0123456789')
     spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
+        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
+    if spec is None:
         raise FileNotFoundError('Could not find a controller named %s' % name)
-    controller_ctor = getattr(spec.loader.load_module(), name)
+    try:
+        controller_ctor = getattr(spec.loader.load_module(), name)
+    except AttributeError:
+        try:
+            controller_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
+        except AttributeError:
+            raise AttributeError('Cound not find constructor for %s!' % name)
     return controller_ctor
 
 class SignalHandler(object):

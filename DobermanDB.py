@@ -176,7 +176,7 @@ class DobermanDB(object):
         Stores commands for the system. Command == 'help' describes accepted commands
         """
         names = self.Distinct('settings','controllers','name')
-        names_ = '|'.join(names)
+        names_ = '|'.join(names + ['all'])
         runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
         whoami = os.environ['USER']
         if command_str.startswith('help'):
