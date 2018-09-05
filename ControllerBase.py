@@ -1,6 +1,4 @@
-from subprocess import Popen, PIPE, TimeoutExpired
 import serial
-import os.path
 import socket
 import time
 import logging
@@ -65,7 +63,7 @@ class Controller(object):
         positions, etc)
         """
         if not hasattr(self, 'command_patterns'):
-            raise NotImplementedError()
+            self.logger.error("I don't accept specific commands")
         for pattern, func in self.command_patterns:
             m = pattern.search(command)
             if not m:

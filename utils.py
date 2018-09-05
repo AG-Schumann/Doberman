@@ -5,6 +5,7 @@ import importlib
 import importlib.machinery
 import time
 import datetime
+import signal
 dtnow = datetime.datetime.now
 
 
@@ -123,10 +124,15 @@ def refreshTTY(db):
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
-    collection = db._check('settings','controllers')
-    if collection.count_documents({'online' : True, 'address.ttyUSB' : {'$exists' : 1}}):
-        print('Some USB controllers are running! Can\'t refresh TTY settings')
-        return False
+    cuts = {'online' : True, 'address.ttyUSB' : {'$exists' : 1}}
+    if db.Count('settings','controllers', cuts):
+        print('Some USB controllers are running! Stopping them now')
+        running_controllers = db.Distinct('settings','controllers','name', cuts)
+        for name in running_controllers:
+            db.StoreCommand('stop %s' % name)
+        time.sleep(5)
+    else:
+        running_controllers = []
     db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
     print('Refreshing ttyUSB mapping...')
     proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
@@ -138,7 +144,7 @@ def refreshTTY(db):
     if not len(out) or len(err):
         raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
     ttyUSBs = out.decode().splitlines()
-    cursor = db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}}) # only need to do this for serial devices
+    cursor = db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}})
     sensor_config = {row['name'] : row for row in cursor}
     sensor_names = list(sensor_config.keys())
     sensors = {name: None for name in sensor_names}
@@ -181,13 +187,14 @@ def refreshTTY(db):
         name = (set(sensors.keys())-set(matched['sensors'])).pop()
         tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
         print('Matched %s to %s via n-1' % (name, tty))
-        db.updateDatabase('settings','controllers',{'name' : name},
+        db.updateDatabase('settings','controllers', {'name' : name},
                 {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
     elif len(matched['sensors']) != len(sensors):
         print('Didn\'t find the expected number of sensors!')
         return False
-    db.updateDatabase('settings','defaults', {},
-            {'$set' : {'tty_update' : dtnow()}})
+    db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
+    for name in running_controllers:
+        db.StoreCommand('start %s' % name)
     return True
 
 def FindPlugin(name, path):
@@ -218,3 +225,14 @@ def FindPlugin(name, path):
         raise FileNotFoundError('Could not find a controller named %s' % name)
     controller_ctor = getattr(spec.loader.load_module(), name)
     return controller_ctor
+
+class SignalHandler(object):
+    """ Handles signals from the OS
+    """
+    def __init__(self):
+        self.interrupted = False
+        signal.signal(signal.SIGINT, self.interrupt)
+        signal.signal(signal.SIGTERM, self.interrupt)
+
+    def interrupt(self, *args):
+        self.interrupted = True
