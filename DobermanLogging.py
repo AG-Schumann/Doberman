@@ -6,7 +6,7 @@ import os
 
 class DobermanLogger(logging.Handler):
     """
-    Custom logging interface for Doberman. Gives us the option to log to
+    Custom logging interface for Doberman. Logs to
     the database (with disk as backup).
     """
     def __init__(self, db):
@@ -25,13 +25,19 @@ class DobermanLogger(logging.Handler):
         self.setFormatter(f)
         self.stream.setFormatter(f)
 
+    def close(self):
+        self.backup_logger.close()
+        self.stream.close()
+        self.db = None
+        return
+
     def __del__(self):
-        #self.db.close()  # doesn't own db instance
+        self.close()
         return
 
     def emit(self, record):
-        self.stream.emit(record)
-        if record.levelno <= logging.INFO:
+        #self.stream.emit(record)
+        if record.levelno < logging.INFO:
             return
         rec = dict(when     = datetime.datetime.fromtimestamp(record.created),
                 msg         = record.msg,
