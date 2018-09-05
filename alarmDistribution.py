@@ -4,6 +4,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import DobermanDB
+import sys
 
 
 class alarmDistribution(object):
@@ -212,3 +213,14 @@ class alarmDistribution(object):
         print 'Return data: %s' % str(send_ret)
         '''
 
+def main():
+    db = DobermanDB.DobermanDB()
+    aldist = alarmDistribution(db)
+    msg = 'Something wrong with Doberman? The following things aren\'t heartbeating correctly:\n'
+    msg += ' '.join(sys.argv[1:])
+    to_addr = [c['email'] for c in db.getContacts('email')]
+    aldist.sendEmail(toaddr=to_addr, subject='Doberman heartbeat', message=msg)
+    db.close()
+
+if __name__ == '__main__':
+    main()

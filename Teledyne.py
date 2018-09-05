@@ -1,6 +1,7 @@
 from ControllerBase import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
+import time
 
 
 class Teledyne(SerialController):
@@ -62,6 +63,14 @@ class Teledyne(SerialController):
             return resp
         m = self.get_reading.search(resp['data'])
         if not m:
-            return {'retcode' : -4, 'data' : -1}
+            self.logger.debug('Lemme try again')
+            time.sleep(1)
+            resp = self.SendRecv(command)
+            if resp['retcode'] or not resp['data']:
+                self.logger.error('No data')
+                return resp
+            m = self.get_reading.search(resp['data'])
+            if not m:
+                return {'retcode' : -4, 'data' : -1}
         return {'retcode' : 0, 'data' : float(m.group('value'))}
 
