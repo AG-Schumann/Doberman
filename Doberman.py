@@ -14,7 +14,7 @@ import utils
 import signal
 dtnow = datetime.datetime.now
 
-__version__ = '2.1.1'
+__version__ = '3.0.0'
 
 class Doberman(object):
     '''
@@ -32,7 +32,7 @@ class Doberman(object):
 
         self.db = db
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
-            'runmode' : runmode}})
+            'runmode' : runmode, 'status' : 'online'}})
 
         self.alarmDistr = alarmDistribution.alarmDistribution(db)
 
@@ -43,7 +43,8 @@ class Doberman(object):
         if self.db is None:  # already shut down
             return
         self.logger.info('Shutting down')
-        self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False}})
+        self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False,
+            'status' : 'offline'}})
         self.db = None  # not responsible for cleanup here
         return
 
@@ -68,7 +69,7 @@ class Doberman(object):
             self.logger.debug('Not updating tty settings')
         return 0
 
-    def startController(self, name, runmode=self.runmode):
+    def startController(self, name, runmode='default'):
         """
         Starts the specified controller and releases it into the wild
         """
@@ -80,25 +81,24 @@ class Doberman(object):
         '''
         Watches all the bees
         '''
-        self.running = True
-        self.loop_time = 30
+        self.sleep = False
+        loop_time = 30
         self.logger.info('Watch ALL the bees!')
-        sighandler = utils.SignalHandler()
+        sighand = utils.SignalHandler()
         self.start_time = dtnow()
         try:
-            while self.running and not sighandler.interrupted:
-                self.logger.debug('Still watching the bees...')
-                self.Heartbeat()
+            while not sighand.interrupted:
                 loop_start_time = time.time()
-                self.checkAlarms()
-                self.checkCommands()
-                while (time.time()-loop_start_time) < self.loop_time and self.running:
+                self.Heartbeat()
+                if not self.sleep:
+                    self.logger.debug('Still watching the bees...')
+                    self.checkAlarms()
+                    self.checkCommands()
+                while (time.time()-loop_start_time) < loop_time and not sighand.interrupted:
                     time.sleep(1)
                     self.checkCommands()
-                    if sighandler.interrupted:
-                        break
-        except KeyboardInterrupt:
-            self.logger.fatal("Program killed by ctrl-c")
+        except Exception as e:
+            self.logger.fatal("Caught fatal exception: %s | %s" % (type(e), str(e)))
         finally:
             self.close()
 
@@ -113,27 +113,21 @@ class Doberman(object):
         while doc is not None:
             command = doc['command']
             self.logger.info(f"Found '{command}'")
-            args = command.split(maxsplit=1)
-            if len(args) > 1:
-                command = args[0]
-                args = args[1:]
-            else:
-                command = args[0]
-            if command == 'stop':
-                self.running = False
-            elif command == 'restart':
-                self.db.StoreCommand('all stop')
-                time.sleep(10)
-                self.startAllControllers()
-            elif 'runmode' in command:
-                try:
-                    _, runmode = command.split()
-                except ValueError:
-                    self.logger.error("Could not understand command '%s'" % command)
-                else:
-                    self.db.updateDatabase('settings','defaults',{},{'$set' : {'runmode' : runmode}})
-                    loglevel = self.db.getDefaultSettings(runmode=runmode,name=loglevel)
-                    self.logger.setLevel(int(loglevel))
+            if command == 'sleep':
+                self.sleep = True
+                self.db.updateDatabase('settings','defaults',{},{'$set' : {'status' : 'sleep'}})
+            elif command == 'wake':
+                self.sleep = False
+                self.db.updateDatabase('settings','defaults',{},{'$set' : {'status' : 'online'}})
+            elif command.startswith('start'):
+                _, name = command.split()
+                runmode = self.db.getDefaultSettings(name='runmode')
+                self.StartController(name, runmode)
+            elif command.startswith('runmode'):
+                _, runmode = command.split()
+                self.db.updateDatabase('settings','defaults',{},{'$set' : {'runmode' : runmode}})
+                loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
+                self.logger.setLevel(int(loglevel))
             else:
                 self.logger.error("Command '%s' not understood" % command)
             doc = self.db.FindCommand(select(), updates())

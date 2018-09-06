@@ -18,7 +18,8 @@ class DobermanDB(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
-            conn_str = os.environ['DOBERMAN_CONN']
+            with open('connection_uri','r') as f:
+                conn_str = f.read().rstrip()
         except Exception as e:
             print("Can not load database connection details. Error %s" % e)
             raise
@@ -188,33 +189,44 @@ class DobermanDB(object):
             self.PrintHelp(n)
             return
 
-        d = lambda n,cmd : {'name' : n, 'command' : cmd, 'by' : whoami}
         patterns = [
-            ('start (?P<name>%s)' % names_, lambda m : d('doberman', 'start ' + m.group('name'))),
-            ('stop (?P<name>%s)' % names_, lambda m : d(m.group('name'), 'stop')),
-            ('restart (?P<name>%s)' % names_, lambda m : [d(m.group('name'), 'stop'), d('doberman', 'start ' + m.group('name'))]),
-            ('runmode (?P<runmode>%s)' % runmodes_, lambda m : d('doberman', 'runmode ' + m.group('runmode'))),
-            ('sleep', lambda m : d('doberman', 'sleep')),
-            ('wake', lambda m : d('doberman', 'wake')),
-            ('(?P<name>%s) sleep' % names_, lambda m : d(m.group('name'), 'sleep')),
-            ('(?P<name>%s) wake' % names_, lambda m : d(m.group('name'), 'wake')),
-            ('(?P<name>%s) runmode (?P<runmode>%s)' % (names_, runmodes_), lambda m : d(m.group('name'), 'runmode ' + m.group('runmode'))),
-            ('(?P<name>%s) (?P<command>.+)$' % names_, lambda m : d(m.group('name'), m.group('command'))),
+            ('start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
+            ('stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
+            ('sleep', lambda m : ('doberman', 'sleep')),
+            ('wake', lambda m : ('doberman', 'wake')),
+            ('(?P<name>%s) sleep' % names_, lambda m : (m.group('name'), 'sleep')),
+            ('(?P<name>%s) wake' % names_, lambda m : (m.group('name'), 'wake')),
+            ('(?P<name>%s) runmode (?P<runmode>%s)' % (names_, runmodes_), lambda m : (m.group('name'), 'runmode ' + m.group('runmode'))),
+            ('(?P<name>%s) (?P<command>.+)$' % names_, lambda m : (m.group('name'), m.group('command'))),
         ]
         for pattern, func in patterns:
             m = re.search(pattern, command_str)
             if m:
-                doc = func(m)
-                if isinstance(doc, dict):
-                    self.insertIntoDatabase('logging','commands', doc.update({'logged' : dtnow()}))
-                else:  # restart command
-                    self.insertIntoDatabase('logging', 'commands',
-                            doc[0].update({'logged' : dtnow()}))
-                    self.insertIntoDatabase('logging', 'commands',
-                            doc[1].update({'logged' : dtnow() + datetime.timedelta(seconds = 10)}))
+                print('Storing command \'%s\'' % command_str)
+                name, com = func(m)
+                docs = []
+                if name == 'all':
+                    for n in self.Distinct('settings','controllers','name', {'online' : True}):
+                        docs.append({'name' : n, 'by' : whoami, 'logged' : dtnow(),
+                            'command' : com if com != 'restart' else 'stop'})
+                        if com == 'restart':
+                            docs.append({'name' : 'doberman', 'by' : whoami,
+                                'command' : 'start ' + n,
+                                'logged' : dtnow() + datetime.timedelta(seconds=10)})
+                else:
+                    docs.append({'name' : name, 'by' : whoami, 'logged' : dtnow(),
+                        'command' : com if com != 'restart' else 'stop'})
+                    if com == 'restart':
+                        docs.append({'name' : 'doberman', 'by' : whoami,
+                            'command' : 'start' + name,
+                            'logged' : dtnow() + datetime.timedelta(seconds=10)})
+
+                self.insertIntoDatabase('logging','commands',docs)
                 break
         else:
-            print('Command %s not understood' % command_str)
+            print('Command \'%s\' not understood' % command_str)
 
     def logAlarm(self, document):
         """
