@@ -21,7 +21,7 @@ class Plugin(threading.Thread):
     to the database.
     """
 
-    def __init__(self, name, plugin_paths, force=False):
+    def __init__(self, db, name, plugin_paths, force=False):
         """
         Constructor
 
@@ -44,7 +44,7 @@ class Plugin(threading.Thread):
         self.logger = logging.getLogger(name)
         self.name = name
         self.logger.debug('Starting plugin...')
-        self.db = DobermanDB.DobermanDB()
+        self.db = db
         config_doc = self.db.readFromDatabase('settings','controllers',
                 {'name' : self.name}, onlyone=True)
         self.controller_ctor = utils.FindPlugin(self.name, plugin_paths)
@@ -58,6 +58,7 @@ class Plugin(threading.Thread):
         self.number_of_data = int(config_doc['number_of_data'])
         self.description = config_doc['description']
         self.recurrence_counter = [0] * self.number_of_data
+        self.status_counter = [0] * self.number_of_data
         self.last_message_time = dtnow()
         self.late_counter = 0
         self.last_measurement_time = dtnow()
@@ -67,15 +68,13 @@ class Plugin(threading.Thread):
         self.has_quit = False
 
     def close(self):
-        """Closes the controller, and sets the threading event"""
+        """Closes the controller"""
         self.running = False
-        if self.controller:
-            self.logger.info('Stopping...')
-            self.controller.close()
-        else:
-            self.logger.info('Already stopped!')
+        if not self.controller:
+            return
+        self.logger.info('Stopping...')
+        self.controller.close()
         self.controller = None
-        self.db.close()
         return
 
     def OpenController(self):
@@ -85,7 +84,7 @@ class Plugin(threading.Thread):
         try:
             self.controller = self.controller_ctor(self.ctor_opts)
         except Exception as e:
-            self.logger.error('Could not open controller')
+            self.logger.error('Could not open controller. Error: %s' % e)
             self.controller = None
             raise
         else:
@@ -126,8 +125,8 @@ class Plugin(threading.Thread):
                 try:
                     self.logger.debug('Reopening controller...')
                     self.OpenController()
-                except:
-                    self.logger.error('Could not reopen controller!')
+                except Exception as e:
+                    self.logger.error('Could not reopen controller! Error %s | %s' % (type(e), e))
                 else:
                     self.logger.debug('Reopened controller')
             self.HandleCommands()
@@ -210,18 +209,22 @@ class Plugin(threading.Thread):
             try:
                 if alarm_status[i] != 'ON':
                     continue
-                if status[i] < 0 and not too_soon:
-                    msg = f'Something wrong? Status[{i}] is {status[i]}'
-                    self.logger.warning(msg)
-                    self.db.logAlarm({'name' : self.name, 'index' : i,
-                        'when' : when, 'status' : status[i], 'data' : values[i],
-                        'reason' : 'NC', 'howbad' : 1, 'msg' : msg})
+                if status[i] < 0:
+                    self.status_counter[i] += 1
+                    if self.status_counter[i] >= 3 and not too_soon:
+                        msg = f'Something wrong? Status[{i}] is {status[i]}'
+                        self.logger.warning(msg)
+                        self.db.logAlarm({'name' : self.name, 'index' : i,
+                            'when' : when, 'status' : status[i], 'data' : values[i],
+                            'reason' : 'NC', 'howbad' : 1, 'msg' : msg})
+                        self.last_message_time = dtnow()
+                        self.status_counter[i] = 0
                 elif clip(values[i], alarm_low[i], alarm_high[i]) in \
                     [alarm_low[i], alarm_high[i]]:
                     self.recurrence_counter[i] += 1
                     status[i] = 2
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
-                        msg = (f'Reading {i} ({self.description[i]}, '
+                        msg = (f'Reading {i} ({self.description[i]}, value '
                                f'{values[i]:.2f}) is outside the alarm range '
                                f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
                         self.logger.critical(msg)
@@ -235,7 +238,7 @@ class Plugin(threading.Thread):
                     self.recurrence_counter[i] += 1
                     status[i] = 1
                     if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
-                        msg = (f'Reading {i} ({self.description[i]}, '
+                        msg = (f'Reading {i} ({self.description[i]}, value '
                                 f'{values[i]:.2f}) is outside the warning range '
                                 f'({warning_low[i]:.2f}, {warning_high[i]:.2f})')
                         self.logger.warning(msg)
@@ -246,6 +249,7 @@ class Plugin(threading.Thread):
                         self.last_message_time = dtnow()
                 else:
                     self.recurrence_counter[i] = 0
+                    self.status_counter[i] = 0
             except Exception as e:
                 self.logger.critical(f'Could not check data[{i}]: {e}')
         if not self._connected:
@@ -281,28 +285,24 @@ class Plugin(threading.Thread):
         ------
         None
         """
-        doc_filter = {'name' : self.name, 'acknowledged' : {'$exists' : 0},
+        doc_filter = lambda : {'name' : self.name, 'acknowledged' : {'$exists' : 0},
                 'logged' : {'$lte' : dtnow()}}
-        collection = self.db._check('logging','commands')
-        while collection.count_documents(doc_filter):
-            updates = {'$set' : {'acknowledged' : dtnow()}}
-            command = collection.find_one_and_update(doc_filter, updates)['command']
+        updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
+        doc = self.db.FindCommand(doc_filter(), updates())
+        while doc is not None:
+            command = doc['command']
             self.logger.info(f"Found command '{command}'")
             if 'runmode' in command:
-                try:
-                    _, runmode = command.split()
-                except ValueError:
-                    self.logger.error(f"Could not understand command '{command}'")
-                else:
-                    self.db.updateDatabase('settings','controllers',
+                _, runmode = command.split()
+                self.db.updateDatabase('settings','controllers',
                                 {'name': self.name}, {'$set' : {'runmode' : runmode}})
-                    loglevel = db.getDefaultSettings(runmode=runmode,name='loglevel')
-                    self.logger.setLevel(int(loglevel))
+                loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
+                self.logger.setLevel(int(loglevel))
             elif command == 'stop':
                 self.running = False
                 self.has_quit = True
                 # makes sure we don't get restarted
-            elif command == 'start':
+            elif command == 'wake':
                 runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
                         {'$set' : {'status.%s' % runmode : 'ON'}})
@@ -310,26 +310,22 @@ class Plugin(threading.Thread):
                 runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
                         {'$set' : {'status.%s' % runmode : 'OFF'}})
-            elif command == 'restart':
-                self.running = False
-                # don't set has_quit here, so main() restarts us
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
+            doc = self.db.FindCommand(doc_filter(), updates())
         return
 
 def main(args_in=None):
     db = DobermanDB.DobermanDB()
-    names = db._check('settings','controllers').distinct('name')
-    runmodes = db._check('settings','runmodes').distinct('mode')
+    names = db.Distinct('settings','controllers','name')
+    runmodes = db.Distinct('settings','runmodes','mode')
     parser = argparse.ArgumentParser(description='Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the controller',choices=names)
     parser.add_argument('--runmode', type=str, dest='runmode', choices=runmodes,
                         help='Which run mode to use', default='default')
-    parser.add_argument('--force', action='store_true', default=False,
-                        help='Force the plugin to load (if it didn\'t reset)')
     if args_in:
         args = parser.parse_args(args_in)
     else:
@@ -340,32 +336,35 @@ def main(args_in=None):
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
     doc = db.readFromDatabase('settings','controllers',{'name' : args.plugin_name},onlyone=True)
-    if doc['online'] and not args.force:
+    if doc['online']:
         logger.fatal('%s already running!' % args.plugin_name)
         db.close()
         return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode, 'online' : True}})
-
-    plugin = Plugin(args.plugin_name, plugin_paths, args.force)
+    logger.info('Starting %s' % args.plugin_name)
+    plugin = Plugin(db, args.plugin_name, plugin_paths)
     plugin.start()
+    sh = utils.SignalHandler()
     running = True
     try:
-        while running:
+        while running and not sh.interrupted:
+            loop_start = time.time()
             logger.debug('I\'m still here')
-            time.sleep(30)
+            while time.time() - loop_start < 30 and not sh.interrupted:
+                time.sleep(1)
             if plugin.has_quit:
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
-                logger.error('%s died! Restarting...' % plugin.name)
+                logger.error('Controller died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
                     plugin.join()
-                    plugin = Plugin(args.plugin_name, plugin_paths, args.force)
+                    plugin = Plugin(db, args.plugin_name, plugin_paths)
                     plugin.start()
                 except Exception as e:
-                    logger.critical('Could not restart %s' % plugin.name)
+                    logger.critical('Could not restart: %s | %s' % (type(e), e))
                     plugin.running = False
                     plugin.join()
                     running = False
@@ -376,6 +375,8 @@ def main(args_in=None):
         plugin.join()
         db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
                 {'$set' : {'online' : False}})
+        logger.info('Shutting down')
+        logging.shutdown()
         db.close()
 
     return

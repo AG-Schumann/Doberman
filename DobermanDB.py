@@ -5,6 +5,7 @@ import pymongo
 import utils
 import argparse
 import os
+import re  # EVERYBODY STAND BACK xkcd.com/208
 dtnow = datetime.datetime.now
 
 
@@ -17,7 +18,8 @@ class DobermanDB(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
-            conn_str = os.environ['DOBERMAN_CONN']
+            with open('/scratch/doberman/connection_uri','r') as f:
+                conn_str = f.read().rstrip()
         except Exception as e:
             print("Can not load database connection details. Error %s" % e)
             raise
@@ -126,37 +128,107 @@ class DobermanDB(object):
                 return 1
         return 0
 
-    def StoreCommand(self, command):
-        """
-        Adds commands to the database
-        """
-        controller, cmd = command.split(maxsplit=1)
-        coll = self._check('settings','controllers')
-        if cmd == 'help':
-            print('Accepted commands for %s:' % controller)
-            print('start: sets status to "ON"')
-            print('stop: shuts down the controller')
-            print('sleep: sets status to "OFF" (but does not shut down)')
-            print('restart: restarts the controller')
-            print('runmode <runmode>: changes the active runmode')
+    def Distinct(self, db_name, collection_name, field, cuts={}):
+        return self._check(db_name, collection_name).distinct(field, cuts)
 
-            if controller in coll.distinct('name'):
-                ctrl_cls = utils.FindPlugin(controller, ['.'])
-                if not hasattr(ctrl_cls, 'accepted_commands'):
-                    return
+    def Count(self, db_name, collection_name, cuts):
+        return self._check(db_name, collection_name).count_documents(cuts)
+
+    def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, sort=None):
+        collection = self._check(db_name, collection_name)
+        doc = collection.find_one_and_update(cuts, updates, sort=sort)
+        return doc
+
+    def FindCommand(self, cuts, updates):
+        return self.FindOneAndUpdate('logging','commands', cuts, updates, sort=[('logged',1)])
+
+    def PrintHelp(self, name):
+        print('Accepted commands:')
+        print('help <plugin_name>: help for specific plugin')
+        print('start <plugin_name>: starts the specified plugin')
+        print('stop <plugin_name>: stops the specified plugin')
+        print('restart <plugin_name>: hard restarts the specified plugin')
+        print('runmode <runmode>: changes the active runmode')
+        print('sleep: puts Doberman to sleep')
+        print('wake: reactivates Doberman')
+        print()
+        print('Available plugins:')
+        names = self.Distinct('settings','controllers','name')
+        print(' | '.join(names))
+        print()
+        print('Plugin commands:')
+        print('<plugin_name> sleep: puts the specified plugin to sleep')
+        print('<plugin_name> wake: reactivates the specified plugin')
+        print('<plugin_name> runmode <runmode>: changes the active runmode for the specified controller')
+        print()
+        if name:
+            print('Commands specific to %s:' % name)
+            ctrl_cls = utils.FindPlugin(name, ['.'])
+            if not hasattr(ctrl_cls, 'accepted_commands'):
+                print('none')
+            else:
                 for row in ctrl_cls.accepted_commands:
                     print(row)
+        print()
+        print('Plugin name == "all" issues the command to all running plugins')
+        print()
+        return
+
+    def StoreCommand(self, command_str):
+        """
+        Stores commands for the system. Command == 'help' describes accepted commands
+        """
+        names = self.Distinct('settings','controllers','name')
+        names_ = '|'.join(names + ['all'])
+        runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
+        whoami = os.environ['USER']
+        if command_str.startswith('help'):
+            n = None
+            if len(command_str) > len('help'):
+                name = command_str[len('help'):]
+                if name in names:
+                    n = name
+            self.PrintHelp(n)
             return
-        print(f"Storing command '{cmd}' for {controller}")
-        if controller == 'all':
-            controllers = coll.distinct('name',{'online' : True})
+
+        patterns = [
+            ('^start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
+            ('^stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('^restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('^runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
+            ('^sleep', lambda m : ('doberman', 'sleep')),
+            ('^wake', lambda m : ('doberman', 'wake')),
+            ('^(?P<name>%s) sleep' % names_, lambda m : (m.group('name'), 'sleep')),
+            ('^(?P<name>%s) wake' % names_, lambda m : (m.group('name'), 'wake')),
+            ('^(?P<name>%s) runmode (?P<runmode>%s)' % (names_, runmodes_), lambda m : (m.group('name'), 'runmode ' + m.group('runmode'))),
+            ('^(?P<name>%s) (?P<command>.+)$' % names_, lambda m : (m.group('name'), m.group('command'))),
+        ]
+        for pattern, func in patterns:
+            m = re.search(pattern, command_str)
+            if m:
+                print('Storing command \'%s\'' % command_str)
+                name, com = func(m)
+                docs = []
+                if name == 'all':
+                    for n in self.Distinct('settings','controllers','name', {'online' : True}):
+                        docs.append({'name' : n, 'by' : whoami, 'logged' : dtnow(),
+                            'command' : com if com != 'restart' else 'stop'})
+                        if com == 'restart':
+                            docs.append({'name' : 'doberman', 'by' : whoami,
+                                'command' : 'start ' + n,
+                                'logged' : dtnow() + datetime.timedelta(seconds=10)})
+                else:
+                    docs.append({'name' : name, 'by' : whoami, 'logged' : dtnow(),
+                        'command' : com if com != 'restart' else 'stop'})
+                    if com == 'restart':
+                        docs.append({'name' : 'doberman', 'by' : whoami,
+                            'command' : 'start' + name,
+                            'logged' : dtnow() + datetime.timedelta(seconds=10)})
+
+                self.insertIntoDatabase('logging','commands',docs)
+                break
         else:
-            controllers = [controller]
-        for ctrl in controllers:
-            if self.insertIntoDatabase('logging', 'commands',
-                {'name' : ctrl, 'command' : cmd, 'logged' : dtnow()}):
-                print('Could not store command for %s!' % ctrl)
-        return 0
+            print('Command \'%s\' not understood' % command_str)
 
     def logAlarm(self, document):
         """
@@ -450,18 +522,19 @@ class DobermanDB(object):
                 print('Could not read file! Error: %s' % e)
             if self.insertIntoDatabase('settings','controllers',d):
                 print('Could not add controller!')
+            else:
+                print('Controller added')
         return
 
 def main():
-    parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n DobermanDB interface')
+    parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman interface')
 
     db = DobermanDB()
     parser.add_argument('--update', action='store_true', default=False,
                         help='Update settings/contacts/etc')
-    parser.add_argument('--command', nargs='+',
+    parser.add_argument('command', nargs='*',
                         help='Issue a command to the system. Format: '
-                            '<name> <command>. <command> == \'help\' prints '
-                            'accepted commands for <name>')
+                            '<name> <command>. Try \'help\'')
     parser.add_argument('--add-runmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
