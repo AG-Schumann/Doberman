@@ -9,7 +9,7 @@ Type=simple
 Restart=always
 RestartSec=3
 User=doberman
-ExecStart=/scratch/anaconda3/envs/Doberman/bin/python3 /scratch/doberman/Doberman.py
+ExecStart=/scratch/doberman/Doberman.py
 
 [Install]
 WantedBy=multi-user.target
