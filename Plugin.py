@@ -125,8 +125,8 @@ class Plugin(threading.Thread):
                 try:
                     self.logger.debug('Reopening controller...')
                     self.OpenController()
-                except:
-                    self.logger.error('Could not reopen controller!')
+                except Exception as e:
+                    self.logger.error('Could not reopen controller! Error %s | %s' % (type(e), e))
                 else:
                     self.logger.debug('Reopened controller')
             self.HandleCommands()
@@ -342,7 +342,7 @@ def main(args_in=None):
         return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode, 'online' : True}})
-
+    logger.info('Starting %s' % args.plugin_name)
     plugin = Plugin(db, args.plugin_name, plugin_paths)
     plugin.start()
     sh = utils.SignalHandler()
@@ -357,14 +357,14 @@ def main(args_in=None):
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
-                logger.error('%s died! Restarting...' % plugin.name)
+                logger.error('Controller died! Restarting...' % plugin.name)
                 try:
                     plugin.running = False
                     plugin.join()
-                    plugin = Plugin(args.plugin_name, plugin_paths)
+                    plugin = Plugin(db, args.plugin_name, plugin_paths)
                     plugin.start()
                 except Exception as e:
-                    logger.critical('Could not restart %s' % plugin.name)
+                    logger.critical('Could not restart: %s | %s' % (type(e), e))
                     plugin.running = False
                     plugin.join()
                     running = False
@@ -375,6 +375,7 @@ def main(args_in=None):
         plugin.join()
         db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
                 {'$set' : {'online' : False}})
+        logger.info('Shutting down')
         logging.shutdown()
         db.close()
 
