@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/scratch/anaconda3/envs/Doberman/bin/python3
 import time
 import logging
 import DobermanDB
@@ -8,7 +8,7 @@ from argparse import ArgumentParser
 import DobermanLogging
 import Plugin
 import psutil
-from subprocess import Popen, PIPE, TimeoutExpired
+from subprocess import Popen, PIPE, TimeoutExpired, DEVNULL
 from threading import Thread
 import utils
 import signal
@@ -25,8 +25,8 @@ class Doberman(object):
     Closes all processes in the end.
     '''
 
-    def __init__(self, db, runmode):
-        self.runmode = runmode
+    def __init__(self, db):
+        self.runmode = 'testing'
         self.logger = logging.getLogger(self.__class__.__name__)
         self.last_message_time = dtnow()
 
@@ -59,7 +59,7 @@ class Doberman(object):
     def Start(self):
         last_tty_update_time = self.db.getDefaultSettings(name='tty_update')
         boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
-        self.logger.debug('tty settings last set %s, boot time %s' % (
+        self.logger.info('tty settings last set %s, boot time %s' % (
             last_tty_update_time, boot_time))
         if boot_time > last_tty_update_time:
             if not utils.refreshTTY(self.db):
@@ -69,12 +69,12 @@ class Doberman(object):
             self.logger.debug('Not updating tty settings')
         return 0
 
-    def startController(self, name, runmode='default'):
+    def StartController(self, name, runmode='default'):
         """
         Starts the specified controller and releases it into the wild
         """
         self.logger.info('Starting %s' % name)
-        cmd = '/usr/bin/env python Plugin.py --name %s --runmode %s' % (name, runmode)
+        cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s --runmode %s' % (name, runmode)
         _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd='/scratch/doberman')
 
     def watchBees(self):
@@ -111,6 +111,7 @@ class Doberman(object):
         updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
         doc = self.db.FindCommand(select(), updates())
         while doc is not None:
+            self.logger.info('%s' % doc)
             command = doc['command']
             self.logger.info(f"Found '{command}'")
             if command == 'sleep':
@@ -139,10 +140,10 @@ class Doberman(object):
         msg_format = '{name} : {when} : {msg}'
         messages = {'alarms' : [], 'warnings' : []}
         updates = {'$set' : {'acknowledged' : dtnow()}}
-        while self.db.Count(doc_filter_alarms):
+        while self.db.Count('logging','alarm_history',doc_filter_alarms):
             alarm = self.db.FindOneAndUpdate('logging','alarm_history',doc_filter_alarms, updates)
             messages['alarms'].append(msg_format.format(**alarm))
-        while self.db.Count(doc_filter_warns):
+        while self.db.Count('logging','alarm_history',doc_filter_warns):
             warn = self.db.FindOneAndUpdate('logging','alarm_history',doc_filter_warns, updates)
             messages['warnings'].append(msg_format.format(**warn))
         if messages['alarms']:
@@ -207,17 +208,14 @@ class Doberman(object):
         self.last_message_time = now
         return 0
 
-def main():
+def main(db):
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')
     logger = logging.getLogger()
     logger.setLevel(20)
-    db = DobermanDB.DobermanDB()
-    runmodes = db._check('settings','runmodes').distinct('mode')
+    runmodes = db.Distinct('settings','runmodes','mode')
     logger.addHandler(DobermanLogging.DobermanLogger(db))
+    logger.info('Starting up')
     # START PARSING ARGUMENTS
-    parser.add_argument('--runmode', default='default',type=str,
-                        choices=runmodes,
-                        help='Which operational mode to use')
     parser.add_argument("--version",
                        action="store_true",
                        help="Print version and exit")
@@ -225,17 +223,17 @@ def main():
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
     if db.getDefaultSettings(name='online'):
-        print('Is there an instance of Doberman already running?')
-        return 1
+        logger.error('Is there an instance of Doberman already running?')
+        return 2
     if opts.version:
-        print('Doberman version %s' % __version__)
+        logger.info('Doberman version %s' % __version__)
         return 0
-    loglevel = db.getDefaultSettings(runmode = opts.runmode, name='loglevel')
+    loglevel = db.getDefaultSettings(runmode = 'default', name='loglevel')
     logger.setLevel(int(loglevel))
     if opts.refresh:
         if not utils.refreshTTY(db):
-            print('Failed!')
-            db.close()
+            logger.error('Failed!')
+            logging.shutdown()
             return 2
     # Load and start script
     doberman = Doberman(db, opts.runmode)
@@ -251,8 +249,9 @@ def main():
     finally:
         doberman.close()
         logging.shutdown()
-        db.close()
     return 0
 
 if __name__ == '__main__':
-    return main()
+    db = DobermanDB.DobermanDB()
+    main(db)
+    db.close()
