@@ -3,8 +3,6 @@ import datetime
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import DobermanDB
-import sys
 
 
 class alarmDistribution(object):
@@ -18,8 +16,7 @@ class alarmDistribution(object):
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db = db
-        details = self.db._check('settings','contacts').find_one(
-                {'conn_details' : {'$exists' : 1}})['conn_details']
+        details = self.db.readFromDatabase('settings','contacts', {'conn_details' : {'$exists' : 1}}, onlyone=True)['conn_details']
         self.mailconnection_details = details['email']
         self.smsconnection_details = details['sms']
         if not self.mailconnection_details:
