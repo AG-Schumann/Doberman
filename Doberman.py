@@ -69,7 +69,7 @@ class Doberman(object):
             self.logger.debug('Not updating tty settings')
         return 0
 
-    def StartController(self, name, runmode='default'):
+    def StartController(self, name, runmode='testing'):
         """
         Starts the specified controller and releases it into the wild
         """
