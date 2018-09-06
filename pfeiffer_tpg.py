@@ -17,6 +17,7 @@ class pfeiffer_tpg(LANController):
     def _getControl(self):
         super()._getControl()
         self.SendRecv(self.commands['identify'])
+        return True
         # stops the continuous flow of data
 
     def Readout(self):

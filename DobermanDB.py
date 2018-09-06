@@ -18,7 +18,7 @@ class DobermanDB(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
-            with open('connection_uri','r') as f:
+            with open('/scratch/doberman/connection_uri','r') as f:
                 conn_str = f.read().rstrip()
         except Exception as e:
             print("Can not load database connection details. Error %s" % e)
@@ -135,7 +135,9 @@ class DobermanDB(object):
         return self._check(db_name, collection_name).count_documents(cuts)
 
     def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, sort=None):
-        return self._check(db_name, collection_name).find_one_and_update(cuts, updates,sort=sort)
+        collection = self._check(db_name, collection_name)
+        doc = collection.find_one_and_update(cuts, updates, sort=sort)
+        return doc
 
     def FindCommand(self, cuts, updates):
         return self.FindOneAndUpdate('logging','commands', cuts, updates, sort=[('logged',1)])
@@ -190,16 +192,16 @@ class DobermanDB(object):
             return
 
         patterns = [
-            ('start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
-            ('stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
-            ('restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
-            ('runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
-            ('sleep', lambda m : ('doberman', 'sleep')),
-            ('wake', lambda m : ('doberman', 'wake')),
-            ('(?P<name>%s) sleep' % names_, lambda m : (m.group('name'), 'sleep')),
-            ('(?P<name>%s) wake' % names_, lambda m : (m.group('name'), 'wake')),
-            ('(?P<name>%s) runmode (?P<runmode>%s)' % (names_, runmodes_), lambda m : (m.group('name'), 'runmode ' + m.group('runmode'))),
-            ('(?P<name>%s) (?P<command>.+)$' % names_, lambda m : (m.group('name'), m.group('command'))),
+            ('^start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
+            ('^stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('^restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('^runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
+            ('^sleep', lambda m : ('doberman', 'sleep')),
+            ('^wake', lambda m : ('doberman', 'wake')),
+            ('^(?P<name>%s) sleep' % names_, lambda m : (m.group('name'), 'sleep')),
+            ('^(?P<name>%s) wake' % names_, lambda m : (m.group('name'), 'wake')),
+            ('^(?P<name>%s) runmode (?P<runmode>%s)' % (names_, runmodes_), lambda m : (m.group('name'), 'runmode ' + m.group('runmode'))),
+            ('^(?P<name>%s) (?P<command>.+)$' % names_, lambda m : (m.group('name'), m.group('command'))),
         ]
         for pattern, func in patterns:
             m = re.search(pattern, command_str)

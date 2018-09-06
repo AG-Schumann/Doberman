@@ -15,7 +15,7 @@ def main():
     msg_format = '{when} | {level} | {name} | {funcname} | {lineno} | {msg}'
     try:
         while True:
-            then = datetime.datetime.now() - timedelta(seconds = args.delay)
+            then = datetime.datetime.now() - datetime.timedelta(seconds = args.delay)
             cursor = db.readFromDatabase('logging','logs', {'when' : {'$gt' : then}, 'level' : {'$gte' : args.level}})
             for row in cursor:
                 print(msg_format.format(**row))
