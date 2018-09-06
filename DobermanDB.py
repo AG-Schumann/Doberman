@@ -532,7 +532,7 @@ def main():
     db = DobermanDB()
     parser.add_argument('--update', action='store_true', default=False,
                         help='Update settings/contacts/etc')
-    parser.add_argument('command', nargs='+',
+    parser.add_argument('command', nargs='*',
                         help='Issue a command to the system. Format: '
                             '<name> <command>. Try \'help\'')
     parser.add_argument('--add-runmode', action='store_true', default=False,
