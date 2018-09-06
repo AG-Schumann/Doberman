@@ -120,6 +120,7 @@ class Plugin(threading.Thread):
                     data = self.Readout()
                     if -1 in data[2] or -2 in data[2]: # connection lost
                         self._connected = False
+                        self.logger.error('Lost connection to device?')
                     self.ProcessData(data, rundoc)
             else:
                 try:
@@ -198,8 +199,6 @@ class Plugin(threading.Thread):
         alarm_status = rundoc['alarm_status'][runmode]
         alarm_low = rundoc['alarm_low'][runmode]
         alarm_high = rundoc['alarm_high'][runmode]
-        warning_low = rundoc['warning_low'][runmode]
-        warning_high = rundoc['warning_high'][runmode]
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
         recurrence = rundoc['alarm_recurrence'][runmode]
         readout_interval = rundoc['readout_interval']
@@ -209,44 +208,31 @@ class Plugin(threading.Thread):
             try:
                 if alarm_status[i] != 'ON':
                     continue
-                if status[i] < 0:
-                    self.status_counter[i] += 1
-                    if self.status_counter[i] >= 3 and not too_soon:
-                        msg = f'Something wrong? Status[{i}] is {status[i]}'
-                        self.logger.warning(msg)
-                        self.db.logAlarm({'name' : self.name, 'index' : i,
-                            'when' : when, 'status' : status[i], 'data' : values[i],
-                            'reason' : 'NC', 'howbad' : 1, 'msg' : msg})
-                        self.last_message_time = dtnow()
-                        self.status_counter[i] = 0
-                elif clip(values[i], alarm_low[i], alarm_high[i]) in \
-                    [alarm_low[i], alarm_high[i]]:
-                    self.recurrence_counter[i] += 1
-                    status[i] = 2
-                    if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
-                        msg = (f'Reading {i} ({self.description[i]}, value '
-                               f'{values[i]:.2f}) is outside the alarm range '
-                               f'({alarm_low[i]:.2f}, {alarm_high[i]:.2f})')
-                        self.logger.critical(msg)
-                        self.db.logAlarm({'name' : self.name, 'index' : i,
-                            'when' : when, 'status' : status[i], 'data' : values[i],
-                            'reason' : 'A', 'howbad' : 2, 'msg' : msg})
-                        self.recurrence_counter[i] = 0
-                        self.last_message_time = dtnow()
-                elif clip(values[i], warning_low[i], warning_high[i]) in \
-                    [warning_low[i], warning_high[i]]:
-                    self.recurrence_counter[i] += 1
-                    status[i] = 1
-                    if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
-                        msg = (f'Reading {i} ({self.description[i]}, value '
-                                f'{values[i]:.2f}) is outside the warning range '
-                                f'({warning_low[i]:.2f}, {warning_high[i]:.2f})')
-                        self.logger.warning(msg)
-                        self.db.logAlarm({'name' : self.name, 'index' : i,
-                            'when' : when, 'status' : status[i], 'data' : values[i],
-                            'reason' : 'W', 'howbad' : 1, 'msg' : msg})
-                        self.recurrence_counter[i] = 0
-                        self.last_message_time = dtnow()
+                if status[i] < 0 and not too_soon:
+                    msg = f'Something wrong? Status[{i}] is {status[i]}'
+                    self.logger.warning(msg)
+                    self.db.logAlarm({'name' : self.name, 'index' : i,
+                        'when' : when, 'status' : status[i], 'data' : values[i],
+                        'reason' : 'NC', 'howbad' : 1, 'msg' : msg})
+
+                for j in range(len(alarm_status))[::-1]:
+                    lo = alarm_low[j][i]
+                    hi = alarm_high[j][i]
+                    val = values[i]
+                    if clip(val, lo, hi) in [lo, hi]:
+                        self.recurrence_counter[i] += 1
+                        status[i] = j+1
+                        if self.recurrence_counter[i] >= recurrence[i] and not too_soon:
+                            msg = (f'Reading {i} ({self.description[i]}, value '
+                               f'{val:.2f}) is outside the level {j} alarm range '
+                               f'({lo:.2f}, {hi:.2f})')
+                            self.logger.critical(msg)
+                            self.db.logAlarm({'name' : self.name, 'index' : i,
+                                'when' : when, 'status' : status[i], 'data' : val,
+                                'reason' : 'A', 'howbad' : j+1, 'msg' : msg})
+                            self.recurrence_counter[i] = 0
+                            self.last_message_time = dtnow()
+                        break
                 else:
                     self.recurrence_counter[i] = 0
                     self.status_counter[i] = 0
