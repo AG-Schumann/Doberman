@@ -14,7 +14,7 @@ import utils
 import signal
 dtnow = datetime.datetime.now
 
-__version__ = '3.0.0'
+__version__ = '3.0.1'
 
 class Doberman(object):
     '''
@@ -84,7 +84,7 @@ class Doberman(object):
         self.sleep = False
         loop_time = 30
         self.logger.info('Watch ALL the bees!')
-        sighand = utils.SignalHandler()
+        sighand = utils.SignalHandler(self.logger)
         self.start_time = dtnow()
         try:
             while not sighand.interrupted:

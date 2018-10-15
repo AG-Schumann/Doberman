@@ -345,7 +345,7 @@ def main(args_in=None):
     logger.info('Starting %s' % args.plugin_name)
     plugin = Plugin(db, args.plugin_name, plugin_paths)
     plugin.start()
-    sh = utils.SignalHandler()
+    sh = utils.SignalHandler(logger)
     running = True
     try:
         while running and not sh.interrupted:
