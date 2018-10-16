@@ -140,7 +140,29 @@ class DobermanDB(object):
         return doc
 
     def FindCommand(self, cuts, updates):
-        return self.FindOneAndUpdate('logging','commands', cuts, updates, sort=[('logged',1)])
+        return self.FindOneAndUpdate('logging','commands', cuts,
+                updates, sort=[('logged',1)])
+
+    def getMessageProtocols(self, level):
+        collection = self._check('settings','alarm_config')
+        doc = self.readFromDatabase('settings','alarm_config',
+                {'level' : level}, onlyone=True)
+        if doc is None:
+            self.logger.error('No message protocols for alarm level %i! Defaulting to email' % level)
+            return ['email']
+        return doc['protocols']
+
+    def getContactAddresses(self, level):
+        """
+        Returns a list of addresses to contact at 'level'
+        """
+        protocols = self.getMessageProtocols(level)
+        ret = {k : [] for k in protocols}
+        for doc in self.readFromDatabase('settings','contacts',
+                {'level' : {'$gte' : 0, '$lte' : level}}):
+            for p in protocols:
+                ret[p].append(doc[p])
+        return ret
 
     def PrintHelp(self, name):
         print('Accepted commands:')
@@ -381,22 +403,6 @@ class DobermanDB(object):
         if name:
             return doc[name]
         return doc
-
-    def getContacts(self,status=None):
-        """
-        Reads contacts from database.
-        """
-        if not status:
-            cuts = {'name' : {'$exists' : 1}}  # cuts the 'conn_details' doc
-        elif status == 'sms':
-            cuts={'status' : {'$in' : ['ON','SMS']}}
-        elif status == 'email':
-            cuts={'status' : {'$in' : ['ON','MAIL']}}
-        collection = self._check('settings','contacts')
-        if collection.count(cuts) == 0:
-            self.logger.warning("No contacts found (with status %s)" % str(status))
-            return []
-        return [row for row in collection.find(cuts)]
 
     def updateContacts(self):
         """
