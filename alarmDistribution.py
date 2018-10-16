@@ -16,15 +16,7 @@ class alarmDistribution(object):
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db = db
-        details = self.db.readFromDatabase('settings','contacts', {'conn_details' : {'$exists' : 1}}, onlyone=True)['conn_details']
-        self.mailconnection_details = details['email']
-        self.smsconnection_details = details['sms']
-        if not self.mailconnection_details:
-            self.logger.critical("No Mail connection details loaded! Will not "
-                                 "be able to send warnings and alarms!")
-        if not self.smsconnection_details:
-            self.logger.critical("No SMS connection details loaded! Will not "
-                                 "be able to send alarms by sms!")
+
     def close(self):
         self.db = None
         return
@@ -162,49 +154,3 @@ class alarmDistribution(object):
             return -1
         return 0
 
-        # Example from smscreator without email.
-        # Direct login.
-        '''
-        send_ret = ''
-        ret_status = False
-        sms_recipient = '171xxxxxxxxxx'
-        smstext = 'test sms text'
-
-        sms_baseurl = 'https://www.smscreator.de/gateway/Send.asmx/SendSMS'
-        sms_user = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-        sms_pass = 'xxxxxxxxxxxxxxxxx'
-        sms_caption = 'test'
-        sms_sender = '0171xxxxxxxxxxxx'
-        sms_type = '6' # standard sms (160 chars): 6
-
-        send_date = time.strftime('%Y-%m-%dT%H:%M:%S')
-
-        request_map = { 'User': sms_user, 'Password': sms_pass, 'Caption' : sms_caption, 'Sender' : sms_sender, 'SMSText' : smstext, 'Recipient' : sms_recipient, 'SmsTyp' : sms_type, 'SendDate' : send_date }
-        txdata = urllib.urlencode(request_map)
-        txheaders = {}
-        try:
-            filehandle = urllib2.urlopen(sms_baseurl, txdata)
-            send_ret = filehandle.read()
-            filehandle.close()
-            ret_status = True
-        except Exception, e:
-            print 'Error happend: %s'%str(e)
-
-        if ret_status:
-            print 'Status: SMS to %s send succeeded.' % str(sms_recipient)
-        else:
-            print 'Status: SMS to %s send failed.' % str(sms_recipient)
-        print 'Return data: %s' % str(send_ret)
-        '''
-
-def main():
-    db = DobermanDB.DobermanDB()
-    aldist = alarmDistribution(db)
-    msg = 'Something wrong with Doberman? The following things aren\'t heartbeating correctly:\n'
-    msg += ' '.join(sys.argv[1:])
-    to_addr = [c['email'] for c in db.getContacts('email')]
-    aldist.sendEmail(toaddr=to_addr, subject='Doberman heartbeat', message=msg)
-    db.close()
-
-if __name__ == '__main__':
-    main()
