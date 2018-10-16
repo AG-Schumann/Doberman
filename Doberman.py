@@ -16,6 +16,7 @@ dtnow = datetime.datetime.now
 
 __version__ = '3.1.0'
 
+
 class Doberman(object):
     '''
     Doberman short for
@@ -80,7 +81,7 @@ class Doberman(object):
         self.sleep = False
         loop_time = 30
         self.logger.info('Watch ALL the bees!')
-        sh = utils.SignalHandler()
+        sh = utils.SignalHandler(self.logger)
         self.start_time = dtnow()
         try:
             while not sh.interrupted:
