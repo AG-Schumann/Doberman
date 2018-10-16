@@ -34,39 +34,34 @@ class alarmDistribution(object):
         return
 
     def getConnectionDetails(self, which):
+        detail_doc = self.db.readFromDatabase('settings','contacts',
+                {'conn_details' : {'$exists' : 1}}, onlyone=True)
         try:
-            details = self.db._check('settings','contacts').find_one(
-                    {'conn_details' : {'$exists' : 1}})['conn_details']
-            if 'mail' in which:
-                self.mailconnection_details = details['email']
-            else:
-                self.smsconnection_details = details['sms']
-        except Exception as e:
-            self.logger.error('Could not load email connection details!')
+            return detail_doc[which]
+        except KeyError:
+            self.logger.critical('Could not load connection details for %s' % which)
+            return None
 
     def sendEmail(self, toaddr, subject, message, Cc=None, Bcc=None, add_signature=True):
         '''
         Sends an email. Make sure toaddr is a list of strings.
         '''
-        # Get connections details
-        if not self.mailconnection_details:
-            self.getConnectionDetails('mail')
-            if not self.mailconnection_details:
-                self.logger.critical("No email connection details loaded! "
-                                     "Not able to send warnings and alarms!")
-                return -1
+        # Get connectioins details
+        connection_details = self.getConnectionDetails('email')
+        if connection_details is None:
+            return -1
         try:
             # Compose connection details and addresses
             now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            server = self.mailconnection_details['server']
-            port = int(self.mailconnection_details['port'])
-            fromaddr = self.mailconnection_details['fromaddr']
-            password = self.mailconnection_details['password']
+            server = connection_details['server']
+            port = int(connection_details['port'])
+            fromaddr = connection_details['fromaddr']
+            password = connection_details['password']
             if not isinstance(toaddr, list):
                 toaddr = toaddr.split(',')
             recipients = toaddr
             try:
-                contactaddr = self.mailconnection_details['contactaddr']
+                contactaddr = connection_details['contactaddr']
             except:
                 self.logger.warning("No contact address given. Mail will be "
                                     "sent without contact address.")
@@ -105,8 +100,8 @@ class alarmDistribution(object):
                 server.login(fromaddr, password)
                 server.sendmail(fromaddr, recipients, msg.as_string())
                 server.quit()
-            self.logger.info("Mail (Subject:%s) sent to %s" %
-                             (str(subject), str(toaddr)))
+            self.logger.info("Mail (Subject:%s) sent" %
+                             (str(subject)))
         except Exception as e:
             self.logger.warning("Could not send mail, error: %s." % e)
             try:
@@ -122,27 +117,19 @@ class alarmDistribution(object):
         This works with sms sides which provieds sms sending by email.
         '''
         # Get connection details
-        if not self.mailconnection_details:
-            self.getConnectionDetails('mail')
-            if not self.mailconnection_details:
-                self.logger.critical("No email connection details loaded! "
-                                     "Not able to send alarms at all!")
-                return -1
-        if not self.smsconnection_details:
-            self.getConnectionDetails('sms')
-            if not self.smsconnection_details:
-                self.logger.critical("No sms connection details loaded! "
-                                     "Not able to send alarms by sms!")
-                return -1
+        connection_details = self.getConnectionDetails('sms')
+        if connection_details is None:
+            return -1
         # Compose connection details and addresses
         try:
-            server = self.smsconnection_details['server']
-            identification = self.smsconnection_details['identification']
-            contactaddr = self.smsconnection_details['contactaddr']
-            fromaddr = self.mailconnection_details['fromaddr']
+            server = connection_details['server']
+            identification = connection_details['identification']
+            contactaddr = sconnection_details['contactaddr']
+            fromaddr = connection_details['fromaddr']
             if not phonenumber:
                 self.logger.warning("No phonenumber given. "
                                     "Can not send SMS.")
+                return 0
             # Server has different type request for 1 or several numbers.
             elif len(phonenumber) == 1:
                 toaddr = str(identification) + '.' + \
@@ -155,10 +142,10 @@ class alarmDistribution(object):
             message = str(message)
             subject = ''
             # Long SMS (>160 characters) cost more and are shortened
-            if len(str(message)) > 155:
+            if len(message) > 155:
                 self.logger.warning("SMS message exceets limit of 160 "
                                     "characters (%s characters). Message will "
-                                    "be cut off." % str(len(str(message))))
+                                    "be cut off." % str(len(message)))
                 message = message[:155]
             Cc = None
             if self.sendEmail(toaddr=toaddr,
