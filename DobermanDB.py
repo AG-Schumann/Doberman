@@ -184,8 +184,8 @@ class DobermanDB(object):
         whoami = os.environ['USER']
         if command_str.startswith('help'):
             n = None
-            if len(command_str) > len('help'):
-                name = command_str[len('help'):]
+            if len(command_str) > len('help '):
+                name = command_str[len('help '):]
                 if name in names:
                     n = name
             self.PrintHelp(n)
