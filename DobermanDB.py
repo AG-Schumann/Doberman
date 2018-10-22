@@ -323,7 +323,7 @@ class DobermanDB(object):
         contact = contacts[num]
         name = contact['name']
         # Status
-        text = ("Enter new status level of %s (or n for no change). " name)
+        text = ("Enter new status level of %s (or n for no change). " % name)
         status = utils.getUserInput(text, input_type=[int],
             exceptions=['n'])
         if status != 'n':

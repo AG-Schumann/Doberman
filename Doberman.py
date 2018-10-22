@@ -185,8 +185,8 @@ class Doberman(object):
                 subject = 'Doberman alarm level %i' % level
                 if self.alarmDistr.sendEmail(toaddr=recipients, subject=subject,
                                          message=message) == -1:
-                self.logger.error('Could not send email!' % howbad)
-                return -5
+                    self.logger.error('Could not send email!' % howbad)
+                    return -5
         self.last_message_time = now
         return 0
 
@@ -219,14 +219,14 @@ def main(db):
     doberman = Doberman(db)
     try:
         db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
-            'runmode' : runmode, 'status' : 'online'}})
+            'runmode' : 'default', 'status' : 'online'}})
         if doberman.Start():
             logger.error('Something went wrong here...')
         else:
             doberman.watchBees()
             logger.debug('Dem bees got dun watched')
     except Exception as e:
-        logger.error(type(e))
+        logger.error(str(type(e)))
         logger.error(str(e))
     finally:
         db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False,
