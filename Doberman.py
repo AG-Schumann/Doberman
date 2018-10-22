@@ -104,10 +104,7 @@ class Doberman(object):
                 {'$set' : {'heartbeat' : dtnow()}})
 
     def checkCommands(self):
-        select = lambda : {'name' : 'doberman', 'acknowledged' : {'$exists' : 0},
-                'logged' : {'$lte' : dtnow()}}
-        updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
-        doc = self.db.FindCommand(select(), updates())
+        doc = self.db.FindCommand('doberman')
         db_col = ('settings','defaults')
         while doc is not None:
             self.logger.info('%s' % doc)
@@ -130,7 +127,7 @@ class Doberman(object):
                 self.logger.setLevel(int(loglevel))
             else:
                 self.logger.error("Command '%s' not understood" % command)
-            doc = self.db.FindCommand(select(), updates())
+            doc = self.db.FindCommand('doberman')
         return
 
     def checkAlarms(self):

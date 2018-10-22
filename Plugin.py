@@ -274,10 +274,7 @@ class Plugin(threading.Thread):
         ------
         None
         """
-        doc_filter = lambda : {'name' : self.name, 'acknowledged' : {'$exists' : 0},
-                'logged' : {'$lte' : dtnow()}}
-        updates = lambda : {'$set' : {'acknowledged' : dtnow()}}
-        doc = self.db.FindCommand(doc_filter(), updates())
+        doc = self.db.FindCommand(self.name)
         while doc is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
@@ -303,7 +300,7 @@ class Plugin(threading.Thread):
                 self.controller.ExecuteCommand(command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
-            doc = self.db.FindCommand(doc_filter(), updates())
+            doc = self.db.FindCommand(self.name)
         return
 
 def main(db):
