@@ -107,7 +107,7 @@ class Doberman(object):
         doc = self.db.FindCommand('doberman')
         db_col = ('settings','defaults')
         while doc is not None:
-            self.logger.info('%s' % doc)
+            self.logger.debug('%s' % doc)
             command = doc['command']
             self.logger.info(f"Found '{command}'")
             if command == 'sleep':
@@ -185,7 +185,7 @@ class Doberman(object):
                 subject = 'Doberman alarm level %i' % level
                 if self.alarmDistr.sendEmail(toaddr=recipients, subject=subject,
                                          message=message) == -1:
-                    self.logger.error('Could not send email!' % howbad)
+                    self.logger.error('Could not send email!')
                     return -5
         self.last_message_time = now
         return 0

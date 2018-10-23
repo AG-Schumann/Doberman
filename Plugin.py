@@ -171,7 +171,7 @@ class Plugin(threading.Thread):
         if len(vals['retcode']) != self.number_of_data:
             vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
         upstream = [dtnow(), vals['data'], vals['retcode']]
-        self.logger.debug('Measured %s' % ['%.3f' % v for v in vals['data']])
+        self.logger.debug('Measured %s' % list(map('{:.3f}'.format, vals['data'])))
         return upstream
 
     def ProcessData(self, data, rundoc):
