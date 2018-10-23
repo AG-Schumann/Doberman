@@ -98,36 +98,6 @@ class DobermanDB(object):
             return 1
         return 0
 
-    def deleteFromDatabase(self, db_name, collection_name=None, which_document=None):
-        """
-        Deletes a document, collection, or database
-        """
-        if collection_name:
-            collection = self._check(db_name, collection_name)
-            if which_document:  # remove document
-                self.logger.debug('Removing document %s from %s/%s' % (
-                    which_document, db_name, collection_name))
-                ret = collection.remove(which_document)
-                if ret['ok'] != 1:
-                    self.logger.error('Document removal failed!')
-                    return 1
-            else:  # remove collection
-                self.logger.info('Dropping collection %s from %s' % (collection_name, db_name))
-                if not collection.drop():
-                    self.logger.error('Collection removal failed!')
-                    return 1
-        else:  # remove database
-            if which_document:
-                self.logger.error('Do you know what you\'re doing?')
-                return 2
-            db = self.client[db_name]
-            self.logger.info('Dropping database %s' % db_name)
-            ret = db.dropDatabase()
-            if ret['ok'] != 1:
-                self.logger.error('Database removal failed!')
-                return 1
-        return 0
-
     def Distinct(self, db_name, collection_name, field, cuts={}):
         return self._check(db_name, collection_name).distinct(field, cuts)
 
