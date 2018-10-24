@@ -26,8 +26,8 @@ class alarmDistribution(object):
         return
 
     def getConnectionDetails(self, which):
-        detail_doc = self.db.readFromDatabase('settings','contacts',
-                {'conn_details' : {'$exists' : 1}}, onlyone=True)
+        detail_doc = self.db.readFromDatabase('settings','alarm_config',
+                {'connection_details' : {'$exists' : 1}}, onlyone=True)
         try:
             return detail_doc[which]
         except KeyError:
@@ -55,8 +55,6 @@ class alarmDistribution(object):
             try:
                 contactaddr = connection_details['contactaddr']
             except:
-                self.logger.warning("No contact address given. Mail will be "
-                                    "sent without contact address.")
                 contactaddr = '--'
             # Compose message
             msg = MIMEMultipart()
