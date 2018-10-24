@@ -171,7 +171,7 @@ class Plugin(threading.Thread):
         if len(vals['retcode']) != self.number_of_data:
             vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
         upstream = [dtnow(), vals['data'], vals['retcode']]
-        self.logger.debug('Measured %s' % ['%.3f' % v for v in vals['data']])
+        self.logger.debug('Measured %s' % ['%.2g' % v for v in vals['data']])
         return upstream
 
     def ProcessData(self, data, rundoc):
@@ -210,7 +210,7 @@ class Plugin(threading.Thread):
                 if status[i] < 0:
                     self.status_counter[i] += 1
                     if self.status_counter[i] >= 3 and not too_soon:
-                        msg = f'Something wrong? Status[{i}] is {stat}'
+                        msg = f'Something wrong? Status[{i}] is {status[i]}'
                         self.logger.warning(msg)
                         self.db.logAlarm({'name' : self.name, 'index' : i,
                             'when' : when, 'status' : status[i], 'data' : value,
@@ -220,26 +220,26 @@ class Plugin(threading.Thread):
                 else:
                     self.status_counter[i] = 0
 
-                for j,(lo,hi) in enumerate(reading['alarms'][level:][::-1]):
+                for j in range(len(reading['alarms'])-1, level-1, -1):
+                    lo, hi = reading['alarms'][j]
                     if clip(value, lo, hi) in [lo, hi]:
                         self.recurrence_counter[i] += 1
-                        jp = len(reading['alarms']) - j
-                        status[i] = jp
+                        status[i] = j
                         if self.recurrence_counter[i] >= reading['recurrence'] and not too_soon:
                             msg = (f"Reading {i} ({reading['description']}, value "
-                               f'{value:.2f}) is outside the level {jp} alarm range '
-                               f'({lo:.2f}, {hi:.2f})')
+                               f'{value:.2g}) is outside the level {j} alarm range '
+                               f'({lo:.2g}, {hi:.2g})')
                             self.logger.critical(msg)
                             self.db.logAlarm({'name' : self.name, 'index' : i,
-                                'when' : when, 'status' : status[i], 'data' : val,
-                                'reason' : 'alarm', 'howbad' : jp, 'msg' : msg})
+                                'when' : when, 'status' : status[i], 'data' : value,
+                                'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
                             self.recurrence_counter[i] = 0
                             self.last_message_time = dtnow()
                         break
                 else:
                     self.recurrence_counter[i] = 0
             except Exception as e:
-                self.logger.critical(f"Could not check reading {i} ({reading['description']}): {e} ({type(e)}")
+                self.logger.critical(f"Could not check reading {i} ({reading['description']}): {e} ({str(type(e))}")
         if not self._connected:
             return
         time_diff = (when - self.last_measurement_time).total_seconds()
@@ -248,8 +248,8 @@ class Plugin(threading.Thread):
             if self.late_counter >= 3 and not too_soon:
                 msg = f'Last sent data {time_diff:.1f} sec ago instead of {readout_interval}'
                 self.logger.warning(msg)
-                self.db.logAlarm({'name' : self.name, 'when' : dtnow(), 'status' : [0],
-                    'data' : [time_diff], 'reason' : 'time difference', 'howbad' : 0,
+                self.db.logAlarm({'name' : self.name, 'when' : dtnow(), 'status' : 0,
+                    'data' : time_diff, 'reason' : 'time difference', 'howbad' : 0,
                     'msg' : msg})
                 self.late_counter = 0
         else:
