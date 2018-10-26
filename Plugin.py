@@ -7,6 +7,7 @@ import DobermanDB
 import argparse
 import DobermanLogging
 import utils
+from PID import FeedbackController
 dtnow = datetime.datetime.now
 
 
@@ -114,67 +115,66 @@ class Plugin(threading.Thread):
         self.running = True
         while self.running:
             loop_start_time = time.time()
-            rundoc = self.db.readFromDatabase('settings','controllers',
-                    {'name' : self.name}, onlyone=True)
-            if rundoc['status'][rundoc['runmode']] == 'ON':
-                if self._connected:
-                    data = self.Readout()
-                    if -1 in data[2] or -2 in data[2]: # connection lost
-                        self._connected = False
-                        self.logger.error('Lost connection to device?')
-                    self.ProcessData(data, rundoc)
-                else:
-                    try:
-                        self.logger.debug('Reopening controller...')
-                        self.OpenController()
-                    except Exception as e:
-                        self.logger.error('Could not reopen controller! Error %s | %s' % (type(e), e))
-                    else:
-                        self.logger.debug('Reopened controller')
+            configdoc = self.db.ControllerSettings(self.name)
+            if configdoc['status'][configdoc['runmode']] == 'ON':
+                self.Readout(configdoc)
             self.HandleCommands()
-            while (time.time() - loop_start_time) < rundoc['readout_interval'] and self.running:
-                time.sleep(1)
-                self.HandleCommands()
+            while (time.time() - loop_start_time) < configdoc['readout_interval'] and self.running:
+                self.KillTime(configdoc)
         self.close()
 
-    def Readout(self):
+    def KillTime(self, configdoc):
         """
-        Actually interacts with the device. Returns [time, data, status]
-        Ensures data and status are lists
+        Kills time while waiting for the main readout loop timer
+        """
+        time.sleep(1)
+        self.HandleCommands()
+        return
+
+    def Readout(self, configdoc):
+        """
+        Actually interacts with the device.
 
         Parameters
         ---------
-        None
+        configdoc:
+            The configuration document from the database
 
         Returns
         -------
-        time : datetime.datetime
-            When the data was recorded
-        data : list
-            The values read from the controller. Has length self.number_of_data, will
-            be padded with None if necessary
-        status : list
-            The status codes returned by the controller. Has length self.number_of_data,
-            will be padded with -3 if necessary
+        None
 
         Raises
         ------
         None
         """
-        vals = self.controller.Readout()
-        if not isinstance(vals['data'], (list, tuple)):
-            vals['data'] = [vals['data']]
-        if len(vals['data']) != self.number_of_data:
-            vals['data'] += [None]*(self.number_of_data - len(vals['data']))
-        if not isinstance(vals['retcode'], (list, tuple)):
-            vals['retcode'] = [vals['retcode']]
-        if len(vals['retcode']) != self.number_of_data:
-            vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
-        upstream = [dtnow(), vals['data'], vals['retcode']]
-        self.logger.debug('Measured %s' % list(map('{:.2g}'.format, vals['data'])))
-        return upstream
+        if self._connected:
+            vals = self.controller.Readout()
+            if not isinstance(vals['data'], (list, tuple)):
+                vals['data'] = [vals['data']]
+            if len(vals['data']) != self.number_of_data:
+                vals['data'] += [None]*(self.number_of_data - len(vals['data']))
+            if not isinstance(vals['retcode'], (list, tuple)):
+                vals['retcode'] = [vals['retcode']]
+            if len(vals['retcode']) != self.number_of_data:
+                vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
+            data = [dtnow(), vals['data'], vals['retcode']]
+            self.logger.debug('Measured %s' % list(map('{:.2g}'.format, vals['data'])))
+            if -1 in data[2] or -2 in data[2]: # connection lost
+                self._connected = False
+                self.logger.error('Lost connection to device?')
+            self.ProcessData(data, configdoc)
+        else:
+            try:
+                self.logger.debug('Reopening controller...')
+                self.OpenController()
+            except Exception as e:
+                self.logger.error('Could not reopen controller! Error %s | %s' % (type(e), e))
+            else:
+                self.logger.debug('Reopened controller')
+        return
 
-    def ProcessData(self, data, rundoc):
+    def ProcessData(self, data, configdoc):
         """
         Checks data for warning/alarms and writes it to the database
 
@@ -183,7 +183,7 @@ class Plugin(threading.Thread):
         data : [time, values, status]
             The quantity returned by Readout() above
 
-        rundoc : dict
+        configdoc : dict
             The controller's settings document from the database, that contains all the
             current parameters (alarm levels, etc) for operation
 
@@ -196,10 +196,10 @@ class Plugin(threading.Thread):
         None
         """
         when, values, status = data
-        runmode = rundoc['runmode']
+        runmode = configdoc['runmode']
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
-        readout_interval = rundoc['readout_interval']
-        readings = rundoc['readings']
+        readout_interval = configdoc['readout_interval']
+        readings = configdoc['readings']
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
         for i, (value, reading) in enumerate(zip(values, readings)):
@@ -318,15 +318,18 @@ def main(db):
     logger.addHandler(DobermanLogging.DobermanLogger(db))
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
-    doc = db.readFromDatabase('settings','controllers',
-            {'name' : args.plugin_name},onlyone=True)
+    doc = db.ControllerSettings(args.plugin_name)
     if doc['online']:
         logger.fatal('%s already running!' % args.plugin_name)
         return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode, 'online' : True}})
     logger.info('Starting %s' % args.plugin_name)
-    plugin = Plugin(db, args.plugin_name, plugin_paths)
+    if 'feedback' in doc:
+        ctor = FeedbackController
+    else:
+        ctor = Plugin
+    plugin = ctor(db, args.plugin_name, plugin_paths)
     plugin.start()
     sh = utils.SignalHandler(logger)
     running = True
@@ -344,7 +347,7 @@ def main(db):
                 try:
                     plugin.running = False
                     plugin.join()
-                    plugin = Plugin(db, args.plugin_name, plugin_paths)
+                    plugin = ctor(db, args.plugin_name, plugin_paths)
                     plugin.start()
                 except Exception as e:
                     logger.critical('Could not restart: %s | %s' % (type(e), e))

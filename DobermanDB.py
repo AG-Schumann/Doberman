@@ -98,6 +98,17 @@ class DobermanDB(object):
             return 1
         return 0
 
+    def GetData(self, plugin_name, start_time, data_index, end_time=None):
+        collection = self._check('data', plugin_name)
+        query = {'when' : {'$gte' : start_time}}
+        if end_time is not None:
+            query['when'].update({'$lte' : end_time})
+        projection = {'when' : 0, '_id' : 0}
+        b = []
+        for row in collection.find(query, projection):
+            b.append(row['data'][data_index])
+        return b
+
     def Distinct(self, db_name, collection_name, field, cuts={}):
         return self._check(db_name, collection_name).distinct(field, cuts)
 
@@ -219,7 +230,7 @@ class DobermanDB(object):
                         'command' : com if com != 'restart' else 'stop'})
                     if com == 'restart':
                         docs.append({'name' : 'doberman', 'by' : whoami,
-                            'command' : 'start' + name,
+                            'command' : 'start ' + name,
                             'logged' : dtnow() + datetime.timedelta(seconds=10)})
 
                 self.insertIntoDatabase('logging','commands',docs)
