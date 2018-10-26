@@ -45,7 +45,14 @@ class Controller(object):
         """
         Main readout function. Should be implemented for individual controller
         to call SendRecv with the measurement message. This function is called
-        by the readout thread
+        by the readout thread.
+        """
+        raise NotImplementedError()
+
+    def FeedbackReadout(self):
+        """
+        Reads the variable used during feedback. Just a single call to SendRecv.
+        Must return [timestamp (since epoch), value, status]
         """
         raise NotImplementedError()
 
