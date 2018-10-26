@@ -48,8 +48,7 @@ class Plugin(threading.Thread):
         self.name = name
         self.logger.debug('Starting plugin...')
         self.db = db
-        config_doc = self.db.readFromDatabase('settings','controllers',
-                {'name' : self.name}, onlyone=True)
+        config_doc = self.db.ControllerSettings(self.name)
         self.controller_ctor = utils.FindPlugin(self.name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
