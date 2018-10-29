@@ -27,7 +27,6 @@ class Doberman(object):
     '''
 
     def __init__(self, db):
-        self.runmode = 'testing'
         self.logger = logging.getLogger(self.__class__.__name__)
         self.last_message_time = dtnow()
 
@@ -202,7 +201,7 @@ def main(db):
     parser.add_argument('--refresh', action='store_true', default=False,
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
-    if db.getDefaultSettings(name='online'):
+    if db.getDefaultSettings(name='status') == 'online':
         logger.error('Is there an instance of Doberman already running?')
         return 2
     if opts.version:
@@ -217,8 +216,8 @@ def main(db):
     # Load and start script
     doberman = Doberman(db)
     try:
-        db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
-            'runmode' : 'default', 'status' : 'online'}})
+        db.updateDatabase('settings','defaults',{},{'$set' : {
+            'runmode' : 'testing', 'status' : 'online'}})
         if doberman.Start():
             logger.error('Something went wrong here...')
         else:
@@ -228,8 +227,7 @@ def main(db):
         logger.error(str(type(e)))
         logger.error(str(e))
     finally:
-        db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False,
-            'status' : 'offline'}})
+        db.updateDatabase('settings','defaults',{},{'$set' : {'status' : 'offline'}})
         doberman.close()
     return 0
 
