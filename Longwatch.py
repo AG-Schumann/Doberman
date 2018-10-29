@@ -18,8 +18,7 @@ def main(db):
     msg_format = '{when} | {level} | {name} | {funcname} | {lineno} | {msg}'
     try:
         while True:
-            then = datetime.datetime.now() - datetime.timedelta(seconds = args.delay)
-            for doc in db.readFromDatabase('logging','logs', cuts()):
+            for doc in db.readFromDatabase('logging','logs', cuts(args.delay,args.level)):
                 print(msg_format.format(**doc))
             time.sleep(args.delay)
     except KeyboardInterrupt:
@@ -30,6 +29,6 @@ if __name__ == '__main__':
     db = DobermanDB.DobermanDB()
     try:
         main(db)
-    except:
-        pass
+    except Exception as e:
+        print('Caught a %s: %s' % (type(e), e))
     db.close()

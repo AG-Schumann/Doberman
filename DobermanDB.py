@@ -88,11 +88,11 @@ class DobermanDB(object):
         cursor = collection.find(cuts, projection, **kwargs)
         if 'sort' in kwargs:
             cursor.sort(kwargs['sort'])
-        for doc in cursor:
-            if onlyone:
+        if onlyone:
+            for doc in cursor:
                 return doc
-            else:
-                yield doc
+        else:
+            return cursor
 
     def updateDatabase(self, db_name, collection_name, cuts, updates, **kwargs):
         """
