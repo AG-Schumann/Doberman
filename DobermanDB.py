@@ -128,7 +128,7 @@ class DobermanDB(object):
         doc = self.readFromDatabase('settings','alarm_config',
                 {'level' : level}, onlyone=True)
         if doc is None:
-            self.logger.error('No message protocols for alarm level %i! Defaulting to email' % level)
+            self.logger.error('No message protocols for alarm level %i! Defaulting to next lowest level' % level)
             doc = self.readFromDatabase('settings','alarm_config',
                     {'level' : {'$lte' : level}}, onlyone=True,
                     sort=[('level', -1)])
@@ -187,6 +187,7 @@ class DobermanDB(object):
         names_ = '|'.join(names + ['all'])
         runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
         whoami = os.environ['USER']
+        online = self.Distinct('settings','controllers','name', {'online' : True})
         if command_str.startswith('help'):
             n = None
             if len(command_str) > len('help'):
@@ -211,11 +212,11 @@ class DobermanDB(object):
         for pattern, func in patterns:
             m = re.search(pattern, command_str)
             if m:
-                print('Storing command \'%s\'' % command_str)
                 name, com = func(m)
+                print('Storing command \'%s\' for %s' % (com, name))
                 docs = []
                 if name == 'all':
-                    for n in self.Distinct('settings','controllers','name', {'online' : True}):
+                    for n in online:
                         docs.append({'name' : n, 'by' : whoami, 'logged' : dtnow(),
                             'command' : com if com != 'restart' else 'stop'})
                         if com == 'restart':
