@@ -99,14 +99,28 @@ class DobermanDB(object):
         return 0
 
     def GetData(self, plugin_name, start_time, data_index, end_time=None):
+        """
+        This function basically exists to support the PID loop. Returns a
+        numpy-structurable array of (timestamp, value) between start_time
+        and end_time, for the specified data index. 'Timestamp' is a float
+        of time since epoch
+
+        :param plugin_name: the name of the plugin to get data for
+        :param start_time: python Datetime instance of the earliest time to fetch
+        :param data_index: which entry in the data array you want
+        :param end_time: python Datetime instance of the latest time to fetch
+
+        Returns [(timestamp, value), (timestamp, value), ...]
+        """
         collection = self._check('data', plugin_name)
         query = {'when' : {'$gte' : start_time}}
         if end_time is not None:
             query['when'].update({'$lte' : end_time})
-        projection = {'when' : 0, '_id' : 0}
+        projection = {'status' : 0, '_id' : 0}
+        sort = [('when', 1)]
         b = []
-        for row in collection.find(query, projection):
-            b.append(row['data'][data_index])
+        for row in self.readFromDatabase('data', plugin_name, query, projection, sort=sort):
+            b.append((row['when'].timestamp(), row['data'][data_index]))
         return b
 
     def Distinct(self, db_name, collection_name, field, cuts={}):
@@ -118,6 +132,8 @@ class DobermanDB(object):
     def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, sort=None):
         collection = self._check(db_name, collection_name)
         doc = collection.find_one_and_update(cuts, updates, sort=sort)
+        if 'by' in doc and doc['by'] == 'feedback':
+            collection.delete_one({'_id' : doc['_id'})
         return doc
 
     def FindCommand(self, name):
