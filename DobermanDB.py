@@ -54,23 +54,24 @@ class DobermanDB(object):
         elif collection_name not in self.client[db_name].list_collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             self.client[db_name].create_collection(collection_name)
-            self.client[db_name][collection_name].create_index([('when',-1)])
+            if db_name == 'data':
+                self.client[db_name][collection_name].create_index([('when',-1)])
         return self.client[db_name][collection_name]
 
-    def insertIntoDatabase(self, db_name, collection_name, document):
+    def insertIntoDatabase(self, db_name, collection_name, document, **kwargs):
         """
         Inserts document(s) into the specified database/collection
         """
         collection = self._check(db_name, collection_name)
         if isinstance(document, (list, tuple)):
-            result = collection.insert_many(document)
+            result = collection.insert_many(document, **kwargs)
             if len(result.inserted_ids) != len(document):
-                self.logger.error('Inserted %i entries instead of %i into %/%s' % (
+                self.logger.error('Inserted %i entries instead of %i into %s/%s' % (
                     len(result.inserted_ids), len(document), db_name, collection_name))
                 return -1
             return 0
         elif isinstance(document, dict):
-            result = collection.insert_one(document)
+            result = collection.insert_one(document, **kwargs)
             if result.acknowledged:
                 return 0
             else:
@@ -79,34 +80,39 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}, onlyone = False):
+    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}, onlyone = False, **kwargs):
         """
         Finds one or more documents that pass the specified cuts
         """
         collection = self._check(db_name,collection_name)
-        if onlyone:
-            return collection.find_one(cuts, projection)
-        return collection.find(cuts, projection)
+        cursor = collection.find(cuts, projection, **kwargs)
+        if 'sort' in kwargs:
+            cursor.sort(kwargs['sort'])
+        for doc in cursor:
+            if onlyone:
+                return doc
+            else:
+                yield doc
 
-    def updateDatabase(self, db_name, collection_name, cuts, updates):
+    def updateDatabase(self, db_name, collection_name, cuts, updates, **kwargs):
         """
         Updates documents that meet pass the specified cuts
         """
         collection = self._check(db_name, collection_name)
-        ret = collection.update_many(cuts, updates)
+        ret = collection.update_many(cuts, updates, **kwargs)
         if not ret.acknowledged:
             return 1
         return 0
 
-    def Distinct(self, db_name, collection_name, field, cuts={}):
-        return self._check(db_name, collection_name).distinct(field, cuts)
+    def Distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
+        return self._check(db_name, collection_name).distinct(field, cuts, **kwargs)
 
-    def Count(self, db_name, collection_name, cuts):
-        return self._check(db_name, collection_name).count_documents(cuts)
+    def Count(self, db_name, collection_name, cuts, **kwargs):
+        return self._check(db_name, collection_name).count_documents(cuts, **kwargs)
 
-    def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, sort=None):
+    def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, **kwargs):
         collection = self._check(db_name, collection_name)
-        doc = collection.find_one_and_update(cuts, updates, sort=sort)
+        doc = collection.find_one_and_update(cuts, updates, **kwargs)
         return doc
 
     def FindCommand(self, name):
@@ -119,12 +125,14 @@ class DobermanDB(object):
                 sort=[('logged',1)])
 
     def getMessageProtocols(self, level):
-        collection = self._check('settings','alarm_config')
         doc = self.readFromDatabase('settings','alarm_config',
                 {'level' : level}, onlyone=True)
         if doc is None:
             self.logger.error('No message protocols for alarm level %i! Defaulting to email' % level)
-            return ['email']
+            doc = self.readFromDatabase('settings','alarm_config',
+                    {'level' : {'$lte' : level}}, onlyone=True,
+                    sort=[('level', -1)])
+            return doc['protocols']
         return doc['protocols']
 
     def getContactAddresses(self, level):
@@ -241,11 +249,9 @@ class DobermanDB(object):
         Reads the settings in the database.
         """
         if name == 'all':
-            cursor = self.readFromDatabase('settings', 'controllers')
+            return {row['name'] : row for row in self.readFromDatabase('settings', 'controllers')}
         else:
             return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
-
-        return {row['name'] : row for row in cursor}
 
     def getDefaultSettings(self, runmode=None, name=None):
         """
@@ -267,8 +273,7 @@ class DobermanDB(object):
         """
         Update active contacts
         """
-        contacts = self.readFromDatabase('settings','contacts',
-                {'conn_details' : {'$exists' : 0}})
+        contacts = [c for c in self.readFromDatabase('settings','contacts')]
         existing_numbers = list(map(str, range(len(contacts))))
         # Print informations
         print('\n' + 60 * '-' + '\n')
