@@ -174,7 +174,7 @@ class LANController(Controller):
                 self._device.connect((self.ip, int(self.port)))
             except socket.error as e:
                 self.logger.error('Didn\'t find anything at %s:%i. Trying again in 5 seconds...' % (self.ip, self.port))
-                sock._device.close()
+                #sock._device.close()
                 time.sleep(5)
             else:
                 self._connected = True
