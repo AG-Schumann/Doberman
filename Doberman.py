@@ -139,8 +139,7 @@ class Doberman(object):
         db_col = ('logging','alarm_history')
         if self.db.Count(*db_col, doc_filter) == 0:
             return
-        docs = self.db.readFromDatabase(*db_col, doc_filter)
-        for doc in docs.sort([('howbad' , -1)]):
+        for doc in self.db.readFromDatabase(*db_col, doc_filter, sort=[('howbad',-1)]):
             howbad = int(doc['howbad'])
             if (howbad,) not in messages:
                 messages[(howbad,)] = []
@@ -166,7 +165,7 @@ class Doberman(object):
             return -1
         now = dtnow()
         runtime = (now - self.start_time).total_seconds()/60
-        dt = (now - self.last_message_time).total_secionds()/60
+        dt = (now - self.last_message_time).total_seconds()/60
 
         if runtime < mode_doc['testrun']:
             self.logger.warning('Testrun still active (%.1f/%i min). Messages not sent' % (runtime, mode_doc['testrun']))
