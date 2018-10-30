@@ -304,7 +304,7 @@ class Plugin(threading.Thread):
 def main(db):
     names = db.Distinct('settings','controllers','name')
     runmodes = db.Distinct('settings','runmodes','mode')
-    parser = argparse.ArgumentParser(description='Doberman plugin standalone')
+    parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the controller',choices=names)
     parser.add_argument('--runmode', type=str, dest='runmode', choices=runmodes,
