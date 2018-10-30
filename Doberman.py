@@ -99,8 +99,7 @@ class Doberman(object):
             self.close()
 
     def Heartbeat(self):
-        self.db.updateDatabase('settings','defaults',{},
-                {'$set' : {'heartbeat' : dtnow()}})
+        self.db.updateDatabase('settings','defaults',{}, {'$set' : {'heartbeat' : dtnow()}})
 
     def checkCommands(self):
         doc = self.db.FindCommand('doberman')

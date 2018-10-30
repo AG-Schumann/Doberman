@@ -37,7 +37,7 @@ class DobermanLogger(logging.Handler):
         return
 
     def emit(self, record):
-        #self.stream.emit(record)
+        self.stream.emit(record)
         if record.levelno < logging.INFO:
             return
         rec = dict(when     = datetime.datetime.fromtimestamp(record.created),
