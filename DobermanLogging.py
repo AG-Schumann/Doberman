@@ -24,6 +24,7 @@ class DobermanLogger(logging.Handler):
                 '%(lineno)d | %(message)s')
         self.setFormatter(f)
         self.stream.setFormatter(f)
+        self.backup_logger.setFormatter(f)
 
     def close(self):
         self.backup_logger.close()
