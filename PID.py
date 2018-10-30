@@ -39,7 +39,7 @@ class FeedbackController(Plugin):
             end_time = datetime.fromtimestamp(times[0])
 
             b = self.db.GetData(self.name, start_time=start_time,
-                    data_index=i, end_time=end_time)
+                    data_index=doc['data_index'], end_time=end_time)
             b = np.array(b, dtype=self.dtype)
             self.buffer = np.append(b, self.buffer)
             if b[0]['timestamp'] > t_start:
@@ -68,7 +68,7 @@ class FeedbackController(Plugin):
         self.logger.debug('Proportional term %.2g' % P)
         I = Ki * np.trapz(e, x=b['timestamp'])
         self.logger.debug('Integral term %.2g' % I)
-        if len(e) > 2:
+        if len(e) > 1:
             D = Kd * np.gradient(e, b['timestamp'])[-1]
             self.logger.debug('Differential term %.2g' % D)
         else:
