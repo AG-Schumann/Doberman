@@ -7,7 +7,6 @@ import DobermanDB
 import argparse
 import DobermanLogging
 import utils
-from PID import FeedbackController
 dtnow = datetime.datetime.now
 
 
