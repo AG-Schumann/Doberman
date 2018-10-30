@@ -7,6 +7,8 @@ import DobermanDB
 import argparse
 import DobermanLogging
 import utils
+from PID import FeedbackController
+from BlindPlugin import BlindPlugin
 dtnow = datetime.datetime.now
 
 
@@ -325,6 +327,8 @@ def main(db):
     logger.info('Starting %s' % args.plugin_name)
     if 'feedback' in doc:
         ctor = FeedbackController
+    elif 'blind' in doc:
+        ctor = BlindPlugin
     else:
         ctor = Plugin
     plugin = ctor(db, args.plugin_name, plugin_paths)
