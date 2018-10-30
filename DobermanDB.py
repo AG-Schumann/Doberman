@@ -139,7 +139,7 @@ class DobermanDB(object):
         collection = self._check(db_name, collection_name)
         doc = collection.find_one_and_update(cuts, updates, **kwargs)
         if 'by' in doc and doc['by'] == 'feedback':
-            collection.delete_one({'_id' : doc['_id'})
+            collection.delete_one({'_id' : doc['_id']})
         return doc
 
     def FindCommand(self, name):
