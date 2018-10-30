@@ -228,7 +228,7 @@ class DobermanDB(object):
                         'command' : com if com != 'restart' else 'stop'})
                     if com == 'restart':
                         docs.append({'name' : 'doberman', 'by' : whoami,
-                            'command' : 'start' + name,
+                            'command' : 'start ' + name,
                             'logged' : dtnow() + datetime.timedelta(seconds=10)})
 
                 self.insertIntoDatabase('logging','commands',docs)

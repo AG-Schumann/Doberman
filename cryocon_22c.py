@@ -34,9 +34,6 @@ class cryocon_22c(LANController):
                     self.FireMissiles),
                 ]
 
-    def isThisMe(self, dev):
-        return True  # don't have the same problems with LAN controllers
-
     def FireMissiles(self, m):  # worth it for an entire function? Totally
         if 'missiles' in m.group(0):
             self.logger.warning('But I am leh tired...')
