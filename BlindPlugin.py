@@ -1,4 +1,4 @@
-from Plugin import Plugin
+from BasePlugin import Plugin
 import logging
 
 
