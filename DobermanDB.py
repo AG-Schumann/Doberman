@@ -104,6 +104,13 @@ class DobermanDB(object):
             return 1
         return 0
 
+    def DeleteDocuments(self, db_name, collection_name, cuts):
+        """
+        Deletes documents from the specified collection
+        """
+        collection = self._check(db_name, collection_name)
+        collection.delete_many(cuts)
+
     def GetData(self, plugin_name, start_time, data_index, end_time=None):
         """
         This function basically exists to support the PID loop. Returns a
@@ -136,24 +143,29 @@ class DobermanDB(object):
         return self._check(db_name, collection_name).count_documents(cuts, **kwargs)
 
     def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, **kwargs):
-        collection = self._check(db_name, collection_name)
-        doc = collection.find_one_and_update(cuts, updates, **kwargs)
-        if 'by' in doc and doc['by'] == 'feedback':
-            collection.delete_one({'_id' : doc['_id']})
+        """
+        Finds one document and applies updates. A bit of a special implementation so
+        the 'sort' kwarg will actually do something
+        """
+        doc = self.readFromDatabase(db_name, collection_name, cuts, onlyone=True, **kwargs)
+        if doc is not None:
+            self.updateDatabase({'_id' : doc['_id']}, updates)
         return doc
 
     def FindCommand(self, name):
         now = dtnow()
-        return self.FindOneAndUpdate('logging','commands',
+        doc = self.FindOneAndUpdate('logging', 'commands',
                 cuts={'name' : name,
                       'acknowledged' : {'$exists' : 0},
                       'logged' : {'$lte' : now}},
                 updates={'$set' : {'acknowledged' : now}},
                 sort=[('logged',1)])
+        if doc and doc['by'] == 'feedback':
+            self.DeleteDocuments('logging', 'commands', {'_id' : doc['_id']})
+        return doc
 
     def getMessageProtocols(self, level):
-        doc = self.readFromDatabase('settings','alarm_config',
-                {'level' : level}, onlyone=True)
+        doc = self.readFromDatabase('settings','alarm_config', {'level' : level}, onlyone=True)
         if doc is None:
             self.logger.error('No message protocols for alarm level %i! Defaulting to next lowest level' % level)
             doc = self.readFromDatabase('settings','alarm_config',

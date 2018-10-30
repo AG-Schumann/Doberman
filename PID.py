@@ -1,4 +1,4 @@
-from Plugin import Plugin
+from BasePlugin import Plugin
 import numpy as np
 from datetime import datetime
 
