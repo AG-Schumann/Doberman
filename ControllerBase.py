@@ -35,12 +35,6 @@ class Controller(object):
         """
         raise NotImplementedError()
 
-    def isThisMe(self, dev):
-        """
-        Makes sure the specified controller is the correct one
-        """
-        raise NotImplementedError()
-
     def Readout(self):
         """
         Main readout function. Should be implemented for individual controller
@@ -128,6 +122,12 @@ class SerialController(Controller):
             self._connected = True
             return True
         return False
+
+    def isThisMe(self, dev):
+        """
+        Makes sure the specified controller is the correct one
+        """
+        raise NotImplementedError()
 
     def SendRecv(self, message, dev=None):
         device = dev if dev else self._device
