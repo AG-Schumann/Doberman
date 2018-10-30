@@ -30,6 +30,3 @@ class pfeiffer_tpg(LANController):
             return {'retcode' : -3, 'data' : -1}
         return {'retcode' : int(m.group('status')), 'data' : float(m.group('value'))}
 
-    def isThisMe(self, dev):
-        pass
-
