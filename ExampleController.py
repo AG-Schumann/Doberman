@@ -1,5 +1,6 @@
 from BaseController import SerialController  # or LANController, if applicable
 import re  # if you want to accept commands
+import time
 
 
 class ExampleController(SerialController):
@@ -54,4 +55,20 @@ class ExampleController(SerialController):
                 status.append(0)
                 vals.append(float(resp['data']))
         return {'retcode' : status, 'data' : vals}
+
+    def FeedbackReadout(self):
+        """
+        For controllers wishing to be part of a feedback control loop. Should measure
+        only one quantity and return [timestamp, value, status]
+        """
+        resp = self.SendRecv(self.commands['read'])
+        readout_delay = 1.2  # time betwen when we send a command and when we get
+        # the result back, because serial devices are sloooooow
+        # Is this necessary? Probably not, because the device being controlled
+        # gets the updated value sometime within the next second
+        try:
+            value = float(resp['data'])
+        except ValueError, TypeError:
+            value = None
+        return (time.time() - readout_delay, value, resp['retcode'])
 
