@@ -368,7 +368,7 @@ if __name__ == '__main__':
     db = DobermanDB.DobermanDB()
     try:
         main(db)
-    except:
-        pass
+    except Exception as e:
+        print('Caught a %s: %s' % (type(e), e))
     db.close()
 

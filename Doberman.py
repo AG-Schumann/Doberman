@@ -27,7 +27,6 @@ class Doberman(object):
     '''
 
     def __init__(self, db):
-        self.runmode = 'testing'
         self.logger = logging.getLogger(self.__class__.__name__)
         self.last_message_time = dtnow()
 
@@ -139,8 +138,7 @@ class Doberman(object):
         db_col = ('logging','alarm_history')
         if self.db.Count(*db_col, doc_filter) == 0:
             return
-        docs = self.db.readFromDatabase(*db_col, doc_filter)
-        for doc in docs.sort([('howbad' , -1)]):
+        for doc in self.db.readFromDatabase(*db_col, doc_filter, sort=[('howbad',-1)]):
             howbad = int(doc['howbad'])
             if (howbad,) not in messages:
                 messages[(howbad,)] = []
@@ -166,7 +164,7 @@ class Doberman(object):
             return -1
         now = dtnow()
         runtime = (now - self.start_time).total_seconds()/60
-        dt = (now - self.last_message_time).total_secionds()/60
+        dt = (now - self.last_message_time).total_seconds()/60
 
         if runtime < mode_doc['testrun']:
             self.logger.warning('Testrun still active (%.1f/%i min). Messages not sent' % (runtime, mode_doc['testrun']))
@@ -203,7 +201,7 @@ def main(db):
     parser.add_argument('--refresh', action='store_true', default=False,
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
-    if db.getDefaultSettings(name='online'):
+    if db.getDefaultSettings(name='status') == 'online':
         logger.error('Is there an instance of Doberman already running?')
         return 2
     if opts.version:
@@ -218,8 +216,8 @@ def main(db):
     # Load and start script
     doberman = Doberman(db)
     try:
-        db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
-            'runmode' : 'default', 'status' : 'online'}})
+        db.updateDatabase('settings','defaults',{},{'$set' : {
+            'runmode' : 'testing', 'status' : 'online'}})
         if doberman.Start():
             logger.error('Something went wrong here...')
         else:
@@ -229,8 +227,7 @@ def main(db):
         logger.error(str(type(e)))
         logger.error(str(e))
     finally:
-        db.updateDatabase('settings','defaults',{},{'$set' : {'online' : False,
-            'status' : 'offline'}})
+        db.updateDatabase('settings','defaults',{},{'$set' : {'status' : 'offline'}})
         doberman.close()
     return 0
 
