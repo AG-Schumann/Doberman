@@ -4,8 +4,11 @@ import argparse
 import datetime
 import time
 
-def main():
-    db = DobermanDB.DobermanDB()
+def cuts(delay, level):
+    then = datetime.datetime.now() - datetime.timedelta(seconds=delay)
+    return {'when' : {'$gte' : then}, 'level' : {'$gte' : level}}
+
+def main(db):
     parser = argparse.ArgumentParser(usage='%(prog)s: like tail -f but for Doberman messages')
     parser.add_argument('--delay', type=int, default=5,
                         help='How often to refresh (in seconds)')
@@ -15,16 +18,17 @@ def main():
     msg_format = '{when} | {level} | {name} | {funcname} | {lineno} | {msg}'
     try:
         while True:
-            then = datetime.datetime.now() - datetime.timedelta(seconds = args.delay)
-            cursor = db.readFromDatabase('logging','logs', {'when' : {'$gt' : then}, 'level' : {'$gte' : args.level}})
-            for row in cursor:
-                print(msg_format.format(**row))
+            for doc in db.readFromDatabase('logging','logs', cuts(args.delay,args.level)):
+                print(msg_format.format(**doc))
             time.sleep(args.delay)
     except KeyboardInterrupt:
         print('Quiting is for losers, but ok')
-    finally:
-        db.close()
     return
 
 if __name__ == '__main__':
-    main()
+    db = DobermanDB.DobermanDB()
+    try:
+        main(db)
+    except Exception as e:
+        print('Caught a %s: %s' % (type(e), e))
+    db.close()
