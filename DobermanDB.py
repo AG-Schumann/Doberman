@@ -216,6 +216,10 @@ class DobermanDB(object):
         print()
         print('Plugin name == "all" issues the command to all running plugins')
         print()
+        print('Available runmodes:')
+        runmodes = self.Distinct('settings','runmodes','mode')
+        print(' | '.join(runmodes))
+        print()
         return
 
     def StoreCommand(self, command_str):
