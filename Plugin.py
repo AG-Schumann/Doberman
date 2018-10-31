@@ -37,12 +37,10 @@ def main(db):
         ctor = BlindPlugin
     else:
         ctor = Plugin
-    plugin = ctor(db, args.plugin_name, plugin_paths)
-    plugin.start()
     sh = utils.SignalHandler(logger)
     running = True
     try:
-        plugin = Plugin(db, args.plugin_name, plugin_paths)
+        plugin = ctor(db, args.plugin_name, plugin_paths)
         plugin.start()
         while running and not sh.interrupted:
             loop_start = time.time()
