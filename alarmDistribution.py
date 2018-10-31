@@ -16,7 +16,6 @@ class alarmDistribution(object):
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db = db
-
     def close(self):
         self.db = None
         return

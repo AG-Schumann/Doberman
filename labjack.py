@@ -12,6 +12,8 @@ class labjack(Controller):
         self.name = opts['name']
         for k, v in opts.items():
             setattr(self, k, v)
+        self.analog_channels = list(map(int, self.analog_channels))
+        self.digital_channels = list(map(int, self.digital_channels))
         self.logger = logging.getLogger(opts['name'])
         self._device = u12.U12()
 

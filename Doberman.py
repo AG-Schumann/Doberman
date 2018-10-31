@@ -1,4 +1,4 @@
-#!/scratch/anaconda3/envs/Doberman/bin/python3
+#!/scratch/anaconda3/bin/python3
 import time
 import logging
 import DobermanDB
