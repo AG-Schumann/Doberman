@@ -452,12 +452,16 @@ def main(db):
                         help='Add a new contact')
     parser.add_argument('--add-controller', default=None, type=str,
                         help='Specify a new controller config file to load')
-    parser.add_argument('--running', action='store_true', default=False,
-                        help='List currently running controllers')
+    parser.add_argument('--status', action='store_true', default=False,
+                        help='List current status')
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
-    if args.running:
+    if args.status:
+        doc = db.readFromDatabase('settings','defaults',onlyone=True)
+        print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
+        print('Last heartbeat: %s' % doc['heartbeat'])
+        print()
         cursor = db.readFromDatabase('settings','controllers',{'online' : True})
         print('Currently running controllers:')
         print('Name : Status : Runmode')
