@@ -35,17 +35,18 @@ class Controller(object):
         """
         raise NotImplementedError()
 
-    def isThisMe(self, dev):
-        """
-        Makes sure the specified controller is the correct one
-        """
-        raise NotImplementedError()
-
     def Readout(self):
         """
         Main readout function. Should be implemented for individual controller
         to call SendRecv with the measurement message. This function is called
-        by the readout thread
+        by the readout thread.
+        """
+        raise NotImplementedError()
+
+    def FeedbackReadout(self):
+        """
+        Reads the variable used during feedback. Just a single call to SendRecv.
+        Must return [timestamp (since epoch), value, status]
         """
         raise NotImplementedError()
 
@@ -122,6 +123,12 @@ class SerialController(Controller):
             return True
         return False
 
+    def isThisMe(self, dev):
+        """
+        Makes sure the specified controller is the correct one
+        """
+        raise NotImplementedError()
+
     def SendRecv(self, message, dev=None):
         device = dev if dev else self._device
         ret = {'retcode' : 0, 'data' : None}
@@ -167,7 +174,7 @@ class LANController(Controller):
                 self._device.connect((self.ip, int(self.port)))
             except socket.error as e:
                 self.logger.error('Didn\'t find anything at %s:%i. Trying again in 5 seconds...' % (self.ip, self.port))
-                sock._device.close()
+                #sock._device.close()
                 time.sleep(5)
             else:
                 self._connected = True
