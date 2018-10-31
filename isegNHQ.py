@@ -19,6 +19,7 @@ class isegNHQ(SerialController):
         self.basecommand = '{cmd}'
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
+        self.channel = 1
         self.commands = {'open'     : '',
                          'identify' : '#',
                          'Delay'    : 'W',
@@ -39,7 +40,7 @@ class isegNHQ(SerialController):
 
         self.command_patterns = [
                 (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
-                    lambda x : self.setcommand.format(cmd=self.commands[m.group('cmd'),
+                    lambda x : self.setcommand.format(cmd=self.commands[m.group('cmd')],
                         value=m.group('value'))),
                 ]
 
@@ -47,8 +48,9 @@ class isegNHQ(SerialController):
     def _getControl(self):
         super()._getControl()
         self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
-        self.SendRecv(self.setcommand.format(cmd=self.commands['Delay'],
-            value=self.delay))
+        #self.SendRecv(self.setcommand.format(cmd=self.commands['Delay'],
+        #    value=int(self.delay)))
+    
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.commands['open'], dev)
@@ -64,15 +66,16 @@ class isegNHQ(SerialController):
     def Readout(self):
         vals = []
         status = []
-        coms = ['Status','Voltage','Current','Vset']
-        funcs = [lambda x : self.state.get(x,-1), float,
-                lambda x: float(f'{x[:3]}E{x[4:]}'), float]
+        coms = ['Current','Voltage','Vset','Status']
+        funcs = [lambda x : float(f'{x[:3]}E{x[4:]}'), float,
+                float, lambda x : self.state.get(x.split('=')[1].strip(),-1)]
         for com,func in zip(coms,funcs):
             cmd = self.getcommand.format(cmd=self.commands[com])
             resp = self.SendRecv(cmd)
             status.append(resp['retcode'])
             if status[-1]:
-                vals.append[-1]
+                #print('Cmd %s, %s' % (cmd, resp))
+                vals.append(-1)
             else:
                 data = resp['data'].split(cmd)[-1]
                 #data = resp['data']
@@ -82,38 +85,45 @@ class isegNHQ(SerialController):
     def SendRecv(self, message, dev=None):
         """
         The iseg does things char by char, not string by string
-        This handles that, checks for the echo, and strips the \\r\\n
+        This handles that
         """
-        return super().SendRecv(message,dev)
         device = dev if dev else self._device
         msg = self._msg_start + message + self._msg_end
         response = ''
         ret = {'retcode' : 0, 'data' : None}
-        for c in msg.encode():
-            device.write(c)
-            time.sleep(self.delay)
-            echo = device.read(1)
+        #print('\nSending command %s' % message)
+        for c in msg:
+            #print("Sending %s" % c)
+            device.write(c.encode())
+            time.sleep(1)
+            echo = device.read(1).decode()
+            #print("Recvd %s" % echo)
             if c != echo:
-                self.logger.error(f'Command {message} not echoed!')
-                ret['retcode'] = -1
-                return ret
-            time.sleep(self.delay)
+                pass
+                #self.logger.error(f'Command {message} not echoed!')
+                #print("Recieved %s instead of %s" % (echo, c))
+                #ret['retcode'] = -1
+                #return ret
+            time.sleep(1)
         if '=' in message: # 'set' command, nothing left other than CR/LF
-            device.read(2)
+            device.read(device.in_waiting)
             return ret
 
-        time.sleep(0.5) # 'send' bit finished, now to receive the reply
-        blank_bytes = 0
-        for _ in range(64):
-            byte = device.read(1).decode()
-            if not byte:
-                blank_bytes += 1
-            else:
-                response += byte
-                blank_bytes = 0
-            if blank_bytes >= 5 or response[-2:] == self._msg_end:
-                break
-            time.sleep(self.delay)
-        ret['data'] = response.rstrip()
+        time.sleep(1) # 'send' bit finished, now to receive the reply
+        ret['data'] = device.read(device.in_waiting).decode().rstrip()
+        #print("Recvd %s" % ret['data'])
+        #blank_bytes = 0
+        #for _ in range(64):
+        #    byte = device.read(1).decode()
+        #    if not byte:
+        #        blank_bytes += 1
+        #    else:
+        #        response += byte
+        #        blank_bytes = 0
+        #    if blank_bytes >= 5 or response[-2:] == self._msg_end:
+        #        break
+        #    time.sleep(self.delay)
+        #ret['data'] = response.rstrip()
+        time.sleep(0.5)
         return ret
 
