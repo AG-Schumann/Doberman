@@ -54,23 +54,24 @@ class DobermanDB(object):
         elif collection_name not in self.client[db_name].list_collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             self.client[db_name].create_collection(collection_name)
-            self.client[db_name][collection_name].create_index([('when',-1)])
+            if db_name == 'data':
+                self.client[db_name][collection_name].create_index([('when',-1)])
         return self.client[db_name][collection_name]
 
-    def insertIntoDatabase(self, db_name, collection_name, document):
+    def insertIntoDatabase(self, db_name, collection_name, document, **kwargs):
         """
         Inserts document(s) into the specified database/collection
         """
         collection = self._check(db_name, collection_name)
         if isinstance(document, (list, tuple)):
-            result = collection.insert_many(document)
+            result = collection.insert_many(document, **kwargs)
             if len(result.inserted_ids) != len(document):
-                self.logger.error('Inserted %i entries instead of %i into %/%s' % (
+                self.logger.error('Inserted %i entries instead of %i into %s/%s' % (
                     len(result.inserted_ids), len(document), db_name, collection_name))
                 return -1
             return 0
         elif isinstance(document, dict):
-            result = collection.insert_one(document)
+            result = collection.insert_one(document, **kwargs)
             if result.acknowledged:
                 return 0
             else:
@@ -79,68 +80,111 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}, onlyone = False):
+    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}, onlyone = False, **kwargs):
         """
         Finds one or more documents that pass the specified cuts
         """
         collection = self._check(db_name,collection_name)
+        cursor = collection.find(cuts, projection, **kwargs)
+        if 'sort' in kwargs:
+            cursor.sort(kwargs['sort'])
         if onlyone:
-            return collection.find_one(cuts, projection)
-        return collection.find(cuts, projection)
+            for doc in cursor:
+                return doc
+        else:
+            return cursor
 
-    def updateDatabase(self, db_name, collection_name, cuts, updates):
+    def updateDatabase(self, db_name, collection_name, cuts, updates, **kwargs):
         """
         Updates documents that meet pass the specified cuts
         """
         collection = self._check(db_name, collection_name)
-        ret = collection.update_many(cuts, updates)
+        ret = collection.update_many(cuts, updates, **kwargs)
         if not ret.acknowledged:
             return 1
         return 0
 
-    def deleteFromDatabase(self, db_name, collection_name=None, which_document=None):
+    def DeleteDocuments(self, db_name, collection_name, cuts):
         """
-        Deletes a document, collection, or database
+        Deletes documents from the specified collection
         """
-        if collection_name:
-            collection = self._check(db_name, collection_name)
-            if which_document:  # remove document
-                self.logger.debug('Removing document %s from %s/%s' % (
-                    which_document, db_name, collection_name))
-                ret = collection.remove(which_document)
-                if ret['ok'] != 1:
-                    self.logger.error('Document removal failed!')
-                    return 1
-            else:  # remove collection
-                self.logger.info('Dropping collection %s from %s' % (collection_name, db_name))
-                if not collection.drop():
-                    self.logger.error('Collection removal failed!')
-                    return 1
-        else:  # remove database
-            if which_document:
-                self.logger.error('Do you know what you\'re doing?')
-                return 2
-            db = self.client[db_name]
-            self.logger.info('Dropping database %s' % db_name)
-            ret = db.dropDatabase()
-            if ret['ok'] != 1:
-                self.logger.error('Database removal failed!')
-                return 1
-        return 0
-
-    def Distinct(self, db_name, collection_name, field, cuts={}):
-        return self._check(db_name, collection_name).distinct(field, cuts)
-
-    def Count(self, db_name, collection_name, cuts):
-        return self._check(db_name, collection_name).count_documents(cuts)
-
-    def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, sort=None):
         collection = self._check(db_name, collection_name)
-        doc = collection.find_one_and_update(cuts, updates, sort=sort)
+        collection.delete_many(cuts)
+
+    def GetData(self, plugin_name, start_time, data_index, end_time=None):
+        """
+        This function basically exists to support the PID loop. Returns a
+        numpy-structurable array of (timestamp, value) between start_time
+        and end_time, for the specified data index. 'Timestamp' is a float
+        of time since epoch
+
+        :param plugin_name: the name of the plugin to get data for
+        :param start_time: python Datetime instance of the earliest time to fetch
+        :param data_index: which entry in the data array you want
+        :param end_time: python Datetime instance of the latest time to fetch
+
+        Returns [(timestamp, value), (timestamp, value), ...]
+        """
+        collection = self._check('data', plugin_name)
+        query = {'when' : {'$gte' : start_time}}
+        if end_time is not None:
+            query['when'].update({'$lte' : end_time})
+        projection = {'status' : 0, '_id' : 0}
+        sort = [('when', 1)]
+        b = []
+        for row in self.readFromDatabase('data', plugin_name, query, projection, sort=sort):
+            b.append((row['when'].timestamp(), row['data'][data_index]))
+        return b
+
+    def Distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
+        return self._check(db_name, collection_name).distinct(field, cuts, **kwargs)
+
+    def Count(self, db_name, collection_name, cuts, **kwargs):
+        return self._check(db_name, collection_name).count_documents(cuts, **kwargs)
+
+    def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, **kwargs):
+        """
+        Finds one document and applies updates. A bit of a special implementation so
+        the 'sort' kwarg will actually do something
+        """
+        doc = self.readFromDatabase(db_name, collection_name, cuts, onlyone=True, **kwargs)
+        if doc is not None:
+            self.updateDatabase({'_id' : doc['_id']}, updates)
         return doc
 
-    def FindCommand(self, cuts, updates):
-        return self.FindOneAndUpdate('logging','commands', cuts, updates, sort=[('logged',1)])
+    def FindCommand(self, name):
+        now = dtnow()
+        doc = self.FindOneAndUpdate('logging', 'commands',
+                cuts={'name' : name,
+                      'acknowledged' : {'$exists' : 0},
+                      'logged' : {'$lte' : now}},
+                updates={'$set' : {'acknowledged' : now}},
+                sort=[('logged',1)])
+        if doc and doc['by'] == 'feedback':
+            self.DeleteDocuments('logging', 'commands', {'_id' : doc['_id']})
+        return doc
+
+    def getMessageProtocols(self, level):
+        doc = self.readFromDatabase('settings','alarm_config', {'level' : level}, onlyone=True)
+        if doc is None:
+            self.logger.error('No message protocols for alarm level %i! Defaulting to next lowest level' % level)
+            doc = self.readFromDatabase('settings','alarm_config',
+                    {'level' : {'$lte' : level}}, onlyone=True,
+                    sort=[('level', -1)])
+            return doc['protocols']
+        return doc['protocols']
+
+    def getContactAddresses(self, level):
+        """
+        Returns a list of addresses to contact at 'level'
+        """
+        protocols = self.getMessageProtocols(level)
+        ret = {k : [] for k in protocols}
+        for doc in self.readFromDatabase('settings','contacts',
+                {'level' : {'$gte' : 0, '$lte' : level}}):
+            for p in protocols:
+                ret[p].append(doc[p])
+        return ret
 
     def PrintHelp(self, name):
         print('Accepted commands:')
@@ -182,10 +226,11 @@ class DobermanDB(object):
         names_ = '|'.join(names + ['all'])
         runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
         whoami = os.environ['USER']
+        online = self.Distinct('settings','controllers','name', {'online' : True})
         if command_str.startswith('help'):
             n = None
-            if len(command_str) > len('help'):
-                name = command_str[len('help'):]
+            if len(command_str) > len('help '):
+                name = command_str[len('help '):]
                 if name in names:
                     n = name
             self.PrintHelp(n)
@@ -206,11 +251,11 @@ class DobermanDB(object):
         for pattern, func in patterns:
             m = re.search(pattern, command_str)
             if m:
-                print('Storing command \'%s\'' % command_str)
                 name, com = func(m)
+                print('Storing command \'%s\' for %s' % (com, name))
                 docs = []
                 if name == 'all':
-                    for n in self.Distinct('settings','controllers','name', {'online' : True}):
+                    for n in online:
                         docs.append({'name' : n, 'by' : whoami, 'logged' : dtnow(),
                             'command' : com if com != 'restart' else 'stop'})
                         if com == 'restart':
@@ -222,7 +267,7 @@ class DobermanDB(object):
                         'command' : com if com != 'restart' else 'stop'})
                     if com == 'restart':
                         docs.append({'name' : 'doberman', 'by' : whoami,
-                            'command' : 'start' + name,
+                            'command' : 'start ' + name,
                             'logged' : dtnow() + datetime.timedelta(seconds=10)})
 
                 self.insertIntoDatabase('logging','commands',docs)
@@ -244,127 +289,9 @@ class DobermanDB(object):
         Reads the settings in the database.
         """
         if name == 'all':
-            cursor = self.readFromDatabase('settings', 'controllers')
+            return {row['name'] : row for row in self.readFromDatabase('settings', 'controllers')}
         else:
             return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
-
-        return {row['name'] : row for row in cursor}
-
-    def printParameterDescription(self):
-        """
-        This function prints all information for each parameter
-        which should be entered in the config database table.
-        """
-        print("Status: -- ON/OFF: is your instrument (or plugin) turned on or not.")
-        print("Alarm Status: -- ON/OFF,...: ")
-        print("Lower Warning Level -- : Float,...: ")
-        print("Higher Warning Level: -- Float,...: ")
-        print("Lower Alarm Level: --  Float,...: ")
-        print("Higher Alarm Level: -- Float,...: ")
-        print("Readout interval: -- How often (in seconds) should your "
-                    "device read the data and send it to Doberman. ")
-        print("Alarm recurrence: -- How many times in a row has the "
-                    "data to be out of the warning/alarm limits before an "
-                    "alarm/warning is sent.")
-        print("Run mode: which settings to use")
-
-    def updateController(self):
-        n = 'n'
-        print('\n' + 60 * '-' + '\nUpdate plugin settings. '
-              'The following parameters can be changed:\n')
-        self.printParameterDescription()
-        print('\n' + 60 * '-')
-        print('  - No string signs (") needed.\n  '
-              '- Split arrays with comma (no spaces after it), '
-              'no brackets needed!  \n  '
-              '- Enter n for no change.')
-        print('\n' + 60 * '-' + '\n Choose the controller you want to change. ')
-        controllers = self.ControllerSettings()
-        names = list(controllers.keys())
-        for i, name in enumerate(names):
-            print("%i:\t%s" % (i, name))
-        # Enter name to find controller
-        existing_devices = names + list(map(str, range(len(names))))
-        print("\nEnter controller number or alternatively its name:")
-        name = utils.getUserInput('>>> ', input_type=[str],
-                                 be_in=existing_devices)
-        try:
-            controller = controllers[name]
-        except KeyError:
-            name = names[int(name)]
-            controller = controllers[name]
-
-        # Print current parameters and infos.
-        print('\n' + 60 * '-' + '\n')
-        print('The current parameters are:\n')
-        keys1 = ['runmode','readout_interval']
-        keys2 = ['status','alarm_status','alarm_low','alarm_high','warning_low','warning_high']
-        for k in keys1:
-            print('{:>16}: {}'.format(k, controller[k]))
-        print()
-        for key in keys2:
-            print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
-        print(60 * '-')
-        print('Which parameter(s) do you want to change?')
-        which = utils.getUserInput('Parameter: ', input_type=[str], be_in=key1 + keys2, exceptions=['n'])
-        while which != 'n':
-            if which == 'status':
-                text = 'Status (ON/OFF): '
-                val = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF'], exceptions=['n'])
-                if val != 'n':
-                    self.updateDatabase('settings','controllers', {'name' : name},
-                            {'$set' : {'%s.%s' % (which,controller['runmode']) : val}})
-            elif which == 'alarm_status':
-                text = 'Alarm status (ON/OFF, ON/OFF...): '
-                val = utils.getUserInput(text, input_type=[str], be_in=['ON','OFF'],
-                        be_array=True,exceptions=['n'])
-                if val != 'n':
-                    val = utils.adjustListLength(val, controller['number_of_data'], 'OFF', which)
-                    self.updateDatabase('settings','controllers', {'name' : name},
-                            {'$set' : {'%s.%s' % (which,controller['runmode']) : val}})
-            elif which in ['alarm_low', 'alarm_high', 'warning_low', 'warning_high']:
-                wh = which.split('_')
-                text = f'{wh[1]} {wh[0]} level(s) (float(s)): '
-                vals = utils.getUserInput(text, input_type=[int, float], be_array=True, exceptions=['n'])
-                if vals != 'n':
-                    vals = utils.adjustListLength(vals, controller['number_of_data'], 0, which)
-                    self.updateDatabase('settings','controllers', {'name' : name},
-                            {'$set' : {'%s.%s' % (which, controller['runmode']) : vals}})
-            elif which == 'readout_interval':
-                text = 'Readout interval (int):'
-                val = utils.getUserInput(text, input_type=[int, float], limits=[1, 86400], exceptions=['n'])
-                if val != 'n':
-                    self.updateDatabase('settings','controller',{'name' : name},
-                            {'$set' : {which : val}})
-                    controller[which] = val
-                    changes.append(which)
-            elif which == 'alarm_recurrence':
-                text = 'Alarm recurrence (# consecutive values past limits before issuing warning/alarm): '
-                val = utils.getUserInput(text, input_type=[int], limits=[1,99], exceptions=['n'])
-                if val != 'n':
-                    val = utils.adjustListLength(val, controller['number_of_data'], 3, which)
-                    self.updateDatabase('settings','controllers',{'name' : name},
-                            {'$set' : {'%s.%s' % (which, controller['runmode']) : val}})
-                    changes.append(which)
-            elif which == 'runmode':
-                text = 'Runmode: '
-                val = utils.getUserInput(text, input_type=[str], exceptions=['n'], be_in=['default','testing','recovery'])
-                if val != 'n':
-                    self.updateDatabase('settings','controllers',{'name' : name},
-                            {'$set' : {which : val}})
-            else:
-                print('Can\'t change %s here' % which)
-            which = utils.getUserInput('Parameter:', input_type=[str],be_in=keys1+keys2,exceptions=['n'])
-
-        print(60 * '-')
-        print('New controller settings:')
-        controller = self.readFromDatabase('settings','controllers',{'name' : name}, onlyone=True)
-        for k in keys1:
-            print('{:>16}: {}'.format(k, controller[k]))
-        print()
-        for key in keys2:
-            print("{:>16}: {} ".format(k, controller[k][controller['runmode']]))
-        print('\n')
 
     def getDefaultSettings(self, runmode=None, name=None):
         """
@@ -382,39 +309,25 @@ class DobermanDB(object):
             return doc[name]
         return doc
 
-    def getContacts(self,status=None):
-        """
-        Reads contacts from database.
-        """
-        if not status:
-            cuts = {'name' : {'$exists' : 1}}  # cuts the 'conn_details' doc
-        elif status == 'sms':
-            cuts={'status' : {'$in' : ['ON','SMS']}}
-        elif status == 'email':
-            cuts={'status' : {'$in' : ['ON','MAIL']}}
-        collection = self._check('settings','contacts')
-        if collection.count(cuts) == 0:
-            self.logger.warning("No contacts found (with status %s)" % str(status))
-            return []
-        return [row for row in collection.find(cuts)]
-
     def updateContacts(self):
         """
         Update active contacts
         """
-        contacts = self.getContacts()
+        contacts = [c for c in self.readFromDatabase('settings','contacts')]
         existing_numbers = list(map(str, range(len(contacts))))
         # Print informations
         print('\n' + 60 * '-' + '\n')
         print('  - No string signs (") needed.\n  '
               '- Enter n for no change')
+        print('Status = -1 -> contact is not responsible')
+        print('Lower status numbers mean more messages')
         print('\n' + 60 * '-' +
               '\n  Saved contacts are:\n  (Name, Status)\n')
         if contacts == -1:
             self.logger.error("Could not load contacts.")
             return -1
         for i, contact in enumerate(contacts):
-            print('(%i) %s: %s' % (i, contact['name'], contact['status']))
+            print('(%i) %s:\t%i' % (i, contact['name'], contact['status']))
         print('\n' + 60 * '-' + '\n')
 
         # Change contact
@@ -425,12 +338,9 @@ class DobermanDB(object):
         contact = contacts[num]
         name = contact['name']
         # Status
-        text = ("Enter new status of %s (or n for no change). "
-                    "It can be 'ON' (all notifications), "
-                    "'OFF' (no notifications), 'MAIL' (only by email), "
-                    "'SMS' (only by phone): " % name)
-        status = utils.getUserInput(text, input_type=[str],
-                                       be_in=['ON', 'OFF', 'MAIL', 'SMS', 'n'])
+        text = ("Enter new status level of %s (or n for no change). " % name)
+        status = utils.getUserInput(text, input_type=[int],
+            exceptions=['n'])
         if status != 'n':
             if self.updateDatabase('settings','contacts',
                     cuts={'name' : contact['name']},
@@ -473,9 +383,11 @@ class DobermanDB(object):
             if which == 'contacts':
                 self.updateContacts()
             elif which == 'controllers':
+                print('Sorry, can\'t update that here')
                 self.updateController()
             elif which not in to_quit:
                 print('Invalid input: %s' % which)
+        return
 
     def addOpmode(self):
         print('What is the name of this runmode?')
@@ -505,10 +417,10 @@ class DobermanDB(object):
         sms = input('>>> ')
         print('Contact email')
         email = input('>>> ')
-        print('Contact status (ON,SMS,MAIL,OFF)')
-        status = utils.getUserInput('>>> ', input_type[str], be_in=['ON','SMS','MAIL','OFF'], exceptions=['n'])
+        print('Contact status (int)')
+        status = utils.getUserInput('>>> ', input_type=[int], exceptions=['n'])
         if status == 'n':
-            status = 'OFF'
+            status = '-1'
         if self.insertIntoDatabase('settings','contacts',{'name' : name, 'sms' : sms,
             'email' : email, 'status' : status}):
             print('Could not add contact!')
@@ -526,10 +438,9 @@ class DobermanDB(object):
                 print('Controller added')
         return
 
-def main():
+def main(db):
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman interface')
 
-    db = DobermanDB()
     parser.add_argument('--update', action='store_true', default=False,
                         help='Update settings/contacts/etc')
     parser.add_argument('command', nargs='*',
@@ -554,6 +465,7 @@ def main():
             runmode = row['runmode']
             status = row['status'][runmode]
             print('  %s: %s : %s' % (row['name'], status, runmode))
+        return
     try:
         if args.add_runmode:
             db.addOpmode()
@@ -569,8 +481,12 @@ def main():
         print('Exception! %s' % e)
 
     print('Ciao!')
-    db.close()
     return
 
 if __name__ == '__main__':
-    main()
+    db = DobermanDB()
+    try:
+        main(db)
+    except Exception as e:
+        print('Caught a %s: %s' % (type(e),e))
+    db.close()

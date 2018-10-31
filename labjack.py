@@ -35,9 +35,6 @@ class labjack(Controller):
         self.then = self._device.eCount(resetCounter=1)['ms']
         return
 
-    def isThisMe(self, dev):
-        return False
-
     def Readout(self):
         voltage = [None]*len(self.analog_channels)
         overvolt = [None]*len(self.analog_channels)
