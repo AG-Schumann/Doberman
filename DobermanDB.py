@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/scratch/anaconda3/bin/python3
 import logging
 import datetime
 import pymongo

@@ -46,8 +46,8 @@ class MKS_MFC(SerialController):
                 }
         self.getCommand = '{cmd}?'
         self.setCommand = '{cmd}!{value}'
-        self._ACK == 'ACK'
-        self._NAK == 'NAK'
+        self._ACK = 'ACK'
+        self._NAK = 'NAK'
         self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
         self.setpoint_map = {'auto' : 'NORMAL', 'purge' : 'PURGE', 'close' : 'FLOW_OFF'}
@@ -112,7 +112,7 @@ class MKS_MFC(SerialController):
             else:
                 resp['data'] = None
             return resp
-        m = ack_pattern.search(resp['data'])
+        m = self.ack_pattern.search(resp['data'])
         if not m:
             return {'retcode' : 0, 'data' : None}
         else:
