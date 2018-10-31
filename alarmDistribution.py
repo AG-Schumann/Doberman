@@ -19,8 +19,8 @@ class alarmDistribution(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db = db
         details = self.db._check('settings','contacts').find_one(
-                {'conn_details' : {'$exists' : 1}})['conn_details']
-        self.mailconnection_details = details['email']
+                {'contact_details' : {'$exists' : 1}})['contact_details']
+        self.mailconnection_details = details['mail']
         self.smsconnection_details = details['sms']
         if not self.mailconnection_details:
             self.logger.critical("No Mail connection details loaded! Will not "
@@ -39,9 +39,9 @@ class alarmDistribution(object):
     def getConnectionDetails(self, which):
         try:
             details = self.db._check('settings','contacts').find_one(
-                    {'conn_details' : {'$exists' : 1}})['conn_details']
+                    {'contact_details' : {'$exists' : 1}})['contact_details']
             if 'mail' in which:
-                self.mailconnection_details = details['email']
+                self.mailconnection_details = details['mail']
             else:
                 self.smsconnection_details = details['sms']
         except Exception as e:
@@ -51,6 +51,7 @@ class alarmDistribution(object):
         '''
         Sends an email. Make sure toaddr is a list of strings.
         '''
+        return 0
         # Get connections details
         if not self.mailconnection_details:
             self.getConnectionDetails('mail')

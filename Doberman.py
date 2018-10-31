@@ -1,4 +1,4 @@
-#!/scratch/anaconda3/envs/Doberman/bin/python3
+#!/scratch/anaconda3/bin/python3
 import time
 import logging
 import DobermanDB
@@ -32,7 +32,7 @@ class Doberman(object):
 
         self.db = db
         self.db.updateDatabase('settings','defaults',{},{'$set' : {'online' : True,
-            'runmode' : runmode, 'status' : 'online'}})
+            'runmode' : self.runmode, 'status' : 'online'}})
 
         self.alarmDistr = alarmDistribution.alarmDistribution(db)
 
@@ -236,7 +236,7 @@ def main(db):
             logging.shutdown()
             return 2
     # Load and start script
-    doberman = Doberman(db, opts.runmode)
+    doberman = Doberman(db)
     try:
         if doberman.Start():
             logger.error('Something went wrong here...')
