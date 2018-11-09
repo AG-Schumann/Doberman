@@ -464,7 +464,7 @@ def main(db):
     if args.status:
         doc = db.readFromDatabase('settings','defaults',onlyone=True)
         print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
-        print('Last heartbeat: %s' % doc['heartbeat'])
+        print('Last heartbeat: %i seconds ago' % ((dtnow() - doc['heartbeat']).total_seconds()))
         print()
         cursor = db.readFromDatabase('settings','controllers',{'online' : True})
         print('Currently running controllers:')

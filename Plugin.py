@@ -4,6 +4,7 @@ import logging
 import DobermanDB
 import argparse
 import DobermanLogging
+import utils
 from BasePlugin import Plugin
 from PID import FeedbackController
 from BlindPlugin import BlindPlugin
