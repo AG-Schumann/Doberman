@@ -80,12 +80,12 @@ class DobermanDB(object):
             self.logger.error('Not sure what to do with %s type' % type(document))
             return -1
 
-    def readFromDatabase(self, db_name, collection_name, cuts={}, projection={'_id' : 0}, onlyone = False, **kwargs):
+    def readFromDatabase(self, db_name, collection_name, cuts={}, onlyone = False, **kwargs):
         """
         Finds one or more documents that pass the specified cuts
         """
         collection = self._check(db_name,collection_name)
-        cursor = collection.find(cuts, projection, **kwargs)
+        cursor = collection.find(cuts, **kwargs)
         if 'sort' in kwargs:
             cursor.sort(kwargs['sort'])
         if onlyone:
@@ -129,10 +129,10 @@ class DobermanDB(object):
         query = {'when' : {'$gte' : start_time}}
         if end_time is not None:
             query['when'].update({'$lte' : end_time})
-        projection = {'status' : 0, '_id' : 0}
+        proj = {'status' : 0, '_id' : 0, 'data' : 1, 'when' : 1}
         sort = [('when', 1)]
         b = []
-        for row in self.readFromDatabase('data', plugin_name, query, projection, sort=sort):
+        for row in self.readFromDatabase('data', plugin_name, query, projection=proj, sort=sort):
             b.append((row['when'].timestamp(), row['data'][data_index]))
         return b
 
@@ -149,7 +149,7 @@ class DobermanDB(object):
         """
         doc = self.readFromDatabase(db_name, collection_name, cuts, onlyone=True, **kwargs)
         if doc is not None:
-            self.updateDatabase({'_id' : doc['_id']}, updates)
+            self.updateDatabase(db_name, collection_name, {'_id' : doc['_id']}, updates)
         return doc
 
     def FindCommand(self, name):
@@ -243,7 +243,7 @@ class DobermanDB(object):
         patterns = [
             ('^start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
             ('^stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
-            ('^restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
+            ('^restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'restart')),
             ('^runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
             ('^sleep', lambda m : ('doberman', 'sleep')),
             ('^wake', lambda m : ('doberman', 'wake')),
