@@ -181,7 +181,7 @@ class DobermanDB(object):
         protocols = self.getMessageProtocols(level)
         ret = {k : [] for k in protocols}
         for doc in self.readFromDatabase('settings','contacts',
-                {'level' : {'$gte' : 0, '$lte' : level}}):
+                {'status' : {'$gte' : 0, '$lte' : level}}):
             for p in protocols:
                 ret[p].append(doc[p])
         return ret

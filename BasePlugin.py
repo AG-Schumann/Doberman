@@ -225,8 +225,8 @@ class Plugin(threading.Thread):
                         status[i] = j
                         if self.recurrence_counter[i] >= reading['recurrence'] and not too_soon:
                             msg = (f"Reading {i} ({reading['description']}, value "
-                               f'{value:.2g}) is outside the level {j} alarm range '
-                               f'({lo:.2g}, {hi:.2g})')
+                               f'{value:.3g}) is outside the level {j} alarm range '
+                               f'({lo:.3g}, {hi:.3g})')
                             self.logger.critical(msg)
                             self.db.logAlarm({'name' : self.name, 'index' : i,
                                 'when' : when, 'status' : status[i], 'data' : value,

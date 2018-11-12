@@ -28,7 +28,7 @@ class Doberman(object):
 
     def __init__(self, db):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.last_message_time = dtnow()
+        self.last_message_time = None
 
         self.db = db
 
@@ -163,15 +163,16 @@ class Doberman(object):
             return -1
         now = dtnow()
         runtime = (now - self.start_time).total_seconds()/60
-        dt = (now - self.last_message_time).total_seconds()/60
 
         if runtime < mode_doc['testrun']:
             self.logger.warning('Testrun still active (%.1f/%i min). Messages not sent' % (runtime, mode_doc['testrun']))
             return -2
-        if dt < mode_doc['message_time']:
-            self.logger.warning('Sent a message too recently (%i minutes), '
-                'message timer at %i' % (dt, mode_doc['message_time']))
-            return -3
+        if self.last_message_time is not None:
+            dt = (now - self.last_message_time).total_seconds()/60
+            if dt < mode_doc['message_time']:
+                self.logger.warning('Sent a message too recently (%i minutes), '
+                    'message timer at %i' % (dt, mode_doc['message_time']))
+                return -3
 
         for prot, recipients in self.db.getContactAddresses(level).items():
             if prot == 'sms':

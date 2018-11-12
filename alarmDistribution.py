@@ -29,7 +29,7 @@ class alarmDistribution(object):
         detail_doc = self.db.readFromDatabase('settings','alarm_config',
                 {'connection_details' : {'$exists' : 1}}, onlyone=True)
         try:
-            return detail_doc[which]
+            return detail_doc['connection_details'][which]
         except KeyError:
             self.logger.critical('Could not load connection details for %s' % which)
             return None
@@ -49,12 +49,14 @@ class alarmDistribution(object):
             port = int(connection_details['port'])
             fromaddr = connection_details['fromaddr']
             password = connection_details['password']
+            #self.logger.info(toaddr)
             if not isinstance(toaddr, list):
                 toaddr = toaddr.split(',')
             recipients = toaddr
+            #self.logger.info(recipients)
             try:
                 contactaddr = connection_details['contactaddr']
-            except:
+            except KeyError:
                 contactaddr = '--'
             # Compose message
             msg = MIMEMultipart()
@@ -64,12 +66,12 @@ class alarmDistribution(object):
                 if not isinstance(Cc, list):
                     Cc = Cc.split(',')
                 msg['Cc'] = ', '.join(Cc)
-                recipians = recipients.extend(Cc)
+                recipients.extend(Cc)
             if Bcc:
                 if not isinstance(Bcc, list):
                     Bcc = Bcc.split(',')
                 msg['Bcc'] = ', '.join(Bcc)
-                recipians = recipients.extend(Bcc)
+                recipients.extend(Bcc)
             msg['Subject'] = subject
             signature = ""
             if add_signature:
@@ -90,10 +92,9 @@ class alarmDistribution(object):
                 server.login(fromaddr, password)
                 server.sendmail(fromaddr, recipients, msg.as_string())
                 server.quit()
-            self.logger.info("Mail (Subject:%s) sent" %
-                             (str(subject)))
+            self.logger.info("Mail (Subject:%s) sent" % (str(subject)))
         except Exception as e:
-            self.logger.warning("Could not send mail, error: %s." % e)
+            self.logger.warning("Could not send mail, error: %s (%s)." % (str(e), type(e)))
             try:
                 server.quit()
             except:
@@ -114,8 +115,8 @@ class alarmDistribution(object):
         try:
             server = connection_details['server']
             identification = connection_details['identification']
-            contactaddr = sconnection_details['contactaddr']
-            fromaddr = connection_details['fromaddr']
+            contactaddr = connection_details['contactaddr']
+            #fromaddr = connection_details['fromaddr']
             if not phonenumber:
                 self.logger.warning("No phonenumber given. "
                                     "Can not send SMS.")
@@ -126,7 +127,7 @@ class alarmDistribution(object):
                     phonenumber[0] + '@' + str(server)
                 Bcc = None
             elif len(phonenumber) > 1:
-                toaddr = fromaddr
+                toaddr = contactaddr
                 Bcc = [str(identification) + '.' + str(number) +
                        '@' + str(server) for number in phonenumber]
             message = str(message)
@@ -148,7 +149,7 @@ class alarmDistribution(object):
                 return -1
 
         except Exception as e:
-            self.logger.error("Could not send sms, error: %s." % e)
+            self.logger.error("Could not send sms, error: %s (%s)." % (e, type(e)))
             return -1
         return 0
 
