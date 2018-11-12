@@ -387,11 +387,77 @@ class DobermanDB(object):
             if which == 'contacts':
                 self.updateContacts()
             elif which == 'controllers':
-                print('Sorry, can\'t update that here')
-                self.updateController()
+                self.updateAlarms()
             elif which not in to_quit:
                 print('Invalid input: %s' % which)
         return
+
+    def updateAlarms(self):
+        names = self.Distinct('settings','controllers','name')
+        print('Here are the available controllers:')
+        print('\n'.join(names))
+        print()
+        print('Which one do you want to update?')
+        name = input('>>> ')
+        if name not in names:
+            print('What is "%s"? It isn\'t in the above list' % name)
+            return
+        config_doc = self.ControllerSettings(name)
+        descs = [r['description'] for r in config_doc['readings']]
+        print('Here are the different readings for %s:' % name)
+        for d in enumerate(descs):
+            print('%i: %s' % d)
+        print('What is the number of the reading you want to change?')
+        number = input('>>> ')
+        if number != 'expert':
+            try:
+                number = int(number)
+                if number not in range(len(descs)):
+                    raise ValueError
+            except ValueError:
+                print('Invalid number')
+                return
+
+            print('Here are the alarm levels for %s:' % descs[number])
+            for i,(lo,hi) in enumerate(config_doc['readings'][number]['alarms']):
+                print('(%i) low: %.2g | high: %.2g' % (i, lo, hi))
+
+            print('Which alarm level do you want to change?')
+            al_num = input('>>> ')
+            try:
+                al_num = int(al_num)
+                if al_num not in range(len(config_doc['readings'][number]['alarms'])):
+                    raise ValueError
+            except ValueError:
+                print('Invalid number')
+                return
+        else:
+            print('Give it to me:')
+            number, al_num = map(int, input('>>> ').split())
+
+        s = 'readings.%i.alarms.%i' % (number, al_num)
+
+        print('Enter new low value (n for no change):')
+        lo = input('>>> ')
+        print('Enter new high value (n for no change):')
+        hi = input('>>> ')
+        try:
+            if lo != 'n':
+                lo = float(lo)
+            else:
+                lo = config_doc['readings'][number]['alarms'][al_num][0]
+            if hi != 'n':
+                hi = float(hi)
+            else:
+                hi = config_doc['readings'][number]['alarms'][al_num][1]
+        except ValueError:
+            print('Invalid numbers')
+            return
+
+        cuts = {'name' : name}
+        updates = {'$set' : {s : [lo,hi]}}
+        self.updateDatabase('settings','controllers',cuts=cuts,updates=updates)
+        print('You got it')
 
     def addOpmode(self):
         print('What is the name of this runmode?')
@@ -486,9 +552,8 @@ def main(db):
     except KeyboardInterrupt:
         print('Interrupted!')
     except Exception as e:
-        print('Exception! %s' % e)
+        print('I caught a %s exception: %s' % (type(e),e))
 
-    print('Ciao!')
     return
 
 if __name__ == '__main__':
