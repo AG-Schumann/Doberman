@@ -63,6 +63,7 @@ class Plugin(threading.Thread):
         self.OpenController()
         self.running = False
         self.has_quit = False
+        self.logger.debug('Started')
 
     def close(self):
         """Closes the controller"""
@@ -108,6 +109,7 @@ class Plugin(threading.Thread):
         """
         self.OpenController()
         self.running = True
+        self.logger.debug('Running...')
         while self.running:
             loop_start_time = time.time()
             configdoc = self.db.ControllerSettings(self.name)
@@ -154,7 +156,8 @@ class Plugin(threading.Thread):
             if len(vals['retcode']) != self.number_of_data:
                 vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
             data = [dtnow(), vals['data'], vals['retcode']]
-            self.logger.debug('Measured %s' % list(map('{:.2g}'.format, vals['data'])))
+            if vals['data']:
+                self.logger.debug('Measured %s' % list(map('{:.2g}'.format, vals['data'])))
             if -1 in data[2] or -2 in data[2]: # connection lost
                 self._connected = False
                 self.logger.error('Lost connection to device?')
