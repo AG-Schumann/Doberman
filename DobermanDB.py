@@ -186,6 +186,27 @@ class DobermanDB(object):
                 ret[p].append(doc[p])
         return ret
 
+    def Heartbeat(self, name):
+        """
+        Heartbeats the specified controller (or doberman)
+        """
+        if name == 'doberman':
+            cuts={}
+        else:
+            cuts={'name' : name}
+        self.updateDatabase('settings','defaults',cuts=cuts,
+                    updates={'$set' : {'heartbeat' : dtnow()}})
+        return
+
+    def CheckHeartbeat(self, name):
+        """
+        Checks the heartbeat of the specified controller.
+        Returns time_since
+        """
+        doc = self.ControllerConfig(name=name)
+        last_heartbeat = doc['heartbeat']
+        return (dtnow() - last_heartbeat).total_seconds()
+
     def PrintHelp(self, name):
         print('Accepted commands:')
         print('help <plugin_name>: help for specific plugin')

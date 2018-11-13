@@ -33,6 +33,7 @@ class Doberman(object):
         self.db = db
 
         self.alarmDistr = alarmDistribution.alarmDistribution(db)
+        self.managed_plugins = []
 
     def close(self):
         """
@@ -70,6 +71,8 @@ class Doberman(object):
         Starts the specified controller and releases it into the wild
         """
         self.logger.info('Starting %s' % name)
+        if name not in self.managed_plugins:
+            self.managed_plugins.append(name)
         cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s --runmode %s' % (name, runmode)
         _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd='/scratch/doberman')
 
@@ -99,7 +102,24 @@ class Doberman(object):
             self.close()
 
     def Heartbeat(self):
-        self.db.updateDatabase('settings','defaults',{}, {'$set' : {'heartbeat' : dtnow()}})
+        self.db.Heartbeat('doberman')
+        for name in self.managed_plugins:
+            time_since = self.db.CheckHeartbeat(name)
+            if time_since > 3*utils.heartbeat_timer:
+                self.logger.info('%s hasn\'t reported in recently (%i seconds). Let me try restarting it...' % (name, time_since))
+                # log alarm?
+                self.db.updateDatabase('settings','controllers',cuts={'name' : name},
+                        updates={'$set' : {'online' : False}})
+                runmode = self.db.ControllerConfig(name)['runmode']
+                self.StartController(name, runmode=runmode)
+                time.sleep(5)
+                if self.db.CheckHeartbeat(name) > utils.heartbeat_timer:
+                    self.logger.error('I can\'t restart %s')
+                    alarm_doc = {'name' : 'doberman', 'when' : dtnow(), 'howbad' : 0,
+                            'msg' : '%s has died and I can\'t restart it' % name}
+                    self.db.logAlarm(alarm_doc)
+                else:
+                    self.logger.info('Looks like we\'re good')
 
     def checkCommands(self):
         doc = self.db.FindCommand('doberman')
