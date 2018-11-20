@@ -189,7 +189,7 @@ class DobermanDB(object):
     def PrintHelp(self, name):
         print('Accepted commands:')
         print('help <plugin_name>: help for specific plugin')
-        print('start <plugin_name>: starts the specified plugin')
+        print('start <plugin_name> [<runmode>]: starts the specified plugin [in the specified runmode]')
         print('stop <plugin_name>: stops the specified plugin')
         print('restart <plugin_name>: hard restarts the specified plugin')
         print('runmode <runmode>: changes the active runmode')
