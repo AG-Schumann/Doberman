@@ -72,6 +72,7 @@ def main(db):
         plugin.running = False
         plugin.join()
         logger.info('Shutting down')
+        db.ManagePlugins(args.plugin_name, 'remove')
 
     return
 

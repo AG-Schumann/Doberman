@@ -71,8 +71,7 @@ class Doberman(object):
         Starts the specified controller and releases it into the wild
         """
         self.logger.info('Starting %s' % name)
-        if name not in self.managed_plugins:
-            self.managed_plugins.append(name)
+        seld.db.ManagePlugins(name, 'add')
         cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s --runmode %s' % (name, runmode)
         _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd='/scratch/doberman')
 
@@ -81,7 +80,7 @@ class Doberman(object):
         Watches all the bees
         '''
         self.sleep = False
-        loop_time = 30
+        loop_time = utils.heartbeat_timer
         self.logger.info('Watch ALL the bees!')
         sh = utils.SignalHandler(self.logger)
         self.start_time = dtnow()
@@ -103,7 +102,8 @@ class Doberman(object):
 
     def Heartbeat(self):
         self.db.Heartbeat('doberman')
-        for name in self.managed_plugins:
+        managed_plugins = self.db.getDefaultSettings(name='managed_plugins')
+        for name in managed_plugins:
             time_since = self.db.CheckHeartbeat(name)
             if time_since > 3*utils.heartbeat_timer:
                 self.logger.info('%s hasn\'t reported in recently (%i seconds). Let me try restarting it...' % (name, time_since))
