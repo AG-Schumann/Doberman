@@ -241,7 +241,7 @@ class DobermanDB(object):
             return
 
         patterns = [
-            ('^start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
+            ('^start (?P<name>%s)(?: (?P<runmode>%s))?' % (names_, runmodes_), lambda m : ('doberman', 'start {name} {runmode}'.format(**m.groupdict()))),
             ('^stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
             ('^restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'restart')),
             ('^runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
