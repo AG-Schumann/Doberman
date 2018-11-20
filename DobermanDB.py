@@ -481,14 +481,14 @@ class DobermanDB(object):
         return
 
     def addContact(self):
-        print('Contact name:')
-        name = input('>>> ')
-        print('Contact sms')
-        sms = input('>>> ')
-        print('Contact email')
-        email = input('>>> ')
-        print('Contact status (int)')
-        status = utils.getUserInput('>>> ', input_type=[int], exceptions=['n'])
+        print('Here are the contacts currently available:')
+        print('\n'.join(self.Distinct('settings','contacts','name')))
+        print('\n\n')
+        print('New contact:')
+        name = input('Name: ')
+        sms = input('sms: ')
+        email = input('email: ')
+        status = utils.getUserInput('Status (int): ', input_type=[int], exceptions=['n'])
         if status == 'n':
             status = '-1'
         if self.insertIntoDatabase('settings','contacts',{'name' : name, 'sms' : sms,
