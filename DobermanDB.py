@@ -186,6 +186,27 @@ class DobermanDB(object):
                 ret[p].append(doc[p])
         return ret
 
+    def Heartbeat(self, name):
+        """
+        Heartbeats the specified controller (or doberman)
+        """
+        if name == 'doberman':
+            cuts={}
+        else:
+            cuts={'name' : name}
+        self.updateDatabase('settings','defaults',cuts=cuts,
+                    updates={'$set' : {'heartbeat' : dtnow()}})
+        return
+
+    def CheckHeartbeat(self, name):
+        """
+        Checks the heartbeat of the specified controller.
+        Returns time_since
+        """
+        doc = self.ControllerConfig(name=name)
+        last_heartbeat = doc['heartbeat']
+        return (dtnow() - last_heartbeat).total_seconds()
+
     def PrintHelp(self, name):
         print('Accepted commands:')
         print('help [<plugin_name>]: help [for specific plugin]')
@@ -351,6 +372,25 @@ class DobermanDB(object):
         if name:
             return doc[name]
         return doc
+
+    def ManagePlugins(self, name, action):
+        """
+        Adds or removes a plugin from the managed list. Doberman adds, plugins remove
+        """
+        managed_plugins = self.getDefaultSettings(name='managed_plugins')
+        if action='add':
+            if name in managed_plugins:
+                self.logger.info('%s already managed' % name)
+            else:
+                self.updateDatabase('settings','defaults',cuts={},
+                        updates={'$push' : {'managed_plugins' : name}})
+        elif action='remove':
+            if name not in managed_plugins:
+                self.logger.debug('%s isn\'t managed' % name)
+            else:
+                self.updateDatabase('settings','defaults',cuts={},
+                        updates={'$pull' : {'managed_plugins' : name}})
+        return
 
     def updateContacts(self):
         """
