@@ -379,13 +379,13 @@ class DobermanDB(object):
         Adds or removes a plugin from the managed list. Doberman adds, plugins remove
         """
         managed_plugins = self.getDefaultSettings(name='managed_plugins')
-        if action='add':
+        if action=='add':
             if name in managed_plugins:
                 self.logger.info('%s already managed' % name)
             else:
                 self.updateDatabase('settings','defaults',cuts={},
                         updates={'$push' : {'managed_plugins' : name}})
-        elif action='remove':
+        elif action=='remove':
             if name not in managed_plugins:
                 self.logger.debug('%s isn\'t managed' % name)
             else:
