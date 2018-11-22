@@ -202,9 +202,11 @@ def main(db):
     parser.add_argument('--refresh', action='store_true', default=False,
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
-    if db.getDefaultSettings(name='status') == 'online':
-        logger.error('Is there an instance of Doberman already running?')
-        return 2
+    doc = db.getDefaultSettings()
+    if doc['status'] == 'online':
+        if (dtnow() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
+            logger.error('Is there an instance of Doberman already running?')
+            return 2
     if opts.version:
         logger.info('Doberman version %s' % __version__)
         return 0
