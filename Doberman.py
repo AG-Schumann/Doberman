@@ -115,8 +115,9 @@ class Doberman(object):
                 self.sleep = False
                 self.db.updateDatabase(*db_col,{},{'$set' : {'status' : 'online'}})
             elif command.startswith('start'):
-                _, name = command.split()
-                runmode = self.db.getDefaultSettings(name='runmode')
+                _, name, runmode = command.split()
+                if runmode == 'None':
+                    runmode = self.db.getDefaultSettings(name='runmode')
                 self.StartController(name, runmode)
             elif command.startswith('runmode'):
                 _, runmode = command.split()
@@ -201,9 +202,11 @@ def main(db):
     parser.add_argument('--refresh', action='store_true', default=False,
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
-    if db.getDefaultSettings(name='status') == 'online':
-        logger.error('Is there an instance of Doberman already running?')
-        return 2
+    doc = db.getDefaultSettings()
+    if doc['status'] == 'online':
+        if (dtnow() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
+            logger.error('Is there an instance of Doberman already running?')
+            return 2
     if opts.version:
         logger.info('Doberman version %s' % __version__)
         return 0
