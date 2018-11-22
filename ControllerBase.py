@@ -98,7 +98,7 @@ class SerialController(Controller):
     def __init__(self, opts):
         self.ttyUSB = -1
         self._device = serial.Serial()
-        self._device.baudrate=9600
+        self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
