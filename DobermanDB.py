@@ -248,8 +248,6 @@ class DobermanDB(object):
         """
         Puts a command into the database
         """
-        print('%s: %s' % (name, command))
-        return
         template = {'name' : name, 'command' : command,
                 'by' : os.environ['USER'], 'logged' : dtnow()}
         if future is not None:
