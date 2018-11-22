@@ -65,6 +65,7 @@ class Controller(object):
         """
         if not hasattr(self, 'command_patterns'):
             self.logger.error("I don't accept specific commands")
+            return
         for pattern, func in self.command_patterns:
             m = pattern.search(command)
             if not m:
