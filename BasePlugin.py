@@ -113,7 +113,7 @@ class Plugin(threading.Thread):
         while self.running:
             loop_start_time = time.time()
             configdoc = self.db.ControllerSettings(self.name)
-            if configdoc['status'][configdoc['runmode']] == 'ON':
+            if configdoc['status'] == 'online':
                 self.Readout(configdoc)
             self.HandleCommands()
             while (time.time() - loop_start_time) < configdoc['readout_interval'] and self.running:
@@ -156,8 +156,10 @@ class Plugin(threading.Thread):
             if len(vals['retcode']) != self.number_of_data:
                 vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
             data = [dtnow(), vals['data'], vals['retcode']]
-            if vals['data']:
-                self.logger.debug('Measured %s' % list(map('{:.2g}'.format, vals['data'])))
+            try:
+                self.logger.debug('Measured %s' % (list(map('{:.3g}'.format, vals['data']))))
+            except:
+                pass
             if -1 in data[2] or -2 in data[2]: # connection lost
                 self._connected = False
                 self.logger.error('Lost connection to device?')
@@ -237,7 +239,7 @@ class Plugin(threading.Thread):
                 else:
                     self.recurrence_counter[i] = 0
             except Exception as e:
-                self.logger.critical(f"Could not check reading {i} ({reading['description']}): {e} ({str(type(e))}")
+                self.logger.critical(f"Could not check reading {i} ({reading['description']}): {e} ({str(type(e))})")
         if not self._connected:
             return
         time_diff = (when - self.last_measurement_time).total_seconds()
@@ -276,10 +278,10 @@ class Plugin(threading.Thread):
         while doc is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
-            if 'runmode' in command:
+            if command.startswith('runmode'):
                 _, runmode = command.split()
-                self.db.updateDatabase('settings','controllers',
-                                {'name': self.name}, {'$set' : {'runmode' : runmode}})
+                self.db.updateDatabase('settings','controllers', {'name': self.name},
+                        {'$set' : {'runmode' : runmode}})
                 loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
                 self.logger.setLevel(int(loglevel))
             elif command == 'stop':
@@ -287,13 +289,11 @@ class Plugin(threading.Thread):
                 self.has_quit = True
                 # makes sure we don't get restarted
             elif command == 'wake':
-                runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                        {'$set' : {'status.%s' % runmode : 'ON'}})
+                        {'$set' : {'status' : 'online'}})
             elif command == 'sleep':
-                runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                        {'$set' : {'status.%s' % runmode : 'OFF'}})
+                        {'$set' : {'status' : 'sleep'}})
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:

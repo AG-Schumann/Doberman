@@ -99,7 +99,7 @@ class SerialController(Controller):
     def __init__(self, opts):
         self.ttyUSB = -1
         self._device = serial.Serial()
-        self._device.baudrate=9600
+        self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
@@ -142,7 +142,8 @@ class SerialController(Controller):
             device.write(message.encode())
             time.sleep(1.0)
             if device.in_waiting:
-                ret['data'] = device.read(device.in_waiting).decode().rstrip()
+                s = device.read(device.in_waiting)
+                ret['data'] = s.decode().rstrip()
         except serial.SerialException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
@@ -151,6 +152,9 @@ class SerialController(Controller):
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
             return ret
+        except UnicodeDecodeError as e:
+            self.logger.error('Unicode problems: %s. I\'m going to pass this along undecoded and hope your sensor knows how to handle it. Data: %s' % (e, s))
+            ret['data'] = s
         time.sleep(0.2)
         return ret
 

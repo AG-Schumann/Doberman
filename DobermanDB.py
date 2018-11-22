@@ -186,14 +186,35 @@ class DobermanDB(object):
                 ret[p].append(doc[p])
         return ret
 
+    def Heartbeat(self, name):
+        """
+        Heartbeats the specified controller (or doberman)
+        """
+        if name == 'doberman':
+            cuts={}
+        else:
+            cuts={'name' : name}
+        self.updateDatabase('settings','defaults',cuts=cuts,
+                    updates={'$set' : {'heartbeat' : dtnow()}})
+        return
+
+    def CheckHeartbeat(self, name):
+        """
+        Checks the heartbeat of the specified controller.
+        Returns time_since
+        """
+        doc = self.ControllerConfig(name=name)
+        last_heartbeat = doc['heartbeat']
+        return (dtnow() - last_heartbeat).total_seconds()
+
     def PrintHelp(self, name):
         print('Accepted commands:')
-        print('help <plugin_name>: help for specific plugin')
-        print('start <plugin_name>: starts the specified plugin')
-        print('stop <plugin_name>: stops the specified plugin')
-        print('restart <plugin_name>: hard restarts the specified plugin')
+        print('help [<plugin_name>]: help [for specific plugin]')
+        print('start <plugin_name> [<runmode>]: starts a plugin [in the specified runmode]')
+        print('stop <plugin_name>: stops a plugin')
+        print('restart <plugin_name>: restarts a plugin')
         print('runmode <runmode>: changes the active runmode')
-        print('sleep: puts Doberman to sleep')
+        print('sleep <duration>: puts Doberman to sleep for specified duration (5m, 6h, etc)')
         print('wake: reactivates Doberman')
         print()
         print('Available plugins:')
@@ -201,7 +222,7 @@ class DobermanDB(object):
         print(' | '.join(names))
         print()
         print('Plugin commands:')
-        print('<plugin_name> sleep: puts the specified plugin to sleep')
+        print('<plugin_name> sleep <duration>: puts the specified plugin to sleep for the specified duration')
         print('<plugin_name> wake: reactivates the specified plugin')
         print('<plugin_name> runmode <runmode>: changes the active runmode for the specified controller')
         print()
@@ -214,7 +235,7 @@ class DobermanDB(object):
                 for row in ctrl_cls.accepted_commands:
                     print(row)
         print()
-        print('Plugin name == "all" issues the command to all running plugins')
+        print('Plugin name == "all" issues the command to applicable plugins. Context-aware.')
         print()
         print('Available runmodes:')
         runmodes = self.Distinct('settings','runmodes','mode')
@@ -222,15 +243,26 @@ class DobermanDB(object):
         print()
         return
 
-    def StoreCommand(self, command_str):
+    def StoreCommand(self, name, command, future=None):
         """
-        Stores commands for the system. Command == 'help' describes accepted commands
+        Puts a command into the database
+        """
+        print('%s: %s' % (name, command))
+        return
+        template = {'name' : name, 'command' : command,
+                'by' : os.environ['USER'], 'logged' : dtnow()}
+        if future is not None:
+            template['logged'] += future
+        self.insertIntoDatabase('logging','commands', template)
+        return
+
+    def ParseCommand(self, command_str):
+        """
+        Does the regex matching for command input
         """
         names = self.Distinct('settings','controllers','name')
         names_ = '|'.join(names + ['all'])
         runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
-        whoami = os.environ['USER']
-        online = self.Distinct('settings','controllers','name', {'online' : True})
         if command_str.startswith('help'):
             n = None
             if len(command_str) > len('help '):
@@ -241,43 +273,74 @@ class DobermanDB(object):
             return
 
         patterns = [
-            ('^start (?P<name>%s)' % names_, lambda m : ('doberman', 'start ' + m.group('name'))),
-            ('^stop (?P<name>%s)' % names_, lambda m : (m.group('name'), 'stop')),
-            ('^restart (?P<name>%s)' % names_, lambda m : (m.group('name'), 'restart')),
-            ('^runmode (?P<runmode>%s)' % runmodes_, lambda m : ('doberman', 'runmode ' + m.group('runmode'))),
-            ('^sleep', lambda m : ('doberman', 'sleep')),
-            ('^wake', lambda m : ('doberman', 'wake')),
-            ('^(?P<name>%s) sleep' % names_, lambda m : (m.group('name'), 'sleep')),
-            ('^(?P<name>%s) wake' % names_, lambda m : (m.group('name'), 'wake')),
-            ('^(?P<name>%s) runmode (?P<runmode>%s)' % (names_, runmodes_), lambda m : (m.group('name'), 'runmode ' + m.group('runmode'))),
-            ('^(?P<name>%s) (?P<command>.+)$' % names_, lambda m : (m.group('name'), m.group('command'))),
+            '^(?P<command>start|stop|restart) (?P<name>%s)(?: (?P<runmode>%s))?' % (names_, runmodes_),
+            '^(?:(?P<name>%s) )?(?P<command>sleep|wake)(?: (?P<duration>(?:[1-9][0-9]*[dhms])|(?:inf)))?' % names_,
+            '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s)' % (names_, runmodes_),
+            '^(?P<name>%s) (?P<command>.+)$' % names_,
         ]
-        for pattern, func in patterns:
+        for pattern in patterns:
             m = re.search(pattern, command_str)
             if m:
-                name, com = func(m)
-                print('Storing command \'%s\' for %s' % (com, name))
-                docs = []
-                if name == 'all':
-                    for n in online:
-                        docs.append({'name' : n, 'by' : whoami, 'logged' : dtnow(),
-                            'command' : com if com != 'restart' else 'stop'})
-                        if com == 'restart':
-                            docs.append({'name' : 'doberman', 'by' : whoami,
-                                'command' : 'start ' + n,
-                                'logged' : dtnow() + datetime.timedelta(seconds=10)})
-                else:
-                    docs.append({'name' : name, 'by' : whoami, 'logged' : dtnow(),
-                        'command' : com if com != 'restart' else 'stop'})
-                    if com == 'restart':
-                        docs.append({'name' : 'doberman', 'by' : whoami,
-                            'command' : 'start ' + name,
-                            'logged' : dtnow() + datetime.timedelta(seconds=10)})
-
-                self.insertIntoDatabase('logging','commands',docs)
+                self.ProcessCommand(m)
                 break
         else:
             print('Command \'%s\' not understood' % command_str)
+
+    def ProcessCommand(self, m):
+        """
+        Takes the match object (m) and figures out what it actually means
+        """
+        command = m['command']
+        name = str(m['name'])
+        names = {'None' : ['doberman']}
+        if name != 'None':
+            names.update({name : [name]})
+        online = self.Distinct('settings','controllers','name', {'status' : 'online'})
+        offline = self.Distinct('settings','controllers','name', {'status' : 'offline'})
+        asleep = self.Distinct('settings','controllers','name', {'status' : 'sleep'})
+        if name in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
+            names.update({'all' : {
+                'start' : offline,
+                'stop' : online,
+                'restart' : online,
+                'sleep' : online,
+                'wake' : asleep,
+                'runmode' : online}[name]})
+        if command == 'start':
+            for n in names[name]:
+                self.StoreCommand('doberman', 'start %s %s' % (n, m['runmode']))
+        elif command == 'stop':
+            for n in names[name]:
+                self.StoreCommand(n, 'stop')
+        elif command == 'restart':
+            td = datetime.timedelta(seconds=1.1*utils.heartbeat_timer)
+            for n in names[name]:
+                self.StoreCommand(n, 'stop')
+                self.StoreCommand('doberman', 'start %s None' % n, td)
+        elif command == 'sleep':
+            duration = m['duration']
+            if duration == 'None':
+                print('Can\'t sleep without specifying a duration!')
+            elif duration == 'inf':
+                for n in names[name]:
+                    self.StoreCommand(n, 'sleep')
+            else:
+                howmany = int(duration[:-1])
+                which = duration[-1]
+                time_map = {'s' : 'seconds', 'm' : 'minutes', 'h' : 'hours', 'd' : 'days'}
+                kwarg = {time_map[which] : howmany}
+                sleep_time = datetime.timedelta(**kwarg)
+                for n in names[name]:
+                    self.StoreCommand(n, 'sleep')
+                    self.StoreCommand(n, 'wake', sleep_time)
+        elif command == 'wake':
+            for n in names[name]:
+                self.StoreCommand(n, 'wake')
+        elif command == 'runmode':
+            for n in names[name]:
+                self.StoreCommand(n, 'runmode %s' % m['runmode'])
+        else:
+            self.StoreCommand(name, command)
 
     def logAlarm(self, document):
         """
@@ -288,14 +351,11 @@ class DobermanDB(object):
             return -1
         return 0
 
-    def ControllerSettings(self, name='all'):
+    def ControllerSettings(self, name):
         """
         Reads the settings in the database.
         """
-        if name == 'all':
-            return {row['name'] : row for row in self.readFromDatabase('settings', 'controllers')}
-        else:
-            return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
+        return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
 
     def getDefaultSettings(self, runmode=None, name=None):
         """
@@ -312,6 +372,25 @@ class DobermanDB(object):
         if name:
             return doc[name]
         return doc
+
+    def ManagePlugins(self, name, action):
+        """
+        Adds or removes a plugin from the managed list. Doberman adds, plugins remove
+        """
+        managed_plugins = self.getDefaultSettings(name='managed_plugins')
+        if action='add':
+            if name in managed_plugins:
+                self.logger.info('%s already managed' % name)
+            else:
+                self.updateDatabase('settings','defaults',cuts={},
+                        updates={'$push' : {'managed_plugins' : name}})
+        elif action='remove':
+            if name not in managed_plugins:
+                self.logger.debug('%s isn\'t managed' % name)
+            else:
+                self.updateDatabase('settings','defaults',cuts={},
+                        updates={'$pull' : {'managed_plugins' : name}})
+        return
 
     def updateContacts(self):
         """
@@ -508,14 +587,31 @@ class DobermanDB(object):
                 print('Controller added')
         return
 
+    def CurrentStatus(self):
+        now = dtnow()
+        doc = self.getDefaultSettings()
+        print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
+        print('Last heartbeat: %i seconds ago' % ((now - doc['heartbeat']).total_seconds()))
+        print()
+        print('Currently running controllers:')
+        print('  |  '.join(['Name','Runmode',
+            'Seconds since last measurement','Values']))
+        for row in self.readFromDatabase('settings','controllers',{'online' : True}):
+            runmode = row['runmode']
+            datadoc = self.readFromDatabase('data',row['name'],onlyone=True,sort=[('when',-1)])
+            print('  {name} | {runmode} | {when:.1f} | {values}'.format(
+                name=row['name'], runmode=runmode,
+                when=(now-datadoc['when']).total_seconds(),
+                values=', '.join(['%.3g' % v for v in datadoc['data']])))
+        return
+
 def main(db):
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman interface')
 
     parser.add_argument('--update', action='store_true', default=False,
                         help='Update settings/contacts/etc')
     parser.add_argument('command', nargs='*',
-                        help='Issue a command to the system. Format: '
-                            '<name> <command>. Try \'help\'')
+                        help='Issue a command to the system. Try \'help\'')
     parser.add_argument('--add-runmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
@@ -527,6 +623,7 @@ def main(db):
     args = parser.parse_args()
     if args.command:
         db.StoreCommand(' '.join(args.command))
+        return
     if args.status:
         doc = db.readFromDatabase('settings','defaults',onlyone=True)
         print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
@@ -537,7 +634,7 @@ def main(db):
         print('Name : Status : Runmode')
         for row in cursor:
             runmode = row['runmode']
-            status = row['status'][runmode]
+            status = row['status']
             print('  %s: %s : %s' % (row['name'], status, runmode))
         return
     try:

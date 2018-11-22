@@ -8,6 +8,7 @@ import utils
 from BasePlugin import Plugin
 from PID import FeedbackController
 from BlindPlugin import BlindPlugin
+import datetime
 
 
 def main(db):
@@ -26,11 +27,12 @@ def main(db):
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
     doc = db.ControllerSettings(args.plugin_name)
-    if doc['online']:
-        logger.fatal('%s already running!' % args.plugin_name)
-        return
+    if doc['status'] == 'online':
+        if (datetime.datetime.now() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
+            logger.fatal('%s already running!' % args.plugin_name)
+            return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
-            {'$set' : {'runmode' : args.runmode, 'online' : True}})
+            {'$set' : {'runmode' : args.runmode, 'status' : 'online'}})
     logger.info('Starting %s' % args.plugin_name)
     if 'feedback' in doc:
         ctor = FeedbackController
@@ -45,8 +47,9 @@ def main(db):
     try:
         while running and not sh.interrupted:
             loop_start = time.time()
+            db.Heartbeat(plugin.name)
             logger.debug('I\'m still here')
-            while time.time() - loop_start < 30 and not sh.interrupted:
+            while time.time() - loop_start < utils.heartbeat_timer and not sh.interrupted:
                 time.sleep(1)
             if plugin.has_quit:
                 logger.info('Plugin stopped')
@@ -67,10 +70,11 @@ def main(db):
         logger.fatal(f'Why did I catch a {type(e)} here? {e}')
     finally:
         db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
-                {'$set' : {'online' : False}})
+                {'$set' : {'status' : 'offline'}})
         plugin.running = False
         plugin.join()
         logger.info('Shutting down')
+        db.ManagePlugins(args.plugin_name, 'remove')
 
     return
 
