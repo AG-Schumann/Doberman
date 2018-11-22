@@ -47,8 +47,9 @@ def main(db):
     try:
         while running and not sh.interrupted:
             loop_start = time.time()
+            db.Heartbeat(plugin.name)
             logger.debug('I\'m still here')
-            while time.time() - loop_start < 30 and not sh.interrupted:
+            while time.time() - loop_start < utils.heartbeat_timer and not sh.interrupted:
                 time.sleep(1)
             if plugin.has_quit:
                 logger.info('Plugin stopped')
@@ -73,6 +74,7 @@ def main(db):
         plugin.running = False
         plugin.join()
         logger.info('Shutting down')
+        db.ManagePlugins(args.plugin_name, 'remove')
 
     return
 
