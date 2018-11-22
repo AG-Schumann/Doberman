@@ -14,7 +14,7 @@ import utils
 import signal
 dtnow = datetime.datetime.now
 
-__version__ = '3.1.0'
+__version__ = '3.2.0'
 
 
 class Doberman(object):
@@ -33,7 +33,6 @@ class Doberman(object):
         self.db = db
 
         self.alarmDistr = alarmDistribution.alarmDistribution(db)
-        self.managed_plugins = []
 
     def close(self):
         """
@@ -109,7 +108,7 @@ class Doberman(object):
                 self.logger.info('%s hasn\'t reported in recently (%i seconds). Let me try restarting it...' % (name, time_since))
                 # log alarm?
                 self.db.updateDatabase('settings','controllers',cuts={'name' : name},
-                        updates={'$set' : {'online' : False}})
+                        updates={'$set' : {'status' : 'offline'}})
                 runmode = self.db.ControllerConfig(name)['runmode']
                 self.StartController(name, runmode=runmode)
                 time.sleep(5)

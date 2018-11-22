@@ -171,7 +171,6 @@ class DobermanDB(object):
             doc = self.readFromDatabase('settings','alarm_config',
                     {'level' : {'$lte' : level}}, onlyone=True,
                     sort=[('level', -1)])
-            return doc['protocols']
         return doc['protocols']
 
     def getContactAddresses(self, level):
@@ -192,9 +191,11 @@ class DobermanDB(object):
         """
         if name == 'doberman':
             cuts={}
+            coll = 'defaults'
         else:
             cuts={'name' : name}
-        self.updateDatabase('settings','defaults',cuts=cuts,
+            coll = 'settings'
+        self.updateDatabase('settings', coll, cuts=cuts,
                     updates={'$set' : {'heartbeat' : dtnow()}})
         return
 
@@ -595,7 +596,7 @@ class DobermanDB(object):
         print()
         print('Currently running controllers:')
         print('  |  '.join(['Name','Runmode',
-            'Seconds since last measurement','Values']))
+            'Seconds since last read','Values']))
         for row in self.readFromDatabase('settings','controllers',{'online' : True}):
             runmode = row['runmode']
             datadoc = self.readFromDatabase('data',row['name'],onlyone=True,sort=[('when',-1)])
@@ -622,20 +623,10 @@ def main(db):
                         help='List current status')
     args = parser.parse_args()
     if args.command:
-        db.StoreCommand(' '.join(args.command))
+        db.ParseCommand(' '.join(args.command))
         return
     if args.status:
-        doc = db.readFromDatabase('settings','defaults',onlyone=True)
-        print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
-        print('Last heartbeat: %i seconds ago' % ((dtnow() - doc['heartbeat']).total_seconds()))
-        print()
-        cursor = db.readFromDatabase('settings','controllers',{'online' : True})
-        print('Currently running controllers:')
-        print('Name : Status : Runmode')
-        for row in cursor:
-            runmode = row['runmode']
-            status = row['status']
-            print('  %s: %s : %s' % (row['name'], status, runmode))
+        db.CurrentStatus()
         return
     try:
         if args.add_runmode:
