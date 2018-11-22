@@ -547,6 +547,24 @@ class DobermanDB(object):
                 print('Controller added')
         return
 
+    def CurrentStatus(self):
+        now = dtnow()
+        doc = self.getDefaultSettings()
+        print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
+        print('Last heartbeat: %i seconds ago' % ((now - doc['heartbeat']).total_seconds()))
+        print()
+        print('Currently running controllers:')
+        print('  |  '.join(['Name','Runmode',
+            'Seconds since last measurement','Values']))
+        for row in self.readFromDatabase('settings','controllers',{'online' : True}):
+            runmode = row['runmode']
+            datadoc = self.readFromDatabase('data',row['name'],onlyone=True,sort=[('when',-1)])
+            print('  {name} | {runmode} | {when:.1f} | {values}'.format(
+                name=row['name'], runmode=runmode,
+                when=(now-datadoc['when']).total_seconds(),
+                values=', '.join(['%.3g' % v for v in datadoc['data']])))
+        return
+
 def main(db):
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman interface')
 
@@ -564,7 +582,8 @@ def main(db):
                         help='List current status')
     args = parser.parse_args()
     if args.command:
-        db.ParseCommand(' '.join(args.command))
+        db.StoreCommand(' '.join(args.command))
+        return
     if args.status:
         doc = db.readFromDatabase('settings','defaults',onlyone=True)
         print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
