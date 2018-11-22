@@ -115,8 +115,9 @@ class Doberman(object):
                 self.sleep = False
                 self.db.updateDatabase(*db_col,{},{'$set' : {'status' : 'online'}})
             elif command.startswith('start'):
-                _, name = command.split()
-                runmode = self.db.getDefaultSettings(name='runmode')
+                _, name, runmode = command.split()
+                if runmode == 'None':
+                    runmode = self.db.getDefaultSettings(name='runmode')
                 self.StartController(name, runmode)
             elif command.startswith('runmode'):
                 _, runmode = command.split()

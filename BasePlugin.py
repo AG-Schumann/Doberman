@@ -113,7 +113,7 @@ class Plugin(threading.Thread):
         while self.running:
             loop_start_time = time.time()
             configdoc = self.db.ControllerSettings(self.name)
-            if configdoc['status'][configdoc['runmode']] == 'ON':
+            if configdoc['status'] == 'online':
                 self.Readout(configdoc)
             self.HandleCommands()
             while (time.time() - loop_start_time) < configdoc['readout_interval'] and self.running:
@@ -276,10 +276,10 @@ class Plugin(threading.Thread):
         while doc is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
-            if 'runmode' in command:
+            if command.startswith('runmode'):
                 _, runmode = command.split()
-                self.db.updateDatabase('settings','controllers',
-                                {'name': self.name}, {'$set' : {'runmode' : runmode}})
+                self.db.updateDatabase('settings','controllers', {'name': self.name},
+                        {'$set' : {'runmode' : runmode}})
                 loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
                 self.logger.setLevel(int(loglevel))
             elif command == 'stop':
@@ -287,13 +287,11 @@ class Plugin(threading.Thread):
                 self.has_quit = True
                 # makes sure we don't get restarted
             elif command == 'wake':
-                runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                        {'$set' : {'status.%s' % runmode : 'ON'}})
+                        {'$set' : {'status' : 'online'}})
             elif command == 'sleep':
-                runmode = self.db.ControllerSettings(name=self.name)['runmode']
                 self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                        {'$set' : {'status.%s' % runmode : 'OFF'}})
+                        {'$set' : {'status' : 'sleep'}})
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:

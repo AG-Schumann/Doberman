@@ -32,7 +32,7 @@ def main(db):
             logger.fatal('%s already running!' % args.plugin_name)
             return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
-            {'$set' : {'runmode' : args.runmode, 'online' : True}})
+            {'$set' : {'runmode' : args.runmode, 'status' : 'online'}})
     logger.info('Starting %s' % args.plugin_name)
     if 'feedback' in doc:
         ctor = FeedbackController
@@ -69,7 +69,7 @@ def main(db):
         logger.fatal(f'Why did I catch a {type(e)} here? {e}')
     finally:
         db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
-                {'$set' : {'online' : False}})
+                {'$set' : {'status' : 'offline'}})
         plugin.running = False
         plugin.join()
         logger.info('Shutting down')
