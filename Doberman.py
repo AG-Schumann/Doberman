@@ -70,7 +70,7 @@ class Doberman(object):
         Starts the specified controller and releases it into the wild
         """
         self.logger.info('Starting %s' % name)
-        seld.db.ManagePlugins(name, 'add')
+        self.db.ManagePlugins(name, 'add')
         cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s --runmode %s' % (name, runmode)
         _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd='/scratch/doberman')
 
@@ -107,9 +107,9 @@ class Doberman(object):
             if time_since > 3*utils.heartbeat_timer:
                 self.logger.info('%s hasn\'t reported in recently (%i seconds). Let me try restarting it...' % (name, time_since))
                 # log alarm?
-                self.db.updateDatabase('settings','controllers',cuts={'name' : name},
-                        updates={'$set' : {'status' : 'offline'}})
-                runmode = self.db.ControllerConfig(name)['runmode']
+                #self.db.updateDatabase('settings','controllers',cuts={'name' : name},
+                #        updates={'$set' : {'status' : 'offline'}})
+                runmode = self.db.ControllerSettings(name)['runmode']
                 self.StartController(name, runmode=runmode)
                 time.sleep(5)
                 if self.db.CheckHeartbeat(name) > utils.heartbeat_timer:

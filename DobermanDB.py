@@ -194,7 +194,7 @@ class DobermanDB(object):
             coll = 'defaults'
         else:
             cuts={'name' : name}
-            coll = 'settings'
+            coll = 'controllers'
         self.updateDatabase('settings', coll, cuts=cuts,
                     updates={'$set' : {'heartbeat' : dtnow()}})
         return
@@ -204,7 +204,7 @@ class DobermanDB(object):
         Checks the heartbeat of the specified controller.
         Returns time_since
         """
-        doc = self.ControllerConfig(name=name)
+        doc = self.ControllerSettings(name=name)
         last_heartbeat = doc['heartbeat']
         return (dtnow() - last_heartbeat).total_seconds()
 
@@ -318,7 +318,7 @@ class DobermanDB(object):
                 self.StoreCommand('doberman', 'start %s None' % n, td)
         elif command == 'sleep':
             duration = m['duration']
-            if duration == 'None':
+            if duration is None:
                 print('Can\'t sleep without specifying a duration!')
             elif duration == 'inf':
                 for n in names[name]:
