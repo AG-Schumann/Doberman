@@ -31,7 +31,6 @@ class Doberman(object):
         self.last_message_time = None
 
         self.db = db
-
         self.alarmDistr = alarmDistribution.alarmDistribution(db)
 
     def close(self):
