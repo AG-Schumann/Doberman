@@ -40,11 +40,11 @@ def main(db):
         ctor = BlindPlugin
     else:
         ctor = Plugin
-    plugin = ctor(db, args.plugin_name, plugin_paths)
-    plugin.start()
     sh = utils.SignalHandler(logger)
     running = True
     try:
+        plugin = ctor(db, args.plugin_name, plugin_paths)
+        plugin.start()
         while running and not sh.interrupted:
             loop_start = time.time()
             db.Heartbeat(plugin.name)
@@ -55,7 +55,7 @@ def main(db):
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
-                logger.error('Controller died! Restarting...' % plugin.name)
+                logger.error('Controller died! Restarting...')
                 try:
                     plugin.running = False
                     plugin.join()
