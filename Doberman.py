@@ -1,4 +1,4 @@
-#!/scratch/anaconda3/envs/Doberman/bin/python3
+#!/scratch/anaconda3/bin/python3
 import time
 import logging
 import DobermanDB
@@ -31,7 +31,6 @@ class Doberman(object):
         self.last_message_time = None
 
         self.db = db
-
         self.alarmDistr = alarmDistribution.alarmDistribution(db)
 
     def close(self):
