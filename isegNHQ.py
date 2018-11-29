@@ -50,6 +50,7 @@ class isegNHQ(SerialController):
         self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
         #self.SendRecv(self.setcommand.format(cmd=self.commands['Delay'],
         #    value=int(self.delay)))
+        return True
     
 
     def isThisMe(self, dev):

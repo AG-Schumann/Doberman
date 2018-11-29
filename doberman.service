@@ -1,7 +1,7 @@
 [Unit]
 Description=Doberman slow control
 After=mongod.service
-StartLimitInvervalSec=30
+StartLimitIntervalSec=30
 StartLimitBurst=10
 
 [Service]

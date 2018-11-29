@@ -297,14 +297,14 @@ class DobermanDB(object):
         online = self.Distinct('settings','controllers','name', {'status' : 'online'})
         offline = self.Distinct('settings','controllers','name', {'status' : 'offline'})
         asleep = self.Distinct('settings','controllers','name', {'status' : 'sleep'})
-        if name in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
+        if command in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
             names.update({'all' : {
                 'start' : offline,
                 'stop' : online,
                 'restart' : online,
                 'sleep' : online,
                 'wake' : asleep,
-                'runmode' : online}[name]})
+                'runmode' : online}[command]})
         if command == 'start':
             for n in names[name]:
                 self.StoreCommand('doberman', 'start %s %s' % (n, m['runmode']))
@@ -595,7 +595,7 @@ class DobermanDB(object):
         print('Currently running controllers:')
         print('  |  '.join(['Name','Runmode',
             'Seconds since last read','Values']))
-        for row in self.readFromDatabase('settings','controllers',{'online' : True}):
+        for row in self.readFromDatabase('settings','controllers',{'status' : 'online'}):
             runmode = row['runmode']
             datadoc = self.readFromDatabase('data',row['name'],onlyone=True,sort=[('when',-1)])
             print('  {name} | {runmode} | {when:.1f} | {values}'.format(
