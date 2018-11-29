@@ -203,7 +203,7 @@ class Plugin(threading.Thread):
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
         for i, (value, reading) in enumerate(zip(values, readings)):
-            level = reading['level'][runmode]
+            level = int(reading['level'][runmode])
             try:
                 if level == -1:
                     continue

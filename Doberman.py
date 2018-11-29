@@ -113,7 +113,7 @@ class Doberman(object):
                 time.sleep(5)
                 if self.db.CheckHeartbeat(name) > utils.heartbeat_timer:
                     self.logger.error('I can\'t restart %s')
-                    alarm_doc = {'name' : 'doberman', 'when' : dtnow(), 'howbad' : 0,
+                    alarm_doc = {'name' : 'doberman', 'when' : dtnow(), 'howbad' : 1,
                             'msg' : '%s has died and I can\'t restart it' % name}
                     self.db.logAlarm(alarm_doc)
                 else:
