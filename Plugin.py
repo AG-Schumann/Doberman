@@ -74,7 +74,9 @@ def main(db):
         plugin.running = False
         plugin.join()
         logger.info('Shutting down')
-        db.ManagePlugins(args.plugin_name, 'remove')
+        if hasattr(sh, 'signal_number') and sh.signal_number == 2:
+            # only unmanage for SIGINT not SIGKILL
+            db.ManagePlugins(args.plugin_name, 'remove')
 
     return
 
