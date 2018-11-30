@@ -245,4 +245,5 @@ class SignalHandler(object):
 
     def interrupt(self, *args):
         self.logger.info('Received signal %i' % args[0])
+        self.signal_number = int(args[0])
         self.interrupted = True
