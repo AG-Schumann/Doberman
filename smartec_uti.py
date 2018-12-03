@@ -75,7 +75,7 @@ class smartec_uti(SerialController):
         if val['retcode']:
             return val
         try:
-            values = val['data'].split()
+            values = val['data'].decode().rstrip().split()
             values = list(map(lambda x : int(x,16), values))
 
             resp = []

@@ -33,20 +33,24 @@ class iseries(SerialController):
                 'getAlarm2Low' : 'R15',
                 }
         super().__init__(opts)
-        self.read_pattern = re.compile(r'%s(?P<value>%s)' % (self.commands['getDisplayedValue'], number_regex))
+        self.read_pattern = re.compile(b'%s(?P<value>%s)' % (bytes(self.commands['getDisplayedValue'], 'utf-8'), bytes(number_regex, 'utf-8')))
 
     def isThisMe(self, dev):
         info = self.SendRecv(self.commands['getAddress'], dev)
-        if info['retcode']:
-            self.logger.warning('Not answering correctly...')
+        try:
+            if info['retcode']:
+                self.logger.warning('Not answering correctly...')
+                return False
+            if not info['data']:
+                return False
+            if self.serialID in info['data'].decode():
+                return True
+            else:
+                return False
+        except:
+            pass
+        finally:
             return False
-        if not info['data']:
-            return False
-        if self.serialID in info['data']:
-            return True
-        else:
-            return False
-        return False
 
     def Readout(self):
         val = self.SendRecv(self.commands['getDisplayedValue'])

@@ -12,7 +12,7 @@ class pfeiffer_tpg(LANController):
                 'read' : 'PR1',
                 }
         super().__init__(opts)
-        self.read_command = re.compile(r'(?P<status>[0-9]),(?P<value>%s)' % number_regex)
+        self.read_command = re.compile(b'(?P<status>[0-9]),(?P<value>%s)' % bytes(number_regex, 'utf-8'))
 
     def _getControl(self):
         super()._getControl()

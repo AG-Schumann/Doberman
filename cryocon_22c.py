@@ -26,7 +26,7 @@ class cryocon_22c(LANController):
                 'setSP' : 'loop {ch}:setpt {value}',
                 }
         super().__init__(opts)
-        self.read_pattern = re.compile(r'(?P<value>%s)' % number_regex)
+        self.read_pattern = re.compile(b'(?P<value>%s)' % bytes(number_regex, 'utf-8'))
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<ch>1|2) (?P<value>%s)' % number_regex),
                     lambda x : self.commands['setSP'].format(**x.groupdict())),
