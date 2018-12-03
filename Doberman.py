@@ -220,6 +220,10 @@ def main(db):
     parser.add_argument('--refresh', action='store_true', default=False,
                         help='Refresh the ttyUSB mapping')
     opts = parser.parse_args()
+    if opts.refresh:
+        if not utils.refreshTTY(db):
+            logger.error('Failed!')
+            return 2
     doc = db.getDefaultSettings()
     if doc['status'] == 'online':
         if (dtnow() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
@@ -230,10 +234,6 @@ def main(db):
         return 0
     loglevel = db.getDefaultSettings(runmode = 'default', name='loglevel')
     logger.setLevel(int(loglevel))
-    if opts.refresh:
-        if not utils.refreshTTY(db):
-            logger.error('Failed!')
-            return 2
     # Load and start script
     doberman = Doberman(db)
     try:

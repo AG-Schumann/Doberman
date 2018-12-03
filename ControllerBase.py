@@ -115,7 +115,7 @@ class SerialController(Controller):
             self._device.open()
         except serial.SerialException as e:
             self.logger.error('Problem opening %s: %s' % (self._device.port, e))
-            return False
+            raise
         if not self._device.is_open:
             self.logger.error('Error while connecting to device')
             return False
@@ -143,7 +143,7 @@ class SerialController(Controller):
             time.sleep(1.0)
             if device.in_waiting:
                 s = device.read(device.in_waiting)
-                ret['data'] = s.decode().rstrip()
+                ret['data'] = s
         except serial.SerialException as e:
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
@@ -152,9 +152,6 @@ class SerialController(Controller):
             self.logger.error('Could not send message %s. Error %s' % (message, e))
             ret['retcode'] = -2
             return ret
-        except UnicodeDecodeError as e:
-            self.logger.error('Unicode problems: %s. I\'m going to pass this along undecoded and hope your sensor knows how to handle it. Data: %s' % (e, s))
-            ret['data'] = s
         time.sleep(0.2)
         return ret
 
@@ -204,7 +201,7 @@ class LANController(Controller):
         time.sleep(0.01)
 
         try:
-            ret['data'] = self._device.recv(1024).decode().rstrip()
+            ret['data'] = self._device.recv(1024)
         except socket.error as e:
             self.logger.fatal('Could not receive data from controller. Error: %s' % e)
             ret['retcode'] = -2

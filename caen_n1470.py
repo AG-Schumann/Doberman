@@ -28,8 +28,9 @@ class caen_n1470(SerialController):
                         'snum' : f'BD:{self.board},CMD:MON,PAR:BDSNUM'}
         self.setcommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par},VAL:{val}'
         self.powercommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par}'
-        self.error_pattern = re.compile(',[A-Z]{2,3}:ERR')
-        self.read_pattern = re.compile('VAL:%s' % ';'.join(['(?P<val%i>%s)' % (i, number_regex) for i in range(4)]))
+        self.error_pattern = re.compile(b',[A-Z]{2,3}:ERR')
+        s = 'VAL:%s' % ';'.join(['(?P<val%i>%s)' % (i, number_regex) for i in range(4)])
+        self.read_pattern = re.compile(bytes(s, 'utf-8'))
         self.command_patterns = [
                 (re.compile('(?P<ch>anode|cathode) (?P<par>on|off)'),
                     lambda x : self.powercommand.format(
@@ -43,12 +44,12 @@ class caen_n1470(SerialController):
         val = self.SendRecv(self.commands['name'], dev)
         if not val['data'] or val['retcode']:
             return False
-        if 'N1470' not in val['data']:
+        if b'N1470' not in val['data']:
             return False
         val = self.SendRecv(self.commands['snum'])
         if not val['data'] or val['retcode']:
             return False
-        sn = val['data'].split('VAL:')[1]
+        sn = val['data'].decode().rstrip().split('VAL:')[1]
         if sn != self.serialID:
             return False
         else:
