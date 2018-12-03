@@ -28,7 +28,7 @@ class Teledyne(SerialController):
         self.setcommand = self.basecommand + ' {params}'
         self.getcommand = self.basecommand + '?'
 
-        self.get_reading = re.compile(b'READ:(P<value>%s)' % bytes(number_regex, 'utf-8'))
+        self.get_reading = re.compile(b'READ:(?P<value>%s)' % bytes(number_regex, 'utf-8'))
         self.get_addr = re.compile(b'ADDR: *(?P<addr>[a-z])')
         self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
@@ -61,7 +61,7 @@ class Teledyne(SerialController):
         resp = self.SendRecv(command)
         if resp['retcode'] or not resp['data']:
             return resp
-        m = self.get_reading[type(resp['data'])].search(resp['data'])
+        m = self.get_reading.search(resp['data'])
         if not m:
             self.logger.debug('Lemme try again')
             time.sleep(1)
