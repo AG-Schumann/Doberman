@@ -124,13 +124,13 @@ def refreshTTY(db):
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
-    cuts = {'online' : True, 'address.ttyUSB' : {'$exists' : 1}}
+    cuts = {'status' : 'online', 'address.ttyUSB' : {'$exists' : 1}}
     if db.Count('settings','controllers', cuts):
         print('Some USB controllers are running! Stopping them now')
         running_controllers = db.Distinct('settings','controllers','name', cuts)
         for name in running_controllers:
-            db.StoreCommand('stop %s' % name)
-        time.sleep(5)
+            db.ParseCommand('stop %s' % name)
+        time.sleep(35)
     else:
         running_controllers = []
     db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
@@ -183,6 +183,8 @@ def refreshTTY(db):
         else:
             print('Could not assign %s!' % tty)
         dev.close()
+    print(len(matched['sensors']))
+    print(len(sensors))
     if len(matched['sensors']) == len(sensors)-1: # n-1 case
         name = (set(sensors.keys())-set(matched['sensors'])).pop()
         tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
@@ -194,7 +196,7 @@ def refreshTTY(db):
         return False
     db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
     for name in running_controllers:
-        db.StoreCommand('start %s' % name)
+        db.ParseCommand('start %s' % name)
     return True
 
 def FindPlugin(name, path):

@@ -598,10 +598,13 @@ class DobermanDB(object):
         for row in self.readFromDatabase('settings','controllers',{'status' : 'online'}):
             runmode = row['runmode']
             datadoc = self.readFromDatabase('data',row['name'],onlyone=True,sort=[('when',-1)])
-            print('  {name} | {runmode} | {when:.1f} | {values}'.format(
-                name=row['name'], runmode=runmode,
-                when=(now-datadoc['when']).total_seconds(),
-                values=', '.join(['%.3g' % v for v in datadoc['data']])))
+            try:
+                print('  {name} | {runmode} | {when:.1f} | {values}'.format(
+                    name=row['name'], runmode=runmode,
+                    when=(now-datadoc['when']).total_seconds(),
+                    values=', '.join(['%.3g' % v for v in datadoc['data']])))
+            except TypeError:
+                print('  {name} | Error'.format(name=row['name']))
         return
 
 def main(db):

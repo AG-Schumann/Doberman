@@ -163,6 +163,11 @@ class Plugin(threading.Thread):
             if -1 in data[2] or -2 in data[2]: # connection lost
                 self._connected = False
                 self.logger.error('Lost connection to device?')
+                try:
+                    self.controller.close()
+                    self.controller = None
+                except:
+                    pass
             self.ProcessData(data, configdoc)
         else:
             try:
