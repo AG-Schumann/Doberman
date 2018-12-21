@@ -60,7 +60,7 @@ class isegNHQ(SerialController):
         resp = self.SendRecv(self.commands['identify'], dev)
         if resp['retcode'] or not resp['data']:
             return False
-        if resp['data'].split(';')[0] == self.serialID:
+        if resp['data'].decode().rstrip().split(';')[0] == self.serialID:
             return True
         return False
 
@@ -78,9 +78,9 @@ class isegNHQ(SerialController):
                 #print('Cmd %s, %s' % (cmd, resp))
                 vals.append(-1)
             else:
-                data = resp['data'].split(cmd)[-1]
+                data = resp['data'].split(bytes(cmd, 'utf-8'))[-1]
                 #data = resp['data']
-                vals.append(func(data))
+                vals.append(func(data.decode()))
         return {'retcode' : status, 'data' : vals}
 
     def SendRecv(self, message, dev=None):
