@@ -291,6 +291,14 @@ class DobermanDB(object):
         """
         command = m['command']
         name = str(m['name'])
+        if self.getDefaultSettings(name='status') == 'sleep':
+            if command != 'wake' and name != 'None':
+                print('System currently in sleep mode, command not accepted')
+                return
+        if command == 'sleep' and name == 'None':
+            if len(self.getDefaultSettings(name='managed_plugins')) > 0:
+                print('Can\'t sleep while managing plugins!')
+                return
         names = {'None' : ['doberman']}
         if name != 'None':
             names.update({name : [name]})
@@ -592,19 +600,21 @@ class DobermanDB(object):
         print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
         print('Last heartbeat: %i seconds ago' % ((now - doc['heartbeat']).total_seconds()))
         print()
-        print('Currently running controllers:')
-        print('  |  '.join(['Name','Runmode',
-            'Seconds since last read','Values']))
+        print('Currently running controllers: (* indicates managed plugin)')
+        print('  |  '.join(['Name','Runmode','Seconds since last read','Values']))
         for row in self.readFromDatabase('settings','controllers',{'status' : 'online'}):
             runmode = row['runmode']
             datadoc = self.readFromDatabase('data',row['name'],onlyone=True,sort=[('when',-1)])
             try:
-                print('  {name} | {runmode} | {when:.1f} | {values}'.format(
+                print('{c} {name} | {runmode} | {when:.1f} | {values}'.format(
                     name=row['name'], runmode=runmode,
                     when=(now-datadoc['when']).total_seconds(),
-                    values=', '.join(['%.3g' % v for v in datadoc['data']])))
+                    values=', '.join(['%.3g' % v for v in datadoc['data']]),
+                    c=' ' if row['name'] not in doc['managed_plugins'] else '*'))
             except TypeError:
                 print('  {name} | Error'.format(name=row['name']))
+        for row in self.readFromDatabase('settings','controllers',{'status' : 'sleep'}):
+            print('  {name} | sleep'.format(name=row['name']))
         return
 
 def main(db):

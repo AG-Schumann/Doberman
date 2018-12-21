@@ -9,6 +9,7 @@ from BasePlugin import Plugin
 from PID import FeedbackController
 from BlindPlugin import BlindPlugin
 import datetime
+import os
 
 
 def main(db):
@@ -31,6 +32,9 @@ def main(db):
         if (datetime.datetime.now() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)
             return
+    if args.runmode == 'default' and os.environ['USER'] != 'doberman':
+        print('Only doberman can start plugins in the default runmode')
+        return
     db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode, 'status' : 'online'}})
     logger.info('Starting %s' % args.plugin_name)
