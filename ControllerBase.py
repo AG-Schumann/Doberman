@@ -91,6 +91,22 @@ class Controller(object):
         return
 
 
+class SoftwareController(Controller):
+    """
+    Class for software-only controllers (heartbeats, system monitors, etc)
+    """
+    class DummyObject(object):
+        def close():
+            return
+
+    def __init__(self, opts):
+        self._device = self.DummyObject()
+        super().__init__(opts)
+
+    def _getControl(self):
+        return True
+
+
 class SerialController(Controller):
     """
     Serial controller class. Implements more direct serial connection specifics
