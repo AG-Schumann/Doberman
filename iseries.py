@@ -16,24 +16,13 @@ class iseries(SerialController):
                 'hardReset' : 'Z02',  # give the device a minute after this
                 'getID' : 'R05',
                 'getAddress' : 'R21',
-                'enableAlarm1' : 'E01',
-                'enalbeAlarm2' : 'E02',
-                'disableAlarm1' : 'D01',
-                'disableAlarm2' : 'D02',
                 'getDataString' : 'V01',
                 'getDisplayedValue' : 'X01',
-                'getPeakValue' : 'X02',
-                'getValleyValue' : 'X03',
                 'getCommunicationParameters' : 'R10',
-                'getSetpoint1' : 'R01',
-                'getSetpoint2' : 'R02',
-                'getAlarm1High' : 'R13',
-                'getAlarm2High' : 'R16',
-                'getAlarm1Low' : 'R12',
-                'getAlarm2Low' : 'R15',
                 }
         super().__init__(opts)
         self.read_pattern = re.compile(b'%s(?P<value>%s)' % (bytes(self.commands['getDisplayedValue'], 'utf-8'), bytes(number_regex, 'utf-8')))
+        self.id_pattern = re.compile(b'%s%s' % (bytes(self.commands['getAddress'], 'utf-8'), bytes(self.serialID, 'utf-8')))
 
     def isThisMe(self, dev):
         info = self.SendRecv(self.commands['getAddress'], dev)
@@ -43,13 +32,9 @@ class iseries(SerialController):
                 return False
             if not info['data']:
                 return False
-            if self.serialID in info['data'].decode():
+            if self.id_pattern.search(info['data']):
                 return True
-            else:
-                return False
         except:
-            pass
-        finally:
             return False
 
     def Readout(self):
