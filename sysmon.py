@@ -31,15 +31,10 @@ class sysmon(SoftwareController):
             pass
         else:
             out = out.decode()
-            m = mem_patterns['free'].search(out)
-            if m:
-                ret[3] = int(m.group('free'))/kb_to_gb
-            m = mem_patterns['avail'].search(out)
-            if m:
-                ret[4] = int(m.group('avail'))/kb_to_gb
-            m = mem_patterns['swap'].search(out)
-            if m:
-                ret[5] = (self.swap_total_kb - int(m.group('swap')))/kb_to_gb
+            for i,k in enumerate(mem_patterns):
+                m = mem_patterns[k].search(out)
+                if m:
+                    ret[i+3] = int(m.group(k))/kb_to_gb
 
         filename = '/sys/devices/platform/coretemp.0/hwmon/%s/temp1_input' % self.hwmon
         out, err = self.call(command = 'cat %s' % filename)
