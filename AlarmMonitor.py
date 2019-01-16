@@ -1,28 +1,15 @@
-import logging
 import datetime
 import smtplib
+from DobermanBase import Monitor
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+dtnow = datetime.datetime.now
 
 
-class alarmDistribution(object):
+class AlarmMonitor(Monitor):
     """
-    Class that sends an email or sms to a given address
+    Class that sends monitors for alarms and sends messages
     """
-
-    def __init__(self, db):
-        """
-        Loading connections to Mail and SMS.
-        """
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.db = db
-    def close(self):
-        self.db = None
-        return
-
-    def __del__(self):
-        self.close()
-        return
 
     def getConnectionDetails(self, which):
         detail_doc = self.db.readFromDatabase('settings','alarm_config',
@@ -152,3 +139,58 @@ class alarmDistribution(object):
             return -1
         return 0
 
+    def Overwatch(self):
+        self.CheckHeartbeats()
+        self.CheckForAlarms()
+
+    def CheckForAlarms(self):
+        doc_filter = {'acknowledged' : {'$exists' : 0}}
+        messages = {}
+        msg_format = '{name} : {when} : {msg}'
+        updates = {'$set' : {'acknowledged' : dtnow()}}
+        db_col = ('logging','alarm_history')
+        if self.db.Count(*db_col, doc_filter) == 0:
+            return
+        for doc in self.db.readFromDatabase(*db_col, doc_filter, sort=[('howbad',-1)]):
+            howbad = int(doc['howbad'])
+            if (howbad,) not in messages:
+                messages[(howbad,)] = []
+            self.db.updateDatabase(*db_col, {'_id' : doc['_id']}, updates)
+            messages[(howbad,)].append(doc)
+        if messages:
+            self.logger.warning(f'Found alarms!')
+            for (lvl,), msg_docs in messages.items():
+                message = '\n'.join(map(lambda d : msg_format.format(**d), msg_docs))
+                self.sendMessage(lvl, message)
+        return
+
+    def sendMessage(self, level, message):
+        """
+        Sends 'message' to the contacts specified by 'level'
+        """
+        now = dtnow()
+        message_time = self.db.GetRunmodeDetail(runmode='default',
+                fieldname='message_time')
+        if hasattr(self, 'last_message_time') and self.last_message_time is not None:
+            dt = (now - self.last_message_time).total_seconds()/60
+            if dt < message_time:
+                self.logger.warning('Sent a message too recently (%i minutes), '
+                    'message timer at %i' % (dt, message_time))
+                return -3
+
+        for prot, recipients in self.db.getContactAddresses(level).items():
+            if prot == 'sms':
+                if self.sendSMS(recipients, message) == -1:
+                    self.logger.error('Could not send SMS')
+                    return -4
+            else:
+                subject = 'Doberman alarm level %i' % level
+                if self.sendEmail(toaddr=recipients, subject=subject,
+                                         message=message) == -1:
+                    self.logger.error('Could not send email!')
+                    return -5
+        self.last_message_time = now
+        return 0
+
+    def CheckHeartbeats(self):
+        docs = self.db.readFromDatabase('settings','hosts')

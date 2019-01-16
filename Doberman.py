@@ -2,62 +2,27 @@
 import time
 import logging
 import DobermanDB
-import alarmDistribution
 import datetime
-from argparse import ArgumentParser
-import DobermanLogging
 import Plugin
 import psutil
 from subprocess import Popen, PIPE, TimeoutExpired, DEVNULL
-from threading import Thread
 import utils
-import signal
+from DobermanOverwatch import Monitor
 dtnow = datetime.datetime.now
 
-__version__ = '3.2.0'
 
-
-class Doberman(object):
+class SensorMonitor(Overwatch):
     '''
-    Doberman short for
-       "Detector OBservation and Error Reporting Multiadaptive ApplicatioN"
-       is a slow control software.
-    Main program that regulates the slow control.
-    Closes all processes in the end.
+    Class to monitor sensor status (and other hosts)
     '''
-
-    def __init__(self, db):
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.last_message_time = None
-
-        self.db = db
-        self.alarmDistr = alarmDistribution.alarmDistribution(db)
-
-    def close(self):
-        """
-        Shuts down
-        """
-        if self.db is None:  # already shut down
-            return
-        self.logger.info('Shutting down')
-        self.db = None  # not responsible for cleanup here
-        return
-
-    def __del__(self):
-        self.close()
-        return
-
-    def __exit__(self):
-        self.close()
-        return
 
     def Start(self):
-        last_tty_update_time = self.db.getDefaultSettings(name='tty_update')
+        last_tty_update_time = self.db.GetHostStatus(fieldname='tty_update')
         boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
         self.logger.info('tty settings last set %s, boot time %s' % (
             last_tty_update_time, boot_time))
         if boot_time > last_tty_update_time:
-            if not utils.refreshTTY(self.db):
+            if not utils.refreshTTY(self.db, self.db.hostname):
                 self.logger.fatal('Could not assign tty ports!')
                 return -1
         else:
@@ -70,8 +35,12 @@ class Doberman(object):
         """
         self.logger.info('Starting %s' % name)
         self.db.ManagePlugins(name, 'add')
-        cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s --runmode %s' % (name, runmode)
-        _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd='/scratch/doberman')
+        info_doc = self.db.GetHostInfo()
+        cmd = '%s Plugin.py --name %s --runmode %s' % (info_doc['exe_dir'], name, runmode)
+        _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd=info_doc['cwd_dir'])
+
+    def Overwatch(self):
+        self.watchBees()
 
     def watchBees(self):
         '''
@@ -88,7 +57,6 @@ class Doberman(object):
                 self.Heartbeat()
                 if not self.sleep:
                     self.logger.debug('Still watching the bees...')
-                    self.checkAlarms()
                     self.checkCommands()
                 while (time.time()-loop_start_time) < loop_time and not sh.interrupted:
                     time.sleep(1)
@@ -147,65 +115,6 @@ class Doberman(object):
             doc = self.db.FindCommand('doberman')
         return
 
-    def checkAlarms(self):
-        doc_filter = {'acknowledged' : {'$exists' : 0}}
-        messages = {}
-        msg_format = '{name} : {when} : {msg}'
-        num_msg = 0
-        updates = {'$set' : {'acknowledged' : dtnow()}}
-        db_col = ('logging','alarm_history')
-        if self.db.Count(*db_col, doc_filter) == 0:
-            return
-        for doc in self.db.readFromDatabase(*db_col, doc_filter, sort=[('howbad',-1)]):
-            howbad = int(doc['howbad'])
-            if (howbad,) not in messages:
-                messages[(howbad,)] = []
-            self.db.updateDatabase(*db_col, {'_id' : doc['_id']}, updates)
-            messages[(howbad,)].append(doc)
-            num_msg += 1
-        if messages:
-            self.logger.warning(f'Found {num_msg} alarms!')
-            for (lvl,), msg_docs in messages.items():
-                message = '\n'.join(map(lambda d : msg_format.format(**d), msg_docs))
-                self.sendMessage(lvl, message)
-        return
-
-    def sendMessage(self, level, message):
-        """
-        Sends 'message' to the contacts specified by 'level'
-        """
-        # testrun?
-        runmode = self.db.getDefaultSettings(name='runmode')
-        mode_doc = self.db.getDefaultSettings(runmode=runmode)
-        if mode_doc['testrun'] == -1:
-            self.logger.warning('Testrun, will not send message: %s' % message)
-            return -1
-        now = dtnow()
-        runtime = (now - self.start_time).total_seconds()/60
-
-        if runtime < mode_doc['testrun']:
-            self.logger.warning('Testrun still active (%.1f/%i min). Messages not sent' % (runtime, mode_doc['testrun']))
-            return -2
-        if self.last_message_time is not None:
-            dt = (now - self.last_message_time).total_seconds()/60
-            if dt < mode_doc['message_time']:
-                self.logger.warning('Sent a message too recently (%i minutes), '
-                    'message timer at %i' % (dt, mode_doc['message_time']))
-                return -3
-
-        for prot, recipients in self.db.getContactAddresses(level).items():
-            if prot == 'sms':
-                if self.alarmDistr.sendSMS(recipients, message) == -1:
-                    self.logger.error('Could not send SMS')
-                    return -4
-            else:
-                subject = 'Doberman alarm level %i' % level
-                if self.alarmDistr.sendEmail(toaddr=recipients, subject=subject,
-                                         message=message) == -1:
-                    self.logger.error('Could not send email!')
-                    return -5
-        self.last_message_time = now
-        return 0
 
 def main(db):
     parser = ArgumentParser(usage='%(prog)s [options] \n\n Doberman: Slow control')

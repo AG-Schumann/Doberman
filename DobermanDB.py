@@ -6,6 +6,7 @@ import utils
 import argparse
 import os
 import re  # EVERYBODY STAND BACK xkcd.com/208
+from socket import getfqdn
 dtnow = datetime.datetime.now
 
 
@@ -15,6 +16,7 @@ class DobermanDB(object):
     """
 
     def __init__(self):
+        self.hostname = getfqdn()
         self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
@@ -274,16 +276,23 @@ class DobermanDB(object):
         patterns = [
             '^(?P<command>start|stop|restart) (?P<name>%s)(?: (?P<runmode>%s))?' % (names_, runmodes_),
             '^(?:(?P<name>%s) )?(?P<command>sleep|wake)(?: (?P<duration>(?:[1-9][0-9]*[dhms])|(?:inf)))?' % names_,
-            '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s)' % (names_, runmodes_),
+            '^(?P<name>%s) (?P<command>runmode) (?P<runmode>%s)' % (names_, runmodes_),
             '^(?P<name>%s) (?P<command>.+)$' % names_,
         ]
         for pattern in patterns:
             m = re.search(pattern, command_str)
             if m:
-                self.ProcessCommand(m)
+                ret = self.ProcessCommand(m)
                 break
         else:
             print('Command \'%s\' not understood' % command_str)
+            return
+        if ret == 0:
+            time.sleep(3)
+            cur = self.readFromDatabase('logging','logs',cuts={'when' :
+                {'$gte' : dtnow() - datetime.timedelta(seconds=4)}},sort=[('when',-1)])
+            for doc in cur:
+                print("{when} | {name} | {msg}".format(**doc))
 
     def ProcessCommand(self, m):
         """
@@ -320,6 +329,7 @@ class DobermanDB(object):
             duration = m['duration']
             if duration is None:
                 print('Can\'t sleep without specifying a duration!')
+                return 1
             elif duration == 'inf':
                 for n in names[name]:
                     self.StoreCommand(n, 'sleep')
@@ -340,11 +350,13 @@ class DobermanDB(object):
                 self.StoreCommand(n, 'runmode %s' % m['runmode'])
         else:
             self.StoreCommand(name, command)
+        return 0
 
     def logAlarm(self, document):
         """
         Adds the alarm to the history.
         """
+        document.update({'host' : self.hostname})
         if self.insertIntoDatabase('logging','alarm_history',document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
@@ -356,38 +368,46 @@ class DobermanDB(object):
         """
         return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
 
-    def getDefaultSettings(self, runmode=None, name=None):
+    def GetHostInfo(self, fieldname=None, hostname=self.hostname):
         """
         Reads default Doberman settings from database.
         Returns a dict or the specified value
         """
-        if runmode:
-            doc = self.readFromDatabase('settings','runmodes',
-                    {'mode' : runmode},onlyone=True)
-            if name:
-                return doc[name]
-            return doc
-        doc = self.readFromDatabase('settings','defaults', onlyone=True)
-        if name:
-            return doc[name]
+        doc = self.readFromDatabase('settings','hosts', {'hostname' : hostname}, onlyone=True)
+        if fieldname:
+            return doc[fieldname]
         return doc
+
+    def UpdateHostInfo(self, fieldname=None, newvalue=None, hostname=self.hostname):
+        self.updateDatabase('settings','hosts', cuts={'hostname' : hostname},
+                updates={'$set' : {fieldname : newvalue}})
+        return
+
+    def GetRunmodeDetail(self, runmode=None, fieldname=None):
+        doc = self.readFromDatabase('settings','runmodes',cuts={'mode' : runmode},
+                onlyOne=True)
+        if fieldname:
+            return doc[fieldname]
+        return doc
+
 
     def ManagePlugins(self, name, action):
         """
         Adds or removes a plugin from the managed list. Doberman adds, plugins remove
         """
-        managed_plugins = self.getDefaultSettings(name='managed_plugins')
+        managed_plugins = self.GetHostStatus(fieldname='managed_plugins')
+        cuts = {'hostname' : self.hostname}
         if action=='add':
             if name in managed_plugins:
                 self.logger.info('%s already managed' % name)
             else:
-                self.updateDatabase('settings','defaults',cuts={},
+                self.updateDatabase('settings','current_status',cuts=cuts,
                         updates={'$push' : {'managed_plugins' : name}})
         elif action=='remove':
             if name not in managed_plugins:
                 self.logger.debug('%s isn\'t managed' % name)
             else:
-                self.updateDatabase('settings','defaults',cuts={},
+                self.updateDatabase('settings','current_status',cuts=cuts,
                         updates={'$pull' : {'managed_plugins' : name}})
         return
 
