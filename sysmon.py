@@ -19,14 +19,14 @@ class sysmon(SoftwareController):
         kb_to_gb = 1 << 20
         ret = [-1]*7
         filename = '/proc/loadavg'
-        out, err = self.call(filename)
+        out, err = self.call(command = 'cat %s' % filename)
         if not len(out) or len(err):
             pass
         else:
             ret[:3] = list(map(float, out.decode().split(' ')[:3]))
 
         filename = '/proc/meminfo'
-        out, err = self.call(filename)
+        out, err = self.call(command = 'cat %s' % filename)
         if not len(out) or len(err):
             pass
         else:
@@ -42,11 +42,11 @@ class sysmon(SoftwareController):
                 ret[5] = (self.swap_total_kb - int(m.group('swap')))/kb_to_gb
 
         filename = '/sys/devices/platform/coretemp.0/hwmon/%s/temp1_input' % self.hwmon
-        out, err = self.call(filename)
+        out, err = self.call(command = 'cat %s' % filename)
         if not len(out) or len(err):
             pass
         else:
-            ret[6] = int(out)/1000
+            ret[6] = int(out)/1000.
         return {'data' : ret, 'retcode' : [0]*len(ret)}
 
     def call(self, filename):
