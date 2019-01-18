@@ -33,7 +33,7 @@ class labjack(Controller):
 
     def _getControl(self):
         self.then = self._device.eCount(resetCounter=1)['ms']
-        return
+        return True
 
     def Readout(self):
         voltage = [None]*len(self.analog_channels)
@@ -54,7 +54,7 @@ class labjack(Controller):
         status = [0,0,0,0,0]
         if now == self.then:
             freq = -1
-            status[2] = -1
+            status[2] = -3
         else:
             freq = counts/(now - self.then)*1000
             self.then = now

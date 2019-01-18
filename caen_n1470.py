@@ -1,5 +1,4 @@
 from ControllerBase import SerialController
-import logging
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
@@ -32,10 +31,10 @@ class caen_n1470(SerialController):
         s = 'VAL:%s' % ';'.join(['(?P<val%i>%s)' % (i, number_regex) for i in range(4)])
         self.read_pattern = re.compile(bytes(s, 'utf-8'))
         self.command_patterns = [
-                (re.compile('(?P<ch>anode|cathode) (?P<par>on|off)'),
+                (re.compile('(?P<ch>anode|cathode|screen) (?P<par>on|off)'),
                     lambda x : self.powercommand.format(
                         ch=self.channel_map[x.group('ch')],par=x.group('par').upper())),
-                (re.compile('(?P<ch>anode|cathode) vset (?P<val>%s)' % number_regex),
+                (re.compile('(?P<ch>anode|cathode|screen) vset (?P<val>%s)' % number_regex),
                     lambda x : self.setcommand.format(ch=self.channel_map[x.group('ch')],
                         par='VSET', val=x.group('val'))),
                 ]
