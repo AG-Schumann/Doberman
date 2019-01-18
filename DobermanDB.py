@@ -585,9 +585,14 @@ class DobermanDB(object):
     def addController(self, filename):
         with open(filename, 'r') as f:
             try:
-                d = eval(f.read())
+                d = json.load(f)
             except Exception as e:
                 print('Could not read file! Error: %s' % e)
+                return
+            if 'heartbeat' not in d:
+                d.update({'heartbeat' : dtnow()})
+            if 'status' not in d:
+                d.update({'status' : 'offline'})
             if self.insertIntoDatabase('settings','controllers',d):
                 print('Could not add controller!')
             else:
