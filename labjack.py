@@ -1,6 +1,7 @@
 from ControllerBase import Controller
 import u12
 import logging
+import time
 
 
 class labjack(Controller):
@@ -34,6 +35,43 @@ class labjack(Controller):
     def _getControl(self):
         self.then = self._device.eCount(resetCounter=1)['ms']
         return
+
+    def AddToSchedule(self, reading_index=None, command=None, callback=None):
+        """
+        The labjack doesn't have a SendRecv interface, so we can't
+        rely on the framework for other controllers here. As the labjack
+        doesn't accept external commands, we can combine the functionality of
+        `ReadoutScheduler`, `AddToSchedule` (the only thing actually called from
+        the owning Plugin), `_ProcessReading`, and `ProcessOneReading`
+        """
+        if index == 0:  # bias volate
+            v = self._device.eAnalogIn(channel=2, gain=0, **self.read_args)
+            value = v['voltage']
+            retcode = 0
+        elif index == 1:  # glovebox temperature
+            v = self._devide.eAnalogIn(channel=0, gain=0, **self.read_args)
+            value = self.NTCtoTemp(v['voltage'])
+            retcode = 0
+        elif index == 2:  # MV frequency
+            count = self._device.eCount(resetCounter=1)
+            counts = count['count']
+            now = count['ms']
+            if now == self.then:
+                value = -1
+                retcode = -1
+            else:
+                value = counts/(now - self.then)*1000
+                self.then = now
+                retcode = 0
+        elif index == 3:  # valve sensors
+            v = self._device.eDigitalIn(channel=0, readD=0, **self.read_args)
+            value = v['state']
+            retcode = 0
+        elif index == 4:  # nitrogen valve state
+            v = self._device.eDigitalIn(channel=1, readD=0, **self.read_args)
+            value = v['state']
+            retcode = 0
+        callback((index, time.time(), value, retcode))
 
     def Readout(self):
         voltage = [None]*len(self.analog_channels)

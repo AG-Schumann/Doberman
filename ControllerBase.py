@@ -2,6 +2,8 @@ import serial
 import socket
 import time
 import logging
+import threading
+import queue
 
 
 class Controller(object):
@@ -20,14 +22,16 @@ class Controller(object):
         for key, value in opts.items():
             setattr(self, key, value)
         self._connected = False
+        self.cmd_queue = queue.Queue()
         if self.initialize:
             if self._getControl():
                 time.sleep(0.2)
+                self.running = True
+                self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
+                self.readout_thread.start()
             else:
                 self.logger.error('Something went wrong during initialization...')
-
-    def connected(self):
-        return self._connected
+                raise ValueError('Initialization failed')
 
     def _getControl(self):
         """
@@ -35,18 +39,88 @@ class Controller(object):
         """
         raise NotImplementedError()
 
-    def Readout(self):
+    def ReadoutScheduler(self):
         """
-        Main readout function. Should be implemented for individual controller
-        to call SendRecv with the measurement message. This function is called
-        by the readout thread.
+        Pulls tasks from the command queue and deals with them. If the queue is empty
+        it sleeps for 100ms and retries. This function returns when self.running
+        becomes False. While the sensor is in normal operation, this is the only
+        function that should call SendRecv to avoid issues with simultaneous
+        access (ie, the isThisMe routine avoids this)
+        """
+        while self.running:
+            try:
+                packet = self.cmd_queue.get_nowait()
+            except queue.Empty:
+                time.sleep(0.1)
+                continue
+            else:
+                command, callback = packet
+                self.logger.debug('Pulled "%s" from queue' % command)
+                ret = self.SendRecv(command)
+                self.logger.debug('Calling "%s" with "%s"' % (str(callback).split()[1],
+                    ret['data']))
+                callback(ret)
+
+    def AddToSchedule(self, reading_index=None, command=None, callback=None):
+        """
+        Adds one thing to the command queue. This is the only function called
+        by the owning Plugin (other than [cd]'tor, obv), so everything else
+        works around this function.
+
+        :param reading_index: the i-th reading to do
+        :param command: a string other than a reading command
+        :param callback: the function called with the results. Must accept
+            a dictionary as argument with the result from SendRecv. Required for
+            reading_index != None
+        :returns None
+        """
+        if reading_index:
+            if callback is None:
+                return
+            self.cmd_queue.put((self.reading_commands[reading_index],
+                # is there a better way to do this?
+                lambda x : self._ProcessReading(reading_index, x, callback)))
+        elif command:
+            self.cmd_queue.put((command, lambda x : None))
+
+
+    def _ProcessReading(self, index, pkg, callback):
+        """
+        Reads one value from the sensor. Unpacks the result from SendRecv
+        and passes the data to ProcessOneReading for processing. The results, along
+        with timestamp, are passed back upstream.
+
+        :param index: the index of the reading
+        :param pkg: the dict returned by SendRecv
+        :param callback: a function to call with the results. Must accept
+            as argument a tuple containing (index, timestamp, value, retcode). Will
+            most often be the 'put' method on the owning Plugin's process_queue.
+            If ProcessOneReading throws an exception, value will be None
+        :returns None
+        """
+        try:
+            value = ProcessOneReading(index, pkg['data'])
+        except:  # TODO catch specific exceptions (TypeError, ValueError, etc)
+            value = None
+        callback((index, time.time(), value, pkg['retcode']))
+        return
+
+    def ProcessOneReading(self, index, data):
+        """
+        Takes the raw data as returned by SendRecv and parses
+        it for the (probably) float. Does not need to catch exceptions
+
+        :param index: the index of the reading
+        :param data: the raw bytes string
+        :returns: probably a float. Sensor-dependent
         """
         raise NotImplementedError()
 
     def FeedbackReadout(self):
         """
+        TODO update for >= 4.x
         Reads the variable used during feedback. Just a single call to SendRecv.
-        Must return [timestamp (since epoch), value, status]
+        Must return [timestamp (since epoch), value, retcode]
         """
         raise NotImplementedError()
 
@@ -70,14 +144,13 @@ class Controller(object):
             m = pattern.search(command)
             if not m:
                 continue
-            resp = self.SendRecv(func(m))
-            if resp['retcode']:
-                self.logger.error("Did not accept command '%s'" % command)
+            self.AddToSchedule(command=func(m))
             return
         self.logger.error("Did not understand command '%s'" % command)
 
     def close(self):
-        #self.logger.debug('Shutting down %s' % self.name)
+        self.running = False
+        self.readout_thread.join()
         self._connected = False
         self._device.close()
         return

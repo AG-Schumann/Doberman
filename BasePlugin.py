@@ -4,6 +4,7 @@ import datetime
 import time
 import logging
 import utils
+import queue
 dtnow = datetime.datetime.now
 
 
@@ -53,21 +54,26 @@ class Plugin(threading.Thread):
         if 'additional_params' in config_doc:
             self.ctor_opts.update(config_doc['additional_params'])
 
-        self.number_of_data = len(config_doc['readings'])
-        self.recurrence_counter = [0] * self.number_of_data
-        self.status_counter = [0] * self.number_of_data
+        self.recurrence_counter = [0] * len(config_doc['readings'])
+        self.status_counter = [0] * len(config_doc['readings'])
         self.last_message_time = dtnow()
         self.late_counter = 0
-        self.last_measurement_time = dtnow()
+        self.last_measurement_time = time.time()
         self.controller = None
         self.OpenController()
         self.running = False
         self.has_quit = False
+        self.readings = config_doc['readings']
+        self.readout_threads = []
+        self.process_queue = queue.Queue()
+        self.lock = threading.RLock()
         self.logger.debug('Started')
 
     def close(self):
         """Closes the controller"""
         self.running = False
+        for t in self.readout_threads:
+            t.join()
         if not self.controller:
             return
         self.logger.info('Stopping...')
@@ -94,33 +100,61 @@ class Plugin(threading.Thread):
         data from. If it doesn't it tries periodically to open it.
         While running, pulls data from the controller, checks its validity, checks for
         new commands, and repeats until told to quit. Closes the controller when finished
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        -------
-        None
-
-        Raises
-        ------
-        None
         """
         self.OpenController()
         self.running = True
+        for i in range(len(self.readings)):
+            self.readout_loops.append(threading.Thread(
+                target=self.ReadoutLoop,
+                args=(i,)))
+            self.readout_loops[-1].run()
         self.logger.debug('Running...')
         while self.running:
             loop_start_time = time.time()
+            self.lock.acquire()
             configdoc = self.db.ControllerSettings(self.name)
-            if configdoc['status'] == 'online':
-                self.Readout(configdoc)
+            self.readings = configdoc['readings']
+            self.runmode = configdoc['runmode']
+            self.lock.release()
             self.HandleCommands()
-            while (time.time() - loop_start_time) < configdoc['readout_interval'] and self.running:
-                self.KillTime(configdoc)
+            while (time.time() - loop_start_time) < utils.heartbeat_timer and self.running:
+                try:
+                    packet = self.process_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                else:
+                    while packet is not None:
+                        if packet[3] < 0:
+                            self._connected = False
+                            self.logger.error('Lost connection to device?')
+                            try:
+                                self.controller.close()
+                                self.controller = None
+                                self.OpenController()
+                            except:
+                                self.logger.fatal('Could not reconnect!')
+                                try:
+                                    self.controller.close()
+                                except:
+                                    pass
+                                finally:
+                                    self.controller = None
+                                    self.running = False
+                                    break
+                            else:
+                                self.logger.info('Reconnected successfully')
+
+                        self.ProcessReading(*packet)
+                        try:
+                            packet = self.process_queue.get_nowait()
+                        except queue.Empty:
+                            packet = None
+                        else:
+                            continue
+            self.KillTime()
         self.close()
 
-    def KillTime(self, configdoc):
+    def KillTime(self):
         """
         Kills time while waiting for the main readout loop timer
         """
@@ -128,156 +162,98 @@ class Plugin(threading.Thread):
         self.HandleCommands()
         return
 
-    def Readout(self, configdoc):
+    def ReadoutLoop(self, i):
         """
-        Actually interacts with the device.
+        A loop that puts readout commands into the Controller's readout queue
 
-        Parameters
-        ---------
-        configdoc:
-            The configuration document from the database
-
-        Returns
-        -------
-        None
-
-        Raises
-        ------
-        None
+        :param i: the index of the reading that this loop handles
         """
-        if self._connected:
-            vals = self.controller.Readout()
-            if not isinstance(vals['data'], (list, tuple)):
-                vals['data'] = [vals['data']]
-            if len(vals['data']) != self.number_of_data:
-                vals['data'] += [None]*(self.number_of_data - len(vals['data']))
-            if not isinstance(vals['retcode'], (list, tuple)):
-                vals['retcode'] = [vals['retcode']]
-            if len(vals['retcode']) != self.number_of_data:
-                vals['retcode'] += [-3]*(self.number_of_data - len(vals['data']))
-            data = [dtnow(), vals['data'], vals['retcode']]
-            try:
-                self.logger.debug('Measured %s' % (list(map('{:.3g}'.format, vals['data']))))
-            except:
-                pass
-            if -1 in data[2] or -2 in data[2]: # connection lost
-                self._connected = False
-                self.logger.error('Lost connection to device?')
-                try:
-                    self.controller.close()
-                    self.controller = None
-                except:
-                    pass
-            self.ProcessData(data, configdoc)
-        else:
-            try:
-                self.logger.debug('Reopening controller...')
-                self.OpenController()
-            except Exception as e:
-                self.logger.error('Could not reopen controller! Error %s | %s' % (type(e), e))
-            else:
-                self.logger.debug('Reopened controller')
-        return
+        _local = threading.local()
+        while self.running:
+            _local.loop_start_time = time.time()
+            self.lock.acquire()
+            _local.reading = self.readings[i]
+            _local.runmode = self.runmode
+            self.lock.release()
+            if _local.reading['active'][_local.runmode] and self._connected:
+                self.controller.AddToSchedule(reading_index=i,
+                        callback=self.process_queue.put)
+            while self.running and time.time() - _local.loop_start_time < _local.reading['readout_interval']:
+                time.sleep(1)
 
-    def ProcessData(self, data, configdoc):
+    def ProcessReading(self, index, timestamp, value, retcode):
         """
         Checks data for warning/alarms and writes it to the database
 
-        Paramaters
-        ----------
-        data : [time, values, status]
-            The quantity returned by Readout() above
-
-        configdoc : dict
-            The controller's settings document from the database, that contains all the
-            current parameters (alarm levels, etc) for operation
-
-        Returns
-        -------
-        None
-
-        Raises
-        ------
-        None
+        :param index: the index of the reading to process
+        :param timestamp: unix timestamp of when the value was recorded
+        :param value: the value the sensor returns
+        :param retcode: the status code the sensor returns
         """
-        when, values, status = data
-        runmode = configdoc['runmode']
+        runmode = self.runmode
+        reading = self.readings[index]
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
         readout_interval = configdoc['readout_interval']
-        readings = configdoc['readings']
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
-        for i, (value, reading) in enumerate(zip(values, readings)):
-            level = int(reading['level'][runmode])
-            try:
-                if level == -1:
-                    continue
-                if status[i] < 0:
-                    self.status_counter[i] += 1
-                    if self.status_counter[i] >= 3 and not too_soon:
-                        msg = f'Something wrong? Status[{i}] is {status[i]}'
-                        self.logger.warning(msg)
-                        self.db.logAlarm({'name' : self.name, 'index' : i,
-                            'when' : when, 'status' : status[i], 'data' : value,
-                            'reason' : 'status', 'howbad' : 0, 'msg' : msg})
-                        self.status_counter[i] = 0
-                        self.last_message_time = dtnow()
-                else:
-                    self.status_counter[i] = 0
-
-                for j in range(len(reading['alarms'])-1, level-1, -1):
-                    lo, hi = reading['alarms'][j]
-                    if clip(value, lo, hi) in [lo, hi]:
-                        self.recurrence_counter[i] += 1
-                        status[i] = j
-                        if self.recurrence_counter[i] >= reading['recurrence'] and not too_soon:
-                            msg = (f"Reading {i} ({reading['description']}, value "
-                               f'{value:.3g}) is outside the level {j} alarm range '
-                               f'({lo:.3g}, {hi:.3g})')
-                            self.logger.critical(msg)
-                            self.db.logAlarm({'name' : self.name, 'index' : i,
-                                'when' : when, 'status' : status[i], 'data' : value,
-                                'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
-                            self.recurrence_counter[i] = 0
-                            self.last_message_time = dtnow()
-                        break
-                else:
-                    self.recurrence_counter[i] = 0
-            except Exception as e:
-                self.logger.critical(f"Could not check reading {i} ({reading['description']}): {e} ({str(type(e))})")
-        if not self._connected:
+        alarm_level = reading['level'][runmode]
+        if alarm_level == -1:
             return
-        time_diff = (when - self.last_measurement_time).total_seconds()
-        if time_diff > 2*readout_interval:
+        if retcode < 0:
+            self.status_counter[index] += 1
+            if self.status_counter[index] >= 3 and not too_soon:
+                msg = f'Something wrong? Status[{i}] is {status[i]}'
+                self.logger.warning(msg)
+                self.db.logAlarm({'name' : self.name, 'index' : index,
+                        'when' : when, 'status' : retcode,,
+                        'reason' : 'status', 'howbad' : 0, 'msg' : msg})
+                self.status_counter[index] = 0
+                self.last_message_time = dtnow()
+            else:
+                self.status_counter[index] = 0
+        try:
+            for j in range(len(reading['alarms'])-1, alarm_level-1, -1):
+                lo, hi = reading['alarms'][j]
+                if clip(value, lo, hi) in [lo, hi]:
+                    self.recurrence_counter[index] += 1
+                    if self.recurrence_counter[index] >= reading['recurrence'] and not too_soon:
+                        msg = (f"Reading {index} ({reading['description']}, value "
+                           f'{value:.3g}) is outside the level {j} alarm range '
+                           f'({lo:.3g}, {hi:.3g})')
+                        self.logger.critical(msg)
+                        self.db.logAlarm({'name' : self.name, 'index' : index,
+                            'when' : dtnow(), , 'data' : value,
+                            'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
+                        self.recurrence_counter[index] = 0
+                        self.last_message_time = dtnow()
+                    break
+            else:
+                self.recurrence_counter[index] = 0
+            except Exception as e:
+                self.logger.critical(f"Could not check reading {index} ({reading['description']}): {e} ({str(type(e))})")
+        if value is None:
+            return
+        time_diff = timestamp - self.last_measurement_time[index]
+        if time_diff > 2*reading['readout_interval']:
             self.late_counter += 1
             if self.late_counter >= 3 and not too_soon:
-                msg = f'Last sent data {time_diff:.1f} sec ago instead of {readout_interval}'
+                msg = f'Sensor responding slowly?'
                 self.logger.warning(msg)
-                self.db.logAlarm({'name' : self.name, 'when' : dtnow(), 'status' : 0,
+                self.db.logAlarm({'name' : self.name, 'when' : dtnow(),
                     'data' : time_diff, 'reason' : 'time difference', 'howbad' : 0,
                     'msg' : msg})
                 self.late_counter = 0
         else:
             self.late_counter = 0
-        self.last_measurement_time = when
-        self.db.writeDataToDatabase(self.name, when, values, status)
+        self.last_measurement_time = timestamp
+        collection_name = '%s__%s' % (self.name, reading['name'])
+        when = datetime.datetime.fromtimestamp(timestamp)
+        self.db.writeDataToDatabase(collection_name, when, value)
         # success is logged upstream
 
     def HandleCommands(self):
         """
-        Pings the database for new commands for the controller
-
-        Parameters
-        ----------
-        None
-
-        Returns
-        ------
-        None
-
-        Raises
-        ------
-        None
+        Pings the database for new commands for the controller and deals with them
         """
         doc = self.db.FindCommand(self.name)
         while doc is not None:

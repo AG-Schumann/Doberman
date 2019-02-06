@@ -24,6 +24,7 @@ class smartec_uti(SerialController):
         self._msg_start = ''
         self._msg_end = '\r\n'
         super().__init__(opts)
+        self.reading_commands = [self.commands['measure']]*3  # handles all cases
 
     def _getControl(self):
         if not super()._getControl():
@@ -70,31 +71,20 @@ class smartec_uti(SerialController):
             return True
         return False
 
-    def Readout(self):
-        val = self.SendRecv(self.commands['measure'])
-        if val['retcode']:
-            return val
-        try:
-            values = val['data'].decode().rstrip().split()
-            values = list(map(lambda x : int(x,16), values))
+    def ProcessOneReading(self, index, data):
+        """
+        Inefficient for the SLM case
+        """
+        values = data.decode().rstrip().split()
+        values = list(map(lambda x : int(x,16), values))
 
-            resp = []
+        resp = []
 
-            c_off = values[0]
-            div = values[1] - values[0]
-            self.logger.debug('UTI measured %s' % values)
-            if div: # evals to (value[cde] - valuea)/(valueb - valuea)
-                resp = [(v-c_off)/div*self.c_ref for v in values[2:]]
-                stat = [0] * len(values[2:])
-            else:
-                resp = [-1]*len(values[2:])
-                stat = [-2]*len(values[2:])
-
-            val['data'] = resp
-            val['retcode'] = stat
-        except Exception as e:
-            self.logger.error('LM error: %s' % e)
-            val['retcode'] = -4
-            val['data'] = None
-        return val
+        c_off = values[0]
+        div = values[1] - values[0]
+        self.logger.debug('UTI measured %s' % values)
+        if div: # evals to (value[cde] - valuea)/(valueb - valuea)
+            resp = [(v-c_off)/div*self.c_ref for v in values[2:]]
+            return resp[index]
+        return None
 

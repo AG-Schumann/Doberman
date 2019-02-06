@@ -14,7 +14,7 @@ import utils
 import signal
 dtnow = datetime.datetime.now
 
-__version__ = '3.2.0'
+__version__ = '4.0.0'
 
 
 class Doberman(object):
