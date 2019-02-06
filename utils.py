@@ -183,17 +183,29 @@ def refreshTTY(db):
         else:
             print('Could not assign %s!' % tty)
         dev.close()
-    print(len(matched['sensors']))
-    print(len(sensors))
     if len(matched['sensors']) == len(sensors)-1: # n-1 case
-        name = (set(sensors.keys())-set(matched['sensors'])).pop()
-        tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
-        print('Matched %s to %s via n-1' % (name, tty))
-        db.updateDatabase('settings','controllers', {'name' : name},
-                {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+        try:
+            name = (set(sensors.keys())-set(matched['sensors'])).pop()
+            tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
+            print('Matched %s to %s via n-1' % (name, tty))
+            db.updateDatabase('settings','controllers', {'name' : name},
+                    {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+        except:
+            pass
     elif len(matched['sensors']) != len(sensors):
         print('Didn\'t find the expected number of sensors!')
+        print('Sensors unmatched:')
+        l = set(sensors.keys()) - set(matched['sensors'])
+        print('\n'.join(l))
+        print()
+        print('tty ports unmatched:')
+        l = set(ttyUSBs) - set(matched['ttys'])
+        print('\n'.join(l))
         return False
+    for usb, name in zip(matched['ttys'],matched['sensors']):
+            db.updateDatabase('settings','controllers', {'name' : name},
+                    {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
+
     db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
     for name in running_controllers:
         db.ParseCommand('start %s' % name)

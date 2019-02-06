@@ -4,7 +4,7 @@ import time
 import logging
 import threading
 import queue
-
+from subprocess import Pope, PIPE, TimeoutExpired
 
 class Controller(object):
     """
@@ -162,6 +162,34 @@ class Controller(object):
     def __exit__(self):
         self.close()
         return
+
+
+class SoftwareController(Controller):
+    """
+    Class for software-only controllers (heartbeats, system monitors, etc)
+    """
+    class DummyObject(object):
+        def close():
+            return
+
+    def __init__(self, opts):
+        self._device = self.DummyObject()
+        super().__init__(opts)
+
+    def _getControl(self):
+        return True
+
+    def call(self, command, timeout=1, **kwargs):
+        for k,v in zip(['shell','stdout','stderr'],[True,PIPE,PIPE]):
+            if k not in kwargs:
+                kwargs.update({k:v})
+        proc = Popen(command, **kwargs)
+        try:
+            out, err = proc.communicate(timeout=timeout, **kwargs)
+        except TimeoutExpired:
+            proc.kill()
+            out, err = proc.communicate()
+        return out, err
 
 
 class SerialController(Controller):
