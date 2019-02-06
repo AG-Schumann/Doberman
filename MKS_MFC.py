@@ -50,6 +50,8 @@ class MKS_MFC(SerialController):
         self._NAK = 'NAK'
         self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
+        self.reading_commands = [self.getCommand.format(cmd=self.commands[com])
+            for com in ['FlowRate','FlowRatePercent','InternalTemperature']]
         self.setpoint_map = {'auto' : 'NORMAL', 'purge' : 'PURGE', 'close' : 'FLOW_OFF'}
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<value>%s)' % number_regex),
@@ -67,6 +69,15 @@ class MKS_MFC(SerialController):
         if resp['data'] == self.serialID:
             return True
         return False
+
+    def ProcessOneReading(self, index, data):
+        m = self.nak_pattern.search(data)
+        if m:
+            return -1*int(m.group('value'))
+        m = self.ack_pattern.search(data)
+        if not m:
+            return -2
+        return float(m.group('value'))
 
     def Checksum(self, message):
         checksum = 0

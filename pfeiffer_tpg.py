@@ -12,6 +12,7 @@ class pfeiffer_tpg(LANController):
                 'read' : 'PR1',
                 }
         super().__init__(opts)
+        self.reading_commands = [self.commands['read']]
         self.read_command = re.compile(b'(?P<status>[0-9]),(?P<value>%s)' % bytes(number_regex, 'utf-8'))
 
     def _getControl(self):
@@ -20,13 +21,9 @@ class pfeiffer_tpg(LANController):
         return True
         # stops the continuous flow of data
 
-    def Readout(self):
-        resp = self.SendRecv(self.commands['read'])
-        if resp['retcode']:
-            return resp
-        m = self.read_command.search(resp['data'])
+    def ProcessOneReading(self, index, data):
+        m = self.read_command.search(data)
         if not m:
-            self.logger.debug('Error?')
-            return {'retcode' : -3, 'data' : -1}
-        return {'retcode' : int(m.group('status')), 'data' : float(m.group('value'))}
+            return None
+        return float(m.group('value'))
 
