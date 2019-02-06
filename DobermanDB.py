@@ -368,6 +368,14 @@ class DobermanDB(object):
         """
         command = m['command']
         name = str(m['name'])
+        if self.getDefaultSettings(name='status') == 'sleep':
+            if command != 'wake' and name != 'None':
+                print('System currently in sleep mode, command not accepted')
+                return
+        if command == 'sleep' and name == 'None':
+            if len(self.getDefaultSettings(name='managed_plugins')) > 0:
+                print('Can\'t sleep while managing plugins!')
+                return
         names = {'None' : ['doberman']}
         if name != 'None':
             names.update({name : [name]})
@@ -655,9 +663,14 @@ class DobermanDB(object):
         """
         with open(filename, 'r') as f:
             try:
-                d = eval(f.read())
+                d = json.load(f)
             except Exception as e:
                 print('Could not read file! Error: %s' % e)
+                return
+            if 'heartbeat' not in d:
+                d.update({'heartbeat' : dtnow()})
+            if 'status' not in d:
+                d.update({'status' : 'offline'})
             if self.insertIntoDatabase('settings','controllers',d):
                 print('Could not add controller!')
             else:
@@ -689,6 +702,8 @@ class DobermanDB(object):
                 except TypeError as e:
                     print('{name: <12s} | TypeError | {desc}'.format(
                         name=reading['description'], desc=e))
+        for row in self.readFromDatabase('settings','controllers',{'status' : 'sleep'}):
+            print('  {name} | sleep'.format(name=row['name']))
         return
 
 def main(db):

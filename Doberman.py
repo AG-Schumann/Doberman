@@ -89,10 +89,11 @@ class Doberman(object):
                 if not self.sleep:
                     self.logger.debug('Still watching the bees...')
                     self.checkAlarms()
-                    self.checkCommands()
+                self.checkCommands()
                 while (time.time()-loop_start_time) < loop_time and not sh.interrupted:
                     time.sleep(1)
-                    self.checkCommands()
+                    if not self.sleep:
+                        self.checkCommands()
         except Exception as e:
             self.logger.fatal("Caught fatal exception: %s | %s" % (type(e), str(e)))
         finally:
