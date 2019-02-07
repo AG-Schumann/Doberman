@@ -23,6 +23,12 @@ class DobermanDB(object):
         except Exception as e:
             print("Can not load database connection details. Error %s" % e)
             raise
+        try:
+            with open('/scratch/doberman/experiment_name','r') as f:
+                self.experiment = f.read().strip()
+        except Exception as e:
+            print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
+            raise
 
         self.client = None
         self._connect(conn_str)
@@ -49,6 +55,7 @@ class DobermanDB(object):
         """
         Returns the requested collection and logs if the database/collection don't yet exist
         """
+        db_name = self.experiment_name + '_' + db_name
         if db_name not in self.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
         elif collection_name not in self.client[db_name].list_collection_names(False):
