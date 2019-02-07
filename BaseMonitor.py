@@ -37,7 +37,7 @@ class Monitor(object):
     def Overwatch(self):
         """
         A function for derived classes to implement for whatever actions
-        they want called while the plug is active
+        they want called while the monitor is active
         """
         pass
 
@@ -51,12 +51,13 @@ class Monitor(object):
             while not sh.interrupted:
                 loop_start_time = time.time()
                 self.Heartbeat()
+                self.CheckCommands()
                 if not self.sleep:
-                    self.CheckCommands()
                     self.Overwatch()
                 while (time.time() - loop_start_time) < loop_time and not sh.interrupted:
                     time.sleep(1)
-                    self.CheckCommands()
+                    if not self.sleep:
+                        self.CheckCommands()
         except Exception as e:
             self.logger.fatal('Monitor loop caught fatal %s exception: %s' % (type(e), str(e)))
         finally:
@@ -65,7 +66,10 @@ class Monitor(object):
 
     def Heartbeat(self):
         self.db.Heartbeat()
-        live_hosts = self.db.GetLiveHosts()
-        for host in live_hosts:
-            if self.db.CheckHeartbeat(hostname=host) > 3*utils.heartbeat_timer:
-                # host hasn't heartbeated recently
+        return
+
+    def CheckCommands(self):
+        """
+        Checks for commands issued to this host
+        """
+        pass

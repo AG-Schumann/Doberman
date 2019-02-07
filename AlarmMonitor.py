@@ -1,6 +1,7 @@
 import datetime
 import smtplib
-from DobermanBase import Monitor
+from BaseMonitor import Monitor
+from itertools import starmap
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 dtnow = datetime.datetime.now
@@ -10,6 +11,10 @@ class AlarmMonitor(Monitor):
     """
     Class that sends monitors for alarms and sends messages
     """
+
+    def Overwatch(self):
+        self.CheckHeartbeats()
+        self.CheckForAlarms()
 
     def getConnectionDetails(self, which):
         detail_doc = self.db.readFromDatabase('settings','alarm_config',
@@ -139,10 +144,6 @@ class AlarmMonitor(Monitor):
             return -1
         return 0
 
-    def Overwatch(self):
-        self.CheckHeartbeats()
-        self.CheckForAlarms()
-
     def CheckForAlarms(self):
         doc_filter = {'acknowledged' : {'$exists' : 0}}
         messages = {}
@@ -160,7 +161,7 @@ class AlarmMonitor(Monitor):
         if messages:
             self.logger.warning(f'Found alarms!')
             for (lvl,), msg_docs in messages.items():
-                message = '\n'.join(map(lambda d : msg_format.format(**d), msg_docs))
+                message = '\n'.join(starmap(lambda d : msg_format.format(**d), msg_docs))
                 self.sendMessage(lvl, message)
         return
 
@@ -193,4 +194,42 @@ class AlarmMonitor(Monitor):
         return 0
 
     def CheckHeartbeats(self):
-        docs = self.db.readFromDatabase('settings','hosts')
+        hosts = self.db.readFromDatabase('settings','hosts',
+                cuts={'status' : {'$ne' : 'offline'}},
+                projection={'hostname' : 1, 'heartbeat' : 1})
+        now = dtnow()
+        for host in hosts:
+            if (now - host['heartbeat']).total_seconds() > 3*utils.heartbeat_timer:
+                alarm_doc = {'name' : 'alarm_monitor', 'when' : now, 'howbad' : 0,
+                    'msg' : 'Host "%s" hasn\'t heartbeated recently' % host['hostname']}
+                self.db.logAlarm(alarm_doc)
+
+def main(db):
+    logger = logging.getLogger('alarm_monitor')
+    logger.setLevel(20)
+    doc = db.GetHostSetting()
+    if doc['status'] != 'offline':
+        if (dtnow() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
+            logger.error('Is the alarm monitor already running?')
+            return
+    monitor = AlarmMonitor(db)
+    try:
+        db.SetHostSetting('status','online')
+        monitor.Start()
+        monitor.LoopFcn()
+    except Exception as e:
+        logger.error(str(type(e)))
+        logger.error(str(e))
+    finally:
+        db.SetHostSetting('status','offline')
+        monitor.close()
+    return
+
+if __name__ == '__main__':
+    db = DobermanDB.DobermanDB()
+    db.hostname = 'alarm_monitor'
+    try:
+        main(db)
+    except Exception as e:
+        print('Caught a %s: %s' % (type(e), e))
+    db.close()

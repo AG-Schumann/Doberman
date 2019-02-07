@@ -2,6 +2,7 @@ import logging
 import logging.handlers
 import datetime
 import os
+from socket import getfqdn
 
 
 class DobermanLogger(logging.Handler):
@@ -14,6 +15,7 @@ class DobermanLogger(logging.Handler):
         self.db = db
         self.db_name = 'logging'
         self.collection_name = 'logs'
+        self.hostname = getfqdn()
         backup_filename = datetime.date.today().isoformat()
         self.backup_logger = logging.handlers.TimedRotatingFileHandler(
                 os.path.join(os.getcwd(), 'logs', backup_filename + '.log'),
@@ -45,7 +47,8 @@ class DobermanLogger(logging.Handler):
                 level       = record.levelno,
                 name        = record.name,
                 funcname    = record.funcName,
-                lineno      = record.lineno)
+                lineno      = record.lineno,
+                hostname    = self.hostname)
         if self.db.insertIntoDatabase(self.db_name, self.collection_name, rec):
             self.backup_logger.emit(record)
 

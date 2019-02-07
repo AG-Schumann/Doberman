@@ -124,16 +124,18 @@ def refreshTTY(db):
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
-    cuts = {'status' : 'online', 'address.ttyUSB' : {'$exists' : 1}}
+    cuts = {'status' : 'online', 'address.ttyUSB' : {'$exists' : 1},
+        'hostname' : db.hostname}
     if db.Count('settings','controllers', cuts):
-        print('Some USB controllers are running! Stopping them now')
+        print('Some USB controllers are running on this host! Stopping them now')
         running_controllers = db.Distinct('settings','controllers','name', cuts)
         for name in running_controllers:
             db.ParseCommand('stop %s' % name)
         time.sleep(35)
     else:
         running_controllers = []
-    db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
+    db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1},
+        'hostname' : db.hostname}, updates={'$set' : {'address.ttyUSB' : -1}})
     print('Refreshing ttyUSB mapping...')
     proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
     try:
@@ -144,11 +146,13 @@ def refreshTTY(db):
     if not len(out) or len(err):
         raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
     ttyUSBs = out.decode().splitlines()
-    cursor = db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}})
+    cursor = db.readFromDatabase('settings','controllers',
+            {'address.ttyUSB' : {'$exists' : 1}, 'hostname' : db.hostname})
     sensor_config = {row['name'] : row for row in cursor}
     sensor_names = list(sensor_config.keys())
     sensors = {name: None for name in sensor_names}
     matched = {'sensors' : [], 'ttys' : []}
+    host_info = db.GetHostSetting()
     for sensor in sensor_names:
         opts = {}
         opts['name'] = sensor
@@ -156,7 +160,7 @@ def refreshTTY(db):
         opts.update(sensor_config[sensor]['address'])
         if 'additional_params' in sensor_config[sensor]:
             opts.update(sensor_config[sensor]['additional_params'])
-        sensors[sensor] = FindPlugin(sensor, ['.'])(opts)
+        sensors[sensor] = FindPlugin(sensor, [host_info['cwd_dir']])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
         tty_num = int(tty.split('USB')[-1])
@@ -194,7 +198,7 @@ def refreshTTY(db):
     elif len(matched['sensors']) != len(sensors):
         print('Didn\'t find the expected number of sensors!')
         return False
-    db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
+    db.SetHostSetting('tty_update', dtnow())
     for name in running_controllers:
         db.ParseCommand('start %s' % name)
     return True
@@ -203,24 +207,14 @@ def FindPlugin(name, path):
     """
     Finds the controller constructor with the specified name, in the specified paths
 
-    Parameters
-    ---------
-    name : str
-        The name of the controller to load
-    path : [str]
-        The paths to look through to find the file named `name.py`
+    :param name: The name of the controller to load. Strips numbers off the end
+        if necessary, so 'iseries1' and 'iseries2' both find 'iseries', and
+        'caen_n1470' finds 'caen_n1470'
+    :param path: A list of the paths to look through to find the file named `name.py`
+    :returns fcn: the constructor of the requested controller
 
-    Returns
-    -------
-    fcn
-        The constructor of the controller
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified file can't be found
-    AttributeError
-        If the constructor can't be found
+    Raises FileNotFoundError if it can't find the file, AttributeError if it can't
+        find the class in the file
     """
     spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
@@ -239,13 +233,14 @@ def FindPlugin(name, path):
 class SignalHandler(object):
     """ Handles signals from the OS
     """
-    def __init__(self, logger):
+    def __init__(self, logger=None):
         self.interrupted = False
         signal.signal(signal.SIGINT, self.interrupt)
         signal.signal(signal.SIGTERM, self.interrupt)
         self.logger = logger
 
     def interrupt(self, *args):
-        self.logger.info('Received signal %i' % args[0])
+        if self.logger is not None:
+            self.logger.info('Received signal %i' % args[0])
         self.signal_number = int(args[0])
         self.interrupted = True

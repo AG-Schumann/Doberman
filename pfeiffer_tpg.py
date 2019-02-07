@@ -1,4 +1,4 @@
-from ControllerBase import LANController
+from BaseController import LANController
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 

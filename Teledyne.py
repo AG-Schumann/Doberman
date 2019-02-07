@@ -1,4 +1,4 @@
-from ControllerBase import SerialController
+from BaseController import SerialController
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 import time

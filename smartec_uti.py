@@ -1,4 +1,4 @@
-from ControllerBase import SerialController
+from BaseController import SerialController
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK
 
