@@ -59,7 +59,7 @@ class Doberman(object):
         if boot_time > last_tty_update_time:
             if not utils.refreshTTY(self.db):
                 self.logger.fatal('Could not assign tty ports!')
-                return -1
+                #return -1
         else:
             self.logger.debug('Not updating tty settings')
         return 0
@@ -117,6 +117,7 @@ class Doberman(object):
                     alarm_doc = {'name' : 'doberman', 'when' : dtnow(), 'howbad' : 1,
                             'msg' : '%s has died and I can\'t restart it' % name}
                     self.db.logAlarm(alarm_doc)
+                    self.db.ManagePlugins(name, 'remove')
                 else:
                     self.logger.info('Looks like we\'re good')
 

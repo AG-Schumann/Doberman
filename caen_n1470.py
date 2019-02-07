@@ -48,7 +48,7 @@ class caen_n1470(SerialController):
             return False
         if b'N1470' not in val['data']:
             return False
-        val = self.SendRecv(self.commands['snum'])
+        val = self.SendRecv(self.commands['snum'], dev)
         if not val['data'] or val['retcode']:
             return False
         sn = val['data'].decode().rstrip().split('VAL:')[1]
