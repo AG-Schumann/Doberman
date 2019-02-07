@@ -156,7 +156,7 @@ def refreshTTY(db):
         opts.update(sensor_config[sensor]['address'])
         if 'additional_params' in sensor_config[sensor]:
             opts.update(sensor_config[sensor]['additional_params'])
-        sensors[sensor] = FindPlugin(sensor, ['.'])(opts)
+        sensors[sensor] = FindPlugin(sensor, ['/scratch/doberman'])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
         tty_num = int(tty.split('USB')[-1])
