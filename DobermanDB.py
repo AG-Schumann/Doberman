@@ -473,7 +473,8 @@ class DobermanDB(object):
             if which == 'contacts':
                 self.updateContacts()
             elif which == 'controllers':
-                self.updateAlarms()
+                print('Feature removed')
+                #self.updateAlarms()
             elif which not in to_quit:
                 print('Invalid input: %s' % which)
         return
@@ -647,7 +648,8 @@ def main(db):
         if args.add_controller:
             db.addController(args.add_controller)
         if args.update:
-            db.askForUpdates()
+            #db.askForUpdates()
+            db.updateContacts()
     except KeyboardInterrupt:
         print('Interrupted!')
     except Exception as e:

@@ -165,9 +165,10 @@ class Plugin(threading.Thread):
                 self.logger.error('Lost connection to device?')
                 try:
                     self.controller.close()
-                    self.controller = None
                 except:
                     pass
+                finally:
+                    self.controller = None
             self.ProcessData(data, configdoc)
         else:
             try:
@@ -175,6 +176,13 @@ class Plugin(threading.Thread):
                 self.OpenController()
             except Exception as e:
                 self.logger.error('Could not reopen controller! Error %s | %s' % (type(e), e))
+                try:
+                    self.controller.close()
+                except:
+                    pass
+                finally:
+                    self.controller = None
+                raise
             else:
                 self.logger.debug('Reopened controller')
         return
