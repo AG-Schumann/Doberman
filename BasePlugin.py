@@ -168,18 +168,20 @@ class Plugin(threading.Thread):
 
         :param i: the index of the reading that this loop handles
         """
-        _local = threading.local()
         while self.running:
-            _local.loop_start_time = time.time()
+            loop_start_time = time.time()
             self.lock.acquire()
-            _local.reading = self.readings[i]
-            _local.runmode = self.runmode
+            reading = self.readings[i]
+            runmode = self.runmode
             self.lock.release()
-            if _local.reading['active'][_local.runmode] and self._connected:
+            sleep_until = loop_start_time + reading['readout_interval']
+            if reading['active'][runmode] and self._connected:
                 self.controller.AddToSchedule(reading_index=i,
                         callback=self.process_queue.put)
-            while self.running and time.time() - _local.loop_start_time < _local.reading['readout_interval']:
-                time.sleep(1)
+            now = time.time()
+            while self.running and now < sleep_until:
+                time.sleep(min(1, sleep_until - now))
+                now = time.time()
 
     def ProcessReading(self, index, timestamp, value, retcode):
         """
@@ -193,7 +195,7 @@ class Plugin(threading.Thread):
         runmode = self.runmode
         reading = self.readings[index]
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
-        readout_interval = configdoc['readout_interval']
+        readout_interval = reading['readout_interval']
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
         alarm_level = reading['level'][runmode]
@@ -202,10 +204,10 @@ class Plugin(threading.Thread):
         if retcode < 0:
             self.status_counter[index] += 1
             if self.status_counter[index] >= 3 and not too_soon:
-                msg = f'Something wrong? Status[{i}] is {status[i]}'
+                msg = f'Something wrong? Status {index} is {retcode}'
                 self.logger.warning(msg)
                 self.db.logAlarm({'name' : self.name, 'index' : index,
-                        'when' : when, 'status' : retcode,,
+                        'when' : when, 'status' : retcode,
                         'reason' : 'status', 'howbad' : 0, 'msg' : msg})
                 self.status_counter[index] = 0
                 self.last_message_time = dtnow()

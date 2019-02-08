@@ -73,18 +73,17 @@ class smartec_uti(SerialController):
 
     def ProcessOneReading(self, index, data):
         """
-        Inefficient for the SLM case
         """
         values = data.decode().rstrip().split()
         values = list(map(lambda x : int(x,16), values))
-
-        resp = []
 
         c_off = values[0]
         div = values[1] - values[0]
         self.logger.debug('UTI measured %s' % values)
         if div: # evals to (value[cde] - valuea)/(valueb - valuea)
             resp = [(v-c_off)/div*self.c_ref for v in values[2:]]
+            if len(resp) > 1:
+                return resp
             return resp[index]
         return None
 

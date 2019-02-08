@@ -3,48 +3,27 @@ import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class sonar(Controller):
+class sonar(SoftwareController):
     """
-    Controller that pings another server to see if it is alive
+    Controller that pings another machine to see if it is alive
     """
     def __init__(self, opts):
         super().__init__(opts)
-        self.command = f'ping -c {self.ping_count} {self.address}'
-        self.value_count = 4  # number of values returned
-        pattern = '/'.join([f'({number_regex})']*self.value_count)
-        self.time_taken = re.compile(pattern)
-        self.popen_args = {'shell' : True, 'stdout' : PIPE, 'stderr' : PIPE}
+        value_count = 4  # number of values returned
+        self.reading_commands = [f'ping -c 3 -W 5 {self.address}']*value_count
+        packet_loss_pattern = '(?P<loss>%s)%% packet loss' % number_regex
+        self.packet_loss = re.compile(bytes(packet_loss_pattern, 'utf-8'))
+        time_pattern = '(?P<min>{0})/(?P<avg>{0})/(?P<max>{0})/(?P<mdev>{0}) ms'.format(0=number_regex)
+        self.time_taken = re.compile(bytes(time_pattern, 'utf-8'))
 
-        class DummyObject(object):
-            def close(self):  # we need a '_device' object with a 'close' routine
-                return
-        self._device = DummyObject()
-
-    def _getControl(self):
-        """
-        Nothing to do here
-        """
-        return True
-
-    def Readout(self):
-        proc = Popen(self.command, **self.popen_args)
-        try:
-            out, err = proc.communicate(timeout=self.ping_count*3)
-        except TimeoutExpired:
-            proc.kill()
-            out, err = proc.communicate()
-        if not len(out) or len(err):
-            status = [-1]*self.value_count
-            data = [0]*self.value_count
-            self.logger.error('Problem pinging server!')
-        else:
-            m = self.time_taken.search(out.decode())
-            if not m:
-                status = [-2]*self.value_count
-                data = [0]*self.value_count
-                self.logger.error('Problem parsing output!')
-            else:
-                status = [0]*self.value_count
-                data = map(float, m.groups())
-        return {'retcode' : status, 'data' : data}
+    def ProcessOneReading(self, index, data):
+        m = self.packet_loss.search(data)
+        if not m:
+            return None
+        if m.group('loss') == b'100':
+            return -1
+        m = self.time_taken.search(data)
+        if not m:
+            return -2
+        return list(map(float, m.groupdict().values()))
 

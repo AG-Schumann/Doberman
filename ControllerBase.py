@@ -102,7 +102,12 @@ class Controller(object):
             value = ProcessOneReading(index, pkg['data'])
         except:  # TODO catch specific exceptions (TypeError, ValueError, etc)
             value = None
-        callback((index, time.time(), value, pkg['retcode']))
+        if isinstance(value, (list, tuple)):
+            now = time.time()
+            for i,v in enumerate(value):
+                callback((i, now, v, pkg['retcode']))
+        else:
+            callback((index, time.time(), value, pkg['retcode']))
         return
 
     def ProcessOneReading(self, index, data):
