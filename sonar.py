@@ -1,12 +1,11 @@
-from ControllerBase import Controller
-from subprocess import Popen, PIPE, TimeoutExpired
+from BaseController import SoftwareController
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class heartbeat(Controller):
+class sonar(Controller):
     """
-    'Controller' that pings another server to see if it is alive
+    Controller that pings another server to see if it is alive
     """
     def __init__(self, opts):
         super().__init__(opts)
