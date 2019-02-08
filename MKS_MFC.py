@@ -11,8 +11,7 @@ class MKS_MFC(SerialController):
             'setpoint <value>: change the setpoint',
             'valve <auto|close|purge>: change valve status',
         ]
-    def __init__(self, opts):
-        super().__init__(opts)
+    def setup(self, opts):
         self._msg_start = f"@@@{self.serialID}"
         self._msg_end = ";FF" # ignores checksum
         self.commands = {'Address' : 'CA',
