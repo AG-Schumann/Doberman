@@ -18,8 +18,7 @@ class caen_n1470(SerialController):
         '<anode|cathode> vset <value>',
     ]
 
-    def __init__(self, opts):
-        super().__init__(opts)
+    def setup(self):
         self._msg_start = '$'
         self._msg_end = '\r\n'
         self.commands = {'read' : f'BD:{self.board},' + 'CMD:MON,CH:{ch},PAR:{par}',

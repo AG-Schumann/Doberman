@@ -9,7 +9,7 @@ class iseries(SerialController):
     iseries controller connection
     """
 
-    def __init__(self, opts):
+    def setup(self):
         self._msg_start = '*'
         self._msg_end = '\r\n'
         self.commands = {
@@ -20,7 +20,6 @@ class iseries(SerialController):
                 'getDisplayedValue' : 'X01',
                 'getCommunicationParameters' : 'R10',
                 }
-        super().__init__(opts)
         self.read_pattern = re.compile(b'%s(?P<value>%s)' % (bytes(self.commands['getDisplayedValue'], 'utf-8'), bytes(number_regex, 'utf-8')))
         self.id_pattern = re.compile(b'%s%s' % (bytes(self.commands['getAddress'], 'utf-8'), bytes(self.serialID, 'utf-8')))
 
