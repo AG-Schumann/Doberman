@@ -274,7 +274,7 @@ class DobermanDB(object):
         :param name: the name of the controller to check
         :returns: number of seconds since the last heartbeat
         """
-        doc = self.ControllerSettings(name=name)
+        doc = self.GetControllerSettings(name=name)
         last_heartbeat = doc['heartbeat']
         return (dtnow() - last_heartbeat).total_seconds()
 
@@ -435,7 +435,7 @@ class DobermanDB(object):
             return -1
         return 0
 
-    def ControllerSettings(self, name):
+    def GetControllerSettings(self, name):
         """
         Reads the settings in the database.
 
@@ -443,6 +443,17 @@ class DobermanDB(object):
         :returns configuration document for the specified controller
         """
         return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
+
+    def SetControllerSetting(self, name, field, value):
+        """
+        Updates the setting from one controller
+
+        :param name: the name of the controller
+        :param field: the specific field to update
+        :param value: the new value
+        """
+        self.updateDatabase('settings','controllers',cuts={'name' : name},
+                updates = {'$set' : {field : value}})
 
     def getDefaultSettings(self, runmode=None, name=None):
         """
@@ -579,7 +590,7 @@ class DobermanDB(object):
         if name not in names:
             print('What is "%s"? It isn\'t in the above list' % name)
             return
-        config_doc = self.ControllerSettings(name)
+        config_doc = self.GetControllerSettings(name)
         descs = [r['description'] for r in config_doc['readings']]
         print('Here are the different readings for %s:' % name)
         for d in enumerate(descs):

@@ -109,7 +109,7 @@ class Doberman(object):
                 # log alarm?
                 #self.db.updateDatabase('settings','controllers',cuts={'name' : name},
                 #        updates={'$set' : {'status' : 'offline'}})
-                runmode = self.db.ControllerSettings(name)['runmode']
+                runmode = self.db.GetControllerSettings(name)['runmode']
                 self.StartController(name, runmode=runmode)
                 time.sleep(5)
                 if self.db.CheckHeartbeat(name) > utils.heartbeat_timer:

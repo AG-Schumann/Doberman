@@ -27,7 +27,7 @@ def main(db):
     logger.addHandler(DobermanLogging.DobermanLogger(db))
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
-    doc = db.ControllerSettings(args.plugin_name)
+    doc = db.GetControllerSettings(args.plugin_name)
     if doc['status'] == 'online':
         if (datetime.datetime.now() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)

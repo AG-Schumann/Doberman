@@ -45,7 +45,7 @@ class Plugin(threading.Thread):
         self.name = name
         self.logger.debug('Starting plugin...')
         self.db = db
-        config_doc = self.db.ControllerSettings(self.name)
+        config_doc = self.db.GetControllerSettings(self.name)
         self.controller_ctor = utils.FindPlugin(self.name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
@@ -112,7 +112,7 @@ class Plugin(threading.Thread):
         while self.running:
             loop_start_time = time.time()
             self.lock.acquire()
-            configdoc = self.db.ControllerSettings(self.name)
+            configdoc = self.db.GetControllerSettings(self.name)
             self.readings = configdoc['readings']
             self.runmode = configdoc['runmode']
             self.lock.release()
@@ -175,7 +175,7 @@ class Plugin(threading.Thread):
             runmode = self.runmode
             self.lock.release()
             sleep_until = loop_start_time + reading['readout_interval']
-            if reading['active'][runmode] and self._connected:
+            if reading['config'][runmode]['active'] and self._connected:
                 self.controller.AddToSchedule(reading_index=i,
                         callback=self.process_queue.put)
             now = time.time()
@@ -198,52 +198,53 @@ class Plugin(threading.Thread):
         readout_interval = reading['readout_interval']
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
-        alarm_level = reading['level'][runmode]
-        if alarm_level == -1:
-            return
-        if retcode < 0:
-            self.status_counter[index] += 1
-            if self.status_counter[index] >= 3 and not too_soon:
-                msg = f'Something wrong? Status {index} is {retcode}'
-                self.logger.warning(msg)
-                self.db.logAlarm({'name' : self.name, 'index' : index,
-                        'when' : when, 'status' : retcode,
-                        'reason' : 'status', 'howbad' : 0, 'msg' : msg})
-                self.status_counter[index] = 0
-                self.last_message_time = dtnow()
+        alarm_level = reading['config'][runmode]['level']
+        alarm_ranges = reading['alarms']
+        if alarm_level > -1:
+            if retcode < 0:
+                self.status_counter[index] += 1
+                if self.status_counter[index] >= 3 and not too_soon:
+                    msg = f'Something wrong? Status {index} is {retcode}'
+                    self.logger.warning(msg)
+                    self.db.logAlarm({'name' : self.name, 'index' : index,
+                            'when' : when, 'status' : retcode,
+                            'reason' : 'status', 'howbad' : 0, 'msg' : msg})
+                    self.status_counter[index] = 0
+                    self.last_message_time = dtnow()
             else:
                 self.status_counter[index] = 0
-        try:
-            for j in range(len(reading['alarms'])-1, alarm_level-1, -1):
-                lo, hi = reading['alarms'][j]
-                if clip(value, lo, hi) in [lo, hi]:
-                    self.recurrence_counter[index] += 1
-                    if self.recurrence_counter[index] >= reading['recurrence'] and not too_soon:
-                        msg = (f"Reading {index} ({reading['description']}, value "
-                           f'{value:.3g}) is outside the level {j} alarm range '
-                           f'({lo:.3g}, {hi:.3g})')
-                        self.logger.critical(msg)
-                        self.db.logAlarm({'name' : self.name, 'index' : index,
-                            'when' : dtnow(), , 'data' : value,
-                            'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
-                        self.recurrence_counter[index] = 0
-                        self.last_message_time = dtnow()
+            try:
+                levels_to_check = list(range(alarm_level, len(alarm_ranges)))[::-1]
+                for j in levels_to_check:
+                    lo, hi = alarm_ranges[j]
+                    if clip(value, lo, hi) in [lo, hi]:
+                        self.recurrence_counter[index] += 1
+                        if self.recurrence_counter[index] >= reading['recurrence'] and not too_soon:
+                            msg = (f"Reading {index} ({reading['description']}, value "
+                               f'{value:.3g}) is outside the level {j} alarm range '
+                               f'({lo:.3g}, {hi:.3g})')
+                            self.logger.critical(msg)
+                            self.db.logAlarm({'name' : self.name, 'index' : index,
+                                'when' : dtnow(), , 'data' : value,
+                                'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
+                            self.recurrence_counter[index] = 0
+                            self.last_message_time = dtnow()
                     break
-            else:
-                self.recurrence_counter[index] = 0
+                else:
+                    self.recurrence_counter[index] = 0
             except Exception as e:
                 self.logger.critical(f"Could not check reading {index} ({reading['description']}): {e} ({str(type(e))})")
         if value is None:
             return
         time_diff = timestamp - self.last_measurement_time[index]
-        if time_diff > 2*reading['readout_interval']:
+        if time_diff > 3*reading['readout_interval']:
             self.late_counter += 1
             if self.late_counter >= 3 and not too_soon:
                 msg = f'Sensor responding slowly?'
                 self.logger.warning(msg)
                 self.db.logAlarm({'name' : self.name, 'when' : dtnow(),
-                    'data' : time_diff, 'reason' : 'time difference', 'howbad' : 0,
-                    'msg' : msg})
+                        'data' : time_diff, 'reason' : 'time difference',
+                        'howbad' : 0, 'msg' : msg})
                 self.late_counter = 0
         else:
             self.late_counter = 0
@@ -251,7 +252,6 @@ class Plugin(threading.Thread):
         collection_name = '%s__%s' % (self.name, reading['name'])
         when = datetime.datetime.fromtimestamp(timestamp)
         self.db.writeDataToDatabase(collection_name, when, value)
-        # success is logged upstream
 
     def HandleCommands(self):
         """
@@ -263,8 +263,7 @@ class Plugin(threading.Thread):
             self.logger.info(f"Found command '{command}'")
             if command.startswith('runmode'):
                 _, runmode = command.split()
-                self.db.updateDatabase('settings','controllers', {'name': self.name},
-                        {'$set' : {'runmode' : runmode}})
+                self.db.SetControllerSetting(self.name, 'runmode', runmode)
                 loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
                 self.logger.setLevel(int(loglevel))
             elif command == 'stop':
@@ -272,11 +271,9 @@ class Plugin(threading.Thread):
                 self.has_quit = True
                 # makes sure we don't get restarted
             elif command == 'wake':
-                self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                        {'$set' : {'status' : 'online'}})
+                self.db.SetControllerSetting(self.name, 'status', 'online')
             elif command == 'sleep':
-                self.db.updateDatabase('settings','controllers', {'name' : self.name},
-                        {'$set' : {'status' : 'sleep'}})
+                self.db.SetControllerSetting(self.name, 'status', 'sleep')
             elif self._connected:
                 self.controller.ExecuteCommand(command)
             else:
