@@ -61,7 +61,7 @@ class DobermanDB(object):
         elif collection_name not in self.client[db_name].list_collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             self.client[db_name].create_collection(collection_name)
-            if db_name == 'data':
+            if 'data' in db_name:
                 self.client[db_name][collection_name].create_index([('when',-1)])
         return self.client[db_name][collection_name]
 
