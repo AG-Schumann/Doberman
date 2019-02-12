@@ -3,7 +3,7 @@ import re
 from utils import number_regex
 
 
-class DummyController(LANController):
+class TestController(LANController):
     def __init__(self, opts):
         super().__init__(opts)
         self._msg_start = '*'
