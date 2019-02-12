@@ -199,27 +199,27 @@ class DobermanDB(object):
         return
 
     def PrintHelp(self, name):
-        print('Accepted commands:')
-        print('help [<plugin_name>]: help [for specific plugin]')
-        print('start <plugin_name> [<runmode>]: starts a plugin [in the specified runmode]')
+        print('Commands for sensor monitors:')
+            print('start <plugin_name> [<runmode>]: starts a plugin [in the specified runmode]')
         print('stop <plugin_name>: stops a plugin')
         print('restart <plugin_name>: restarts a plugin')
-        print('runmode <runmode>: changes the active runmode')
-        print('sleep <duration>: puts Doberman to sleep for specified duration (5m, 6h, etc)')
-        print('wake: reactivates Doberman')
+        print('<hostname> runmode <runmode>: changes the active runmode')
+        print('<hostname> sleep <duration>: puts the specified host to sleep for specified duration (5m, 6h, etc)')
+        print('<hostname> wake: reactivates the specified host')
         print()
         print('Available plugins:')
         names = self.Distinct('settings','controllers','name')
-        print(' | '.join(names))
+        print('\t' + ' | '.join(names))
         print()
-        print('Plugin commands:')
+        print('General commands for plugins:')
+        print('help <plugin_name>: help for specific plugin')
         print('<plugin_name> sleep <duration>: puts the specified plugin to sleep for the specified duration')
         print('<plugin_name> wake: reactivates the specified plugin')
         print('<plugin_name> runmode <runmode>: changes the active runmode for the specified controller')
         print()
         if name:
             print('Commands specific to %s:' % name)
-            ctrl_cls = utils.FindPlugin(name, ['.'])
+            ctrl_cls = utils.FindPlugin(name, [self.GetHostSetting('working_dir')])
             if not hasattr(ctrl_cls, 'accepted_commands'):
                 print('none')
             else:
@@ -230,7 +230,7 @@ class DobermanDB(object):
         print()
         print('Available runmodes:')
         runmodes = self.Distinct('settings','runmodes','mode')
-        print(' | '.join(runmodes))
+        print('\t' + ' | '.join(runmodes))
         print()
         return
 
