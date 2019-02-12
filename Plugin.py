@@ -29,7 +29,7 @@ def main(db):
     logger.setLevel(int(loglevel))
     doc = db.GetControllerSettings(args.plugin_name)
     if doc['status'] == 'online':
-        if (datetime.datetime.now() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
+        if (datetime.datetime.now() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)
             return
     if args.runmode == 'default' and os.environ['USER'] != 'doberman':
@@ -44,10 +44,10 @@ def main(db):
         ctor = BlindPlugin
     else:
         ctor = Plugin
-    sh = utils.SignalHandler(logger)
     running = True
     try:
         plugin = ctor(db, args.plugin_name, plugin_paths)
+        sh = plugin.sh
         plugin.start()
         while running and not sh.interrupted:
             loop_start = time.time()

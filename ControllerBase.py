@@ -4,7 +4,7 @@ import time
 import logging
 import threading
 import queue
-from subprocess import Pope, PIPE, TimeoutExpired
+from subprocess import Popen, PIPE, TimeoutExpired
 
 class Controller(object):
     """
@@ -23,6 +23,7 @@ class Controller(object):
             setattr(self, key, value)
         self._connected = False
         self.cmd_queue = queue.Queue()
+        self.q_lock = threading.RLock()
         if self.initialize:
             if self._getControl():
                 time.sleep(0.2)
@@ -74,14 +75,16 @@ class Controller(object):
             reading_index != None
         :returns None
         """
-        if reading_index:
-            if callback is None:
-                return
-            self.cmd_queue.put((self.reading_commands[reading_index],
-                # is there a better way to do this?
-                lambda x : self._ProcessReading(reading_index, x, callback)))
-        elif command:
-            self.cmd_queue.put((command, lambda x : None))
+        with self.q_lock:
+            if reading_index:
+                if callback is None:
+                    return
+                self.logger.debug('Queuing %i' % (reading_index))
+                self.cmd_queue.put((self.reading_commands[reading_index],
+                    # is there a better way to do this?
+                    lambda x : self._ProcessReading(reading_index, x, callback)))
+            elif command:
+                self.cmd_queue.put((command, lambda x : None))
 
 
     def _ProcessReading(self, index, pkg, callback):

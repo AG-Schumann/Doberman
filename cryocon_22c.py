@@ -27,7 +27,7 @@ class cryocon_22c(LANController):
                 }
         super().__init__(opts)
         self.read_pattern = re.compile(b'(?P<value>%s)' % bytes(number_regex, 'utf-8'))
-        self.read_commands = [self.commands[x] for x in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']]
+        self.reading_commands = [self.commands[x] for x in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']]
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<ch>1|2) (?P<value>%s)' % number_regex),
                     lambda x : self.commands['setSP'].format(**x.groupdict())),
@@ -41,5 +41,6 @@ class cryocon_22c(LANController):
         return 'stop'
 
     def ProcessOneReading(self, index, data):
+        self.logger.debug('Got %i %s' % (index, data))
         return float(self.read_pattern.search(data).group('value'))
 
