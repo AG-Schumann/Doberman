@@ -251,13 +251,14 @@ def FindPlugin(name, path):
 class SignalHandler(object):
     """ Handles signals from the OS
     """
-    def __init__(self, logger):
+    def __init__(self, logger=None):
         self.interrupted = False
         signal.signal(signal.SIGINT, self.interrupt)
         signal.signal(signal.SIGTERM, self.interrupt)
         self.logger = logger
 
     def interrupt(self, *args):
-        self.logger.info('Received signal %i' % args[0])
+        if self.logger is not None:
+            self.logger.info('Received signal %i' % args[0])
         self.signal_number = int(args[0])
         self.interrupted = True

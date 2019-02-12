@@ -56,6 +56,7 @@ class Plugin(threading.Thread):
 
         self.recurrence_counter = [0] * len(config_doc['readings'])
         self.status_counter = [0] * len(config_doc['readings'])
+        self.runmode = config_doc['runmode']
         self.last_message_time = dtnow()
         self.late_counter = 0
         self.last_measurement_time = time.time()
@@ -66,19 +67,21 @@ class Plugin(threading.Thread):
         self.readings = config_doc['readings']
         self.readout_threads = []
         self.process_queue = queue.Queue()
-        self.lock = threading.RLock()
+        self.reading_lock = threading.RLock()
+        self.sh = utils.SignalHandler(self.logger)
         self.logger.debug('Started')
 
     def close(self):
         """Closes the controller"""
+        self.logger.debug('Beginning shutdown')
         self.running = False
         for t in self.readout_threads:
             t.join()
         if not self.controller:
             return
-        self.logger.info('Stopping...')
         self.controller.close()
         self.controller = None
+        self.logger.info('Stopping...')
         return
 
     def OpenController(self):
@@ -97,29 +100,28 @@ class Plugin(threading.Thread):
     def run(self):
         """
         The main readout loop of the plugin. Ensures it always has a controller to read
-        data from. If it doesn't it tries periodically to open it.
-        While running, pulls data from the controller, checks its validity, checks for
+        data from. If it doesn't it tries to open it. If it fails, it returns.
+        While running, pulls data the process queue and process it. Also checks for
         new commands, and repeats until told to quit. Closes the controller when finished
         """
         self.OpenController()
         self.running = True
         for i in range(len(self.readings)):
-            self.readout_loops.append(threading.Thread(
+            self.readout_threads.append(threading.Thread(
                 target=self.ReadoutLoop,
                 args=(i,)))
-            self.readout_loops[-1].run()
+            self.readout_threads[-1].start()
         self.logger.debug('Running...')
-        while self.running:
+        while self.running and not self.sh.interrupted:
+            self.logger.debug('Top of main loop')
             loop_start_time = time.time()
-            self.lock.acquire()
-            configdoc = self.db.GetControllerSettings(self.name)
-            self.readings = configdoc['readings']
-            self.runmode = configdoc['runmode']
-            self.lock.release()
+            with self.reading_lock:
+                configdoc = self.db.GetControllerSettings(self.name)
+                self.readings = configdoc['readings']
+                self.runmode = configdoc['runmode']
             self.HandleCommands()
             while (time.time() - loop_start_time) < utils.heartbeat_timer and self.running:
                 try:
-                    self.logger.debug('Queue at %i' % self.process_queue.qsize())
                     packet = self.process_queue.get_nowait()
                 except queue.Empty:
                     pass
@@ -153,7 +155,9 @@ class Plugin(threading.Thread):
                             packet = None
                         else:
                             continue
-            self.KillTime()
+                self.KillTime()
+                if self.sh.interrupted:
+                    break
         self.close()
 
     def KillTime(self):
@@ -170,22 +174,22 @@ class Plugin(threading.Thread):
 
         :param i: the index of the reading that this loop handles
         """
-        while self.running:
+        while self.running and not self.sh.interrupted:
             self.logger.debug('Loop %i top' % i)
             loop_start_time = time.time()
-            self.lock.acquire()
-            reading = self.readings[i]
-            runmode = self.runmode
-            self.lock.release()
+            with self.reading_lock:
+                reading = self.readings[i]
+                runmode = self.runmode
             sleep_until = loop_start_time + reading['readout_interval']
             if reading['config'][runmode]['active'] and self._connected:
                 self.logger.debug('Loop %i queueing' % i)
                 self.controller.AddToSchedule(reading_index=i,
                         callback=self.process_queue.put)
             now = time.time()
-            while self.running and now < sleep_until:
+            while self.running and not self.sh.interrupted and now < sleep_until:
                 time.sleep(min(1, sleep_until - now))
                 now = time.time()
+        self.logger.debug('Loop %i returning' % i)
 
     def ProcessReading(self, index, timestamp, value, retcode):
         """
@@ -196,7 +200,7 @@ class Plugin(threading.Thread):
         :param value: the value the sensor returns
         :param retcode: the status code the sensor returns
         """
-        self.logger.debug('Processing (%i %i %.3g %i)' % (index, timestamp, value, retcode)
+        self.logger.debug('Processing (%i %s %i)' % (index, value, retcode))
         runmode = self.runmode
         reading = self.readings[index]
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
@@ -230,7 +234,7 @@ class Plugin(threading.Thread):
                                f'({lo:.3g}, {hi:.3g})')
                             self.logger.critical(msg)
                             self.db.logAlarm({'name' : self.name, 'index' : index,
-                                'when' : dtnow(), , 'data' : value,
+                                'when' : dtnow(), 'data' : value,
                                 'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
                             self.recurrence_counter[index] = 0
                             self.last_message_time = dtnow()
