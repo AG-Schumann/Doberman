@@ -234,115 +234,6 @@ class DobermanDB(object):
         print()
         return
 
-    def StoreCommand(self, name, command, future=None):
-        """
-        Puts a command into the database
-        """
-        template = {'name' : name, 'command' : command,
-                'by' : os.environ['USER'], 'logged' : dtnow()}
-        if future is not None:
-            template['logged'] += future
-        self.insertIntoDatabase('logging','commands', template)
-        return
-
-    def ParseCommand(self, command_str):
-        """
-        Does the regex matching for command input
-        """
-        names = self.Distinct('settings','controllers','name')
-        names_ = '|'.join(names + ['all'])
-        runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
-        if command_str.startswith('help'):
-            n = None
-            if len(command_str) > len('help '):
-                name = command_str[len('help '):]
-                if name in names:
-                    n = name
-            self.PrintHelp(n)
-            return
-
-        patterns = [
-            '^(?P<command>start|stop|restart) (?P<name>%s)(?: (?P<runmode>%s))?' % (names_, runmodes_),
-            '^(?:(?P<name>%s) )?(?P<command>sleep|wake)(?: (?P<duration>(?:[1-9][0-9]*[dhms])|(?:inf)))?' % names_,
-            '^(?P<name>%s) (?P<command>runmode) (?P<runmode>%s)' % (names_, runmodes_),
-            '^(?P<name>%s) (?P<command>.+)$' % names_,
-        ]
-        for pattern in patterns:
-            m = re.search(pattern, command_str)
-            if m:
-                ret = self.ProcessCommand(m)
-                break
-        else:
-            print('Command \'%s\' not understood' % command_str)
-            return
-        if ret == 0:
-            time.sleep(3)
-            cur = self.readFromDatabase('logging','logs',cuts={'when' :
-                {'$gte' : dtnow() - datetime.timedelta(seconds=4)}},sort=[('when',1)])
-            for doc in cur:
-                print("{when} | {name} | {msg}".format(**doc))
-
-    def ProcessCommand(self, m):
-        """
-        Takes the match object (m) and figures out what it actually means
-        """
-        command = m['command']
-        name = str(m['name'])
-        names = {'None'}
-        if name != 'None':
-            names.update({name : [name]})
-        hostnames = {ctrl['name'] : ctrl['hostname'] for ctrl in
-                self.db.readFromDatabase('settings','controllers',
-                    cuts={},projection={'name' : 1, 'hostname' : 1})}
-        online = self.Distinct('settings','controllers','name', {'status' : 'online'})
-        offline = self.Distinct('settings','controllers','name', {'status' : 'offline'})
-        asleep = self.Distinct('settings','controllers','name', {'status' : 'sleep'})
-        if command in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
-            names.update({'all' : {
-                'start' : offline,
-                'stop' : online,
-                'restart' : online,
-                'sleep' : online,
-                'wake' : asleep,
-                'runmode' : online}[command]})
-        if command == 'start':
-            for n in names[name]:
-                self.StoreCommand(hostnames[n], 'start %s %s' % (n, m['runmode']))
-        elif command == 'stop':
-            for n in names[name]:
-                self.StoreCommand(n, 'stop')
-        elif command == 'restart':
-            td = datetime.timedelta(seconds=1.1*utils.heartbeat_timer)
-            for n in names[name]:
-                self.StoreCommand(n, 'stop')
-                self.StoreCommand(hostnames[n], 'start %s None' % n, td)
-        elif command == 'sleep':
-            duration = m['duration']
-            if duration is None:
-                print('Can\'t sleep without specifying a duration!')
-                return 1
-            elif duration == 'inf':
-                for n in names[name]:
-                    self.StoreCommand(n, 'sleep')
-            else:
-                howmany = int(duration[:-1])
-                which = duration[-1]
-                time_map = {'s' : 'seconds', 'm' : 'minutes', 'h' : 'hours', 'd' : 'days'}
-                kwarg = {time_map[which] : howmany}
-                sleep_time = datetime.timedelta(**kwarg)
-                for n in names[name]:
-                    self.StoreCommand(n, 'sleep')
-                    self.StoreCommand(n, 'wake', sleep_time)
-        elif command == 'wake':
-            for n in names[name]:
-                self.StoreCommand(n, 'wake')
-        elif command == 'runmode':
-            for n in names[name]:
-                self.StoreCommand(n, 'runmode %s' % m['runmode'])
-        else:
-            self.StoreCommand(name, command)
-        return 0
-
     def logAlarm(self, document):
         """
         Adds the alarm to the history.
@@ -628,8 +519,6 @@ def main(db):
 
     parser.add_argument('--update', action='store_true', default=False,
                         help='Update settings/contacts/etc')
-    parser.add_argument('command', nargs='*',
-                        help='Issue a command to the system. Try \'help\'')
     parser.add_argument('--add-runmode', action='store_true', default=False,
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
@@ -639,9 +528,6 @@ def main(db):
     parser.add_argument('--status', action='store_true', default=False,
                         help='List current status')
     args = parser.parse_args()
-    if args.command:
-        db.ParseCommand(' '.join(args.command))
-        return
     if args.status:
         db.CurrentStatus()
         return
