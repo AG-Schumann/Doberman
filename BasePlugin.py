@@ -119,6 +119,7 @@ class Plugin(threading.Thread):
             self.HandleCommands()
             while (time.time() - loop_start_time) < utils.heartbeat_timer and self.running:
                 try:
+                    self.logger.debug('Queue at %i' % self.process_queue.qsize())
                     packet = self.process_queue.get_nowait()
                 except queue.Empty:
                     pass
@@ -146,6 +147,7 @@ class Plugin(threading.Thread):
 
                         self.ProcessReading(*packet)
                         try:
+                            self.logger.debug('Queue at %i' % self.process_queue.qsize())
                             packet = self.process_queue.get_nowait()
                         except queue.Empty:
                             packet = None
@@ -169,6 +171,7 @@ class Plugin(threading.Thread):
         :param i: the index of the reading that this loop handles
         """
         while self.running:
+            self.logger.debug('Loop %i top' % i)
             loop_start_time = time.time()
             self.lock.acquire()
             reading = self.readings[i]
@@ -176,6 +179,7 @@ class Plugin(threading.Thread):
             self.lock.release()
             sleep_until = loop_start_time + reading['readout_interval']
             if reading['config'][runmode]['active'] and self._connected:
+                self.logger.debug('Loop %i queueing' % i)
                 self.controller.AddToSchedule(reading_index=i,
                         callback=self.process_queue.put)
             now = time.time()
@@ -192,6 +196,7 @@ class Plugin(threading.Thread):
         :param value: the value the sensor returns
         :param retcode: the status code the sensor returns
         """
+        self.logger.debug('Processing (%i %i %.3g %i)' % (index, timestamp, value, retcode)
         runmode = self.runmode
         reading = self.readings[index]
         message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
