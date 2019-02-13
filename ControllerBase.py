@@ -3,7 +3,6 @@ import socket
 import time
 import logging
 import queue
-from subprocess import Popen, PIPE, TimeoutExpired
 
 class Controller(object):
     """
