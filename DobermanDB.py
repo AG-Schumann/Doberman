@@ -25,7 +25,7 @@ class DobermanDB(object):
             raise
         try:
             with open('/scratch/doberman/experiment_name','r') as f:
-                self.experiment = f.read().strip()
+                self.experiment_name = f.read().strip()
         except Exception as e:
             print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
             raise
