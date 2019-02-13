@@ -2,7 +2,6 @@ import serial
 import socket
 import time
 import logging
-import threading
 import queue
 from subprocess import Popen, PIPE, TimeoutExpired
 
@@ -23,7 +22,6 @@ class Controller(object):
             setattr(self, key, value)
         self._connected = False
         self.cmd_queue = queue.Queue(30)
-        self.q_lock = threading.RLock()
         if self.initialize:
             if self._getControl():
                 time.sleep(0.2)
