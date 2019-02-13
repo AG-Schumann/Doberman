@@ -176,14 +176,12 @@ class Plugin(threading.Thread):
         :param i: the index of the reading that this loop handles
         """
         while self.running and not self.sh.interrupted:
-            self.logger.debug('Loop %i top' % i)
             loop_start_time = time.time()
             with self.reading_lock:
                 reading = self.readings[i]
                 runmode = self.runmode
             sleep_until = loop_start_time + reading['readout_interval']
             if reading['config'][runmode]['active'] and self._connected:
-                self.logger.debug('Loop %i queueing' % i)
                 self.controller.AddToSchedule(reading_index=i,
                         callback=self.process_queue.put)
             now = time.time()
@@ -246,7 +244,7 @@ class Plugin(threading.Thread):
                 self.logger.critical(f"Could not check reading {index} ({reading['description']}): {e} ({str(type(e))})")
         if value is None:
             return
-        time_diff = timestamp - self.last_measurement_time[index]
+        time_diff = timestamp - self.last_measurement_time
         if time_diff > 3*reading['readout_interval']:
             self.late_counter += 1
             if self.late_counter >= 3 and not too_soon:

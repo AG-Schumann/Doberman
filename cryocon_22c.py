@@ -41,6 +41,5 @@ class cryocon_22c(LANController):
         return 'stop'
 
     def ProcessOneReading(self, index, data):
-        self.logger.debug('Got %i %s' % (index, data))
         return float(self.read_pattern.search(data).group('value'))
 

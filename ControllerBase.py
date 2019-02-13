@@ -22,7 +22,7 @@ class Controller(object):
         for key, value in opts.items():
             setattr(self, key, value)
         self._connected = False
-        self.cmd_queue = queue.Queue()
+        self.cmd_queue = queue.Queue(30)
         self.q_lock = threading.RLock()
         if self.initialize:
             if self._getControl():
@@ -56,10 +56,9 @@ class Controller(object):
                 continue
             else:
                 command, callback = packet
-                self.logger.debug('Pulled "%s" from queue' % command)
+                if isinstance(command, int):  # reading index
+                    command = self.reading_commands[command]
                 ret = self.SendRecv(command)
-                self.logger.debug('Calling "%s" with "%s"' % (str(callback).split()[1],
-                    ret['data']))
                 callback(ret)
 
     def AddToSchedule(self, reading_index=None, command=None, callback=None):
@@ -75,16 +74,15 @@ class Controller(object):
             reading_index != None
         :returns None
         """
-        with self.q_lock:
-            if reading_index:
-                if callback is None:
-                    return
-                self.logger.debug('Queuing %i' % (reading_index))
-                self.cmd_queue.put((self.reading_commands[reading_index],
-                    # is there a better way to do this?
-                    lambda x : self._ProcessReading(reading_index, x, callback)))
-            elif command:
-                self.cmd_queue.put((command, lambda x : None))
+        if reading_index is not None:
+            if callback is None:
+                return
+            self.logger.debug('Queuing %i' % (reading_index))
+            self.cmd_queue.put((reading_index,
+                # is there a better way to do this?
+                lambda x : self._ProcessReading(reading_index, x, callback)))
+        elif command is not None:
+            self.cmd_queue.put((command, lambda x : None))
 
 
     def _ProcessReading(self, index, pkg, callback):
@@ -102,9 +100,11 @@ class Controller(object):
         :returns None
         """
         try:
-            value = ProcessOneReading(index, pkg['data'])
-        except:  # TODO catch specific exceptions (TypeError, ValueError, etc)
+            value = self.ProcessOneReading(index, pkg['data'])
+        except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
+            self.logger.debug('Caught a %s: %s' % (type(e),e))
             value = None
+        self.logger.debug('Index %i values %s' % (index, value))
         if isinstance(value, (list, tuple)):
             now = time.time()
             for i,v in enumerate(value):

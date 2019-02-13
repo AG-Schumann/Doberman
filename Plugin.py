@@ -55,7 +55,7 @@ def main(db):
             logger.debug('I\'m still here')
             while time.time() - loop_start < utils.heartbeat_timer and not sh.interrupted:
                 time.sleep(1)
-            if plugin.has_quit:
+            if plugin.has_quit or sh.interrupted:
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
