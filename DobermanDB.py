@@ -710,7 +710,7 @@ class DobermanDB(object):
                 try:
                     print(s.format(name=reading['description'],
                         when=(now-datadoc['when']).total_seconds(),
-                        value=datadoc['value']))
+                        value=datadoc['data']))
                 except TypeError as e:
                     print('{name: <12s} | TypeError | {desc}'.format(
                         name=reading['description'], desc=e))
