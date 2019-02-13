@@ -550,12 +550,11 @@ class DobermanDB(object):
         :returns 0 on success, -1 otherwise
         """
         ret = self.insertIntoDatabase('data', collection_name,
-                {'when' : when, 'data' : data})
+                {'when' : when, 'data' : value})
         if ret:
             self.logger.warning("Can not write data from %s to Database. "
-                                "Database interaction error." % name)
+                                "Database interaction error." % collection_name)
             return -1
-        self.logger.debug('Wrote data from %s' % name)
         return 0
 
     def askForUpdates(self):
