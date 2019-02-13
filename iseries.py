@@ -38,7 +38,7 @@ class iseries(SerialController):
         except:
             return False
 
-    def ProcessOneReading(self, index, data)
+    def ProcessOneReading(self, index, data):
         m = self.read_pattern.search(data)
         if not m:
             return None
