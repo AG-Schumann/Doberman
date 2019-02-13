@@ -111,6 +111,7 @@ class Plugin(threading.Thread):
                 target=self.ReadoutLoop,
                 args=(i,)))
             self.readout_threads[-1].start()
+            time.sleep(0.1)
         self.logger.debug('Running...')
         while self.running and not self.sh.interrupted:
             self.logger.debug('Top of main loop')
