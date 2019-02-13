@@ -20,24 +20,32 @@ class Controller(object):
             setattr(self, key, value)
         self.logger = logging.getLogger(self.name)
         self._connected = False
-        self.Setup()
+        self.SetupBeforeOpening()
         if self.initialize:
             if self.OpenDevice():
+                self.SetupAfterOpening()
                 time.sleep(0.2)
             else:
                 raise ValueError('Could not properly initialize!')
 
-    def Setup(self, opts):
+    def SetupBeforeOpening(self):
         """
-        A function for a controller to set its operating parameters (commands, etc).
-        Will be called by the c'tor
+        A function for a controller to set its operating parameters (commands,
+        _ms_start token, etc). Will be called by the c'tor
+        """
+        pass
+
+    def SetupAfterOpening(self):
+        """
+        If a controller needs to receive a command after opening but
+        before starting "normal" operation, that goes here
         """
         pass
 
     def OpenDevice(self):
         """
         Opens the connection to the device. The instance MUST have a _device object
-        after this function returns successfully
+        after this function returns successfully. Should return True on success
         """
         raise NotImplementedError()
 
@@ -109,17 +117,21 @@ class SoftwareController(Controller):
         self._device = self.DummyObject()
         return True
 
-    def call(self, command, timeout=1, **kwargs):
+    def SendRecv(self, command, timeout=1, **kwargs):
         for k,v in zip(['shell','stdout','stderr'],[True,PIPE,PIPE]):
             if k not in kwargs:
                 kwargs.update({k:v})
         proc = Popen(command, **kwargs)
+        ret = {'data' : None, 'retcode' : 0}
         try:
             out, err = proc.communicate(timeout=timeout, **kwargs)
+            ret['data'] = out
         except TimeoutExpired:
             proc.kill()
             out, err = proc.communicate()
-        return out, err
+            ret['data'] = err
+            ret['retcode'] = -1
+        return ret
 
 
 class SerialController(Controller):

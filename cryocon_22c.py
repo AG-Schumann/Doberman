@@ -11,7 +11,7 @@ class cryocon_22c(LANController):
             'setpoint <channel> <value>: change the setpoint for the given channel',
             'loop stop: shut down both heaters'
         ]
-    def setup(self):
+    def SetupBeforeOpening(self):
         self._msg_end = ';\n'
         self.commands = { # these are not case sensitive
                 'identify' : '*idn?',

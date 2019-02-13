@@ -13,7 +13,7 @@ class Teledyne(SerialController):
             'setpoint <value>: change setpoint',
             'valve <auto|open|close>: change valve status',
         ]
-    def setup(self):
+    def SetupBeforeOpening(self):
         self._msg_end = '\r\n'
         self.commands = {
                 'Address' : 'add',

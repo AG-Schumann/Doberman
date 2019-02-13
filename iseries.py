@@ -9,7 +9,7 @@ class iseries(SerialController):
     iseries controller connection
     """
 
-    def setup(self):
+    def SetupBeforeOpening(self):
         self._msg_start = '*'
         self._msg_end = '\r\n'
         self.commands = {
