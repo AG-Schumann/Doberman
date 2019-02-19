@@ -19,7 +19,7 @@ def main(db):
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the controller',choices=names)
     parser.add_argument('--runmode', type=str, dest='runmode', choices=runmodes,
-                        help='Which run mode to use', default='default')
+                        help='Which run mode to use', default='testing')
     args = parser.parse_args()
 
     plugin_paths=[utils.doberman_dir]
@@ -78,8 +78,8 @@ def main(db):
         plugin.running = False
         plugin.join()
         logger.info('Shutting down')
-        if hasattr(sh, 'signal_number') and sh.signal_number == 2:
-            # only unmanage for SIGINT not SIGKILL
+        if plugin.has_quit or (hasattr(sh, 'signal_number') and sh.signal_number == 2):
+            # only unmanage for SIGINT or 'stop' command, not SIGKILL
             db.ManagePlugins(args.plugin_name, 'remove')
 
     return
