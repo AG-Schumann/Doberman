@@ -18,13 +18,13 @@ class DobermanDB(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         # Load database connection details
         try:
-            with open('/scratch/doberman/connection_uri','r') as f:
+            with open(os.path.join(utils.doberman_dir, 'connection_uri'), 'r') as f:
                 conn_str = f.read().rstrip()
         except Exception as e:
             print("Can not load database connection details. Error %s" % e)
             raise
         try:
-            with open('/scratch/doberman/experiment_name','r') as f:
+            with open(os.path.join(utils.doberman_dir, 'experiment_name', 'r') as f:
                 self.experiment_name = f.read().strip()
         except Exception as e:
             print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
