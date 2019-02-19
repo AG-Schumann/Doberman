@@ -22,7 +22,7 @@ def main(db):
                         help='Which run mode to use', default='default')
     args = parser.parse_args()
 
-    plugin_paths=['.']
+    plugin_paths=[utils.doberman_dir]
     logger = logging.getLogger(args.plugin_name)
     logger.addHandler(DobermanLogging.DobermanLogger(db))
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
