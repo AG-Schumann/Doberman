@@ -254,7 +254,7 @@ class DobermanDB(object):
 
     def Heartbeat(self, name):
         """
-        Heartbeats the specified controller (or doberman)
+        Heartbeats the specified sensor (or doberman)
 
         :param name: the name of the heartbeat to update
         """
@@ -263,19 +263,19 @@ class DobermanDB(object):
             coll = 'defaults'
         else:
             cuts={'name' : name}
-            coll = 'controllers'
+            coll = 'sensors'
         self.updateDatabase('settings', coll, cuts=cuts,
                     updates={'$set' : {'heartbeat' : dtnow()}})
         return
 
     def CheckHeartbeat(self, name):
         """
-        Checks the heartbeat of the specified controller.
+        Checks the heartbeat of the specified sensor.
 
-        :param name: the name of the controller to check
+        :param name: the name of the sensor to check
         :returns: number of seconds since the last heartbeat
         """
-        doc = self.GetControllerSettings(name=name)
+        doc = self.GetSensorSettings(name=name)
         last_heartbeat = doc['heartbeat']
         return (dtnow() - last_heartbeat).total_seconds()
 
@@ -290,13 +290,13 @@ class DobermanDB(object):
         print('wake: reactivates Doberman')
         print()
         print('Available plugins:')
-        names = self.Distinct('settings','controllers','name')
+        names = self.Distinct('settings','sensors','name')
         print(' | '.join(names))
         print()
         print('Plugin commands:')
         print('<plugin_name> sleep <duration>: puts the specified plugin to sleep for the specified duration')
         print('<plugin_name> wake: reactivates the specified plugin')
-        print('<plugin_name> runmode <runmode>: changes the active runmode for the specified controller')
+        print('<plugin_name> runmode <runmode>: changes the active runmode for the specified sensor')
         print()
         if name:
             print('Commands specific to %s:' % name)
@@ -337,7 +337,7 @@ class DobermanDB(object):
 
         :param command_str: the string as received from the command line
         """
-        names = self.Distinct('settings','controllers','name')
+        names = self.Distinct('settings','sensors','name')
         names_ = '|'.join(names + ['all'])
         runmodes_ = '|'.join(self.Distinct('settings','runmodes','mode'))
         if command_str.startswith('help'):
@@ -380,9 +380,9 @@ class DobermanDB(object):
         names = {'None' : ['doberman']}
         if name != 'None':
             names.update({name : [name]})
-        online = self.Distinct('settings','controllers','name', {'status' : 'online'})
-        offline = self.Distinct('settings','controllers','name', {'status' : 'offline'})
-        asleep = self.Distinct('settings','controllers','name', {'status' : 'sleep'})
+        online = self.Distinct('settings','sensors','name', {'status' : 'online'})
+        offline = self.Distinct('settings','sensors','name', {'status' : 'offline'})
+        asleep = self.Distinct('settings','sensors','name', {'status' : 'sleep'})
         if command in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
             names.update({'all' : {
                 'start' : offline,
@@ -436,24 +436,24 @@ class DobermanDB(object):
             return -1
         return 0
 
-    def GetControllerSettings(self, name):
+    def GetSensorSettings(self, name):
         """
         Reads the settings in the database.
 
-        :param name: the name of the controller
-        :returns configuration document for the specified controller
+        :param name: the name of the sensor
+        :returns configuration document for the specified sensor
         """
-        return self.readFromDatabase('settings', 'controllers', cuts={'name' : name}, onlyone=True)
+        return self.readFromDatabase('settings', 'sensors', cuts={'name' : name}, onlyone=True)
 
-    def SetControllerSetting(self, name, field, value):
+    def SetSensorSetting(self, name, field, value):
         """
-        Updates the setting from one controller
+        Updates the setting from one sensor
 
-        :param name: the name of the controller
+        :param name: the name of the sensor
         :param field: the specific field to update
         :param value: the new value
         """
-        self.updateDatabase('settings','controllers',cuts={'name' : name},
+        self.updateDatabase('settings','sensors',cuts={'name' : name},
                 updates = {'$set' : {field : value}})
 
     def getDefaultSettings(self, runmode=None, name=None):
@@ -544,7 +544,7 @@ class DobermanDB(object):
         """
         Writes data to the database
 
-        :param collection_name: <controller name>__<reading name>
+        :param collection_name: <sensor name>__<reading name>
         :param when: datetime instance of reading timestamp
         :param value: the actual value to insert
         :returns 0 on success, -1 otherwise
@@ -565,12 +565,12 @@ class DobermanDB(object):
         to_quit = ['q','Q','n']
         while which not in to_quit:
             print('What do you want to update?')
-            print(' contacts | controllers')
+            print(' contacts | sensors')
             print('(use q, Q, or n to quit)')
             which = input('>>> ')
             if which == 'contacts':
                 self.updateContacts()
-            elif which == 'controllers':
+            elif which == 'sensors':
                 print('Feature removed')
                 #self.updateAlarms()
             elif which not in to_quit:
@@ -581,8 +581,8 @@ class DobermanDB(object):
         """
         Allows a command-line user to update alarm settings. Disabled due to abuse
         """
-        names = self.Distinct('settings','controllers','name')
-        print('Here are the available controllers:')
+        names = self.Distinct('settings','sensors','name')
+        print('Here are the available sensors:')
         print('\n'.join(names))
         print()
         print('Which one do you want to update?')
@@ -590,7 +590,7 @@ class DobermanDB(object):
         if name not in names:
             print('What is "%s"? It isn\'t in the above list' % name)
             return
-        config_doc = self.GetControllerSettings(name)
+        config_doc = self.GetSensorSettings(name)
         descs = [r['description'] for r in config_doc['readings']]
         print('Here are the different readings for %s:' % name)
         for d in enumerate(descs):
@@ -644,7 +644,7 @@ class DobermanDB(object):
 
         cuts = {'name' : name}
         updates = {'$set' : {s : [lo,hi]}}
-        self.updateDatabase('settings','controllers',cuts=cuts,updates=updates)
+        self.updateDatabase('settings','sensors',cuts=cuts,updates=updates)
         print('You got it')
 
     def addContact(self):
@@ -669,9 +669,9 @@ class DobermanDB(object):
             print('Could not add contact!')
         return
 
-    def addController(self, filename):
+    def addSensor(self, filename):
         """
-        Adds a new controller to the system
+        Adds a new sensor to the system
         """
         with open(filename, 'r') as f:
             try:
@@ -683,10 +683,10 @@ class DobermanDB(object):
                 d.update({'heartbeat' : dtnow()})
             if 'status' not in d:
                 d.update({'status' : 'offline'})
-            if self.insertIntoDatabase('settings','controllers',d):
-                print('Could not add controller!')
+            if self.insertIntoDatabase('settings','sensors',d):
+                print('Could not add sensor!')
             else:
-                print('Controller added')
+                print('Sensor added')
         return
 
     def CurrentStatus(self):
@@ -698,11 +698,11 @@ class DobermanDB(object):
         print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
         print('Last heartbeat: %i seconds ago' % ((now - doc['heartbeat']).total_seconds()))
         print()
-        print('Currently running controllers:')
+        print('Currently running sensors:')
         print("  Name: runmode")
         print("    Description: seconds since last measurement | value")
         s = "{name: >18s}: {dt: .3g} | {value: .3g}"
-        for row in self.readFromDatabase('settings','controllers',{'status' : 'online'}):
+        for row in self.readFromDatabase('settings','sensors',{'status' : 'online'}):
             runmode = row['runmode']
             print('{name: <12s}: {runmode: >12s}'.format(**row))
             for reading in row['readings']:
@@ -714,7 +714,7 @@ class DobermanDB(object):
                 except TypeError as e:
                     print('{name: <12s} | TypeError | {desc}'.format(
                         name=reading['description'], desc=e))
-        for row in self.readFromDatabase('settings','controllers',{'status' : 'sleep'}):
+        for row in self.readFromDatabase('settings','sensors',{'status' : 'sleep'}):
             print('  {name} | sleep'.format(name=row['name']))
         return
 
@@ -729,8 +729,8 @@ def main(db):
                         help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
                         help='Add a new contact')
-    parser.add_argument('--add-controller', default=None, type=str,
-                        help='Specify a new controller config file to load')
+    parser.add_argument('--add-sensor', default=None, type=str,
+                        help='Specify a new sensor config file to load')
     parser.add_argument('--status', action='store_true', default=False,
                         help='List current status')
     args = parser.parse_args()
@@ -745,8 +745,8 @@ def main(db):
             db.addOpmode()
         if args.add_contact:
             db.addContact()
-        if args.add_controller:
-            db.addController(args.add_controller)
+        if args.add_sensor:
+            db.addSensor(args.add_sensor)
         if args.update:
             #db.askForUpdates()
             db.updateContacts()

@@ -1,9 +1,9 @@
-from ControllerBase import LANController
+from SensorBase import LANSensor
 import re
 from utils import number_regex
 
 
-class TestController(LANController):
+class TestSensor(LANSensor):
     def __init__(self, opts):
         super().__init__(opts)
         self._msg_start = '*'

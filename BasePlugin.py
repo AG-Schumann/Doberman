@@ -15,38 +15,25 @@ def clip(val, low, high):
 class Plugin(threading.Thread):
     """
     Class that controls starting, running, and stopping the readout thread
-    Reads data from the controller, checks it for warnings/alarms, and writes
+    Reads data from the sensor, checks it for warnings/alarms, and writes
     to the database.
     """
 
     def __init__(self, db, name, plugin_paths):
         """
-        Constructor
+        Constructor for the main Plugin class
 
-        Parameters
-        ----------
-        db : DobermanDB instance
-            The database backend connection
-        name : str
-            The name of the plugin/controller to use
-        plugin_paths : list
-            A list of directories in which to find plugins
-
-        Returns
-        -------
-        None
-
-        Raises
-        ------
-        None
+        :param db: an instance of the database api
+        :param name: the name of the sensor to run
+        :param plugin_paths: a list of paths to search for the driver
         """
         threading.Thread.__init__(self)
         self.logger = logging.getLogger(name)
         self.name = name
         self.logger.debug('Starting plugin...')
         self.db = db
-        config_doc = self.db.GetControllerSettings(self.name)
-        self.controller_ctor = utils.FindPlugin(self.name, plugin_paths)
+        config_doc = self.db.GetSensorSettings(self.name)
+        self.sensor_ctor = utils.FindPlugin(self.name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
         self.ctor_opts['initialize'] = True
@@ -60,8 +47,8 @@ class Plugin(threading.Thread):
         self.last_message_time = dtnow()
         self.late_counter = 0
         self.last_measurement_time = time.time()
-        self.controller = None
-        self.OpenController()
+        self.sensor = None
+        self.OpenSensor()
         self.running = False
         self.has_quit = False
         self.readings = config_doc['readings']
@@ -72,39 +59,39 @@ class Plugin(threading.Thread):
         self.logger.debug('Started')
 
     def close(self):
-        """Closes the controller"""
+        """Closes the sensor"""
         self.logger.debug('Beginning shutdown')
         self.running = False
         for t in self.readout_threads:
             t.join()
-        if not self.controller:
+        if not self.sensor:
             return
-        self.controller.close()
-        self.controller = None
+        self.sensor.close()
+        self.sensor = None
         self.logger.info('Stopping...')
         return
 
-    def OpenController(self):
-        """Tries to call the controller constructor. Raises any exceptions recieved"""
-        if self.controller is not None:
+    def OpenSensor(self):
+        """Tries to call the sensor constructor. Raises any exceptions recieved"""
+        if self.sensor is not None:
             return
         try:
-            self.controller = self.controller_ctor(self.ctor_opts)
+            self.sensor = self.sensor_ctor(self.ctor_opts)
         except Exception as e:
-            self.logger.error('Could not open controller. Error: %s' % e)
-            self.controller = None
+            self.logger.error('Could not open sensor. Error: %s' % e)
+            self.sensor = None
             raise
         else:
             self._connected = True
 
     def run(self):
         """
-        The main readout loop of the plugin. Ensures it always has a controller to read
+        The main readout loop of the plugin. Ensures it always has a sensor to read
         data from. If it doesn't it tries to open it. If it fails, it returns.
         While running, pulls data the process queue and process it. Also checks for
-        new commands, and repeats until told to quit. Closes the controller when finished
+        new commands, and repeats until told to quit. Closes the sensor when finished
         """
-        self.OpenController()
+        self.OpenSensor()
         self.running = True
         for i in range(len(self.readings)):
             self.readout_threads.append(threading.Thread(
@@ -117,7 +104,7 @@ class Plugin(threading.Thread):
             self.logger.debug('Top of main loop')
             loop_start_time = time.time()
             with self.reading_lock:
-                configdoc = self.db.GetControllerSettings(self.name)
+                configdoc = self.db.GetSensorSettings(self.name)
                 self.readings = configdoc['readings']
                 self.runmode = configdoc['runmode']
             self.HandleCommands()
@@ -132,17 +119,17 @@ class Plugin(threading.Thread):
                             self._connected = False
                             self.logger.error('Lost connection to device?')
                             try:
-                                self.controller.close()
-                                self.controller = None
-                                self.OpenController()
+                                self.sensor.close()
+                                self.sensor = None
+                                self.OpenSensor()
                             except:
                                 self.logger.fatal('Could not reconnect!')
                                 try:
-                                    self.controller.close()
+                                    self.sensor.close()
                                 except:
                                     pass
                                 finally:
-                                    self.controller = None
+                                    self.sensor = None
                                     self.running = False
                                     break
                             else:
@@ -171,7 +158,7 @@ class Plugin(threading.Thread):
 
     def ReadoutLoop(self, i):
         """
-        A loop that puts readout commands into the Controller's readout queue
+        A loop that puts readout commands into the Sensor's readout queue
 
         :param i: the index of the reading that this loop handles
         """
@@ -182,7 +169,7 @@ class Plugin(threading.Thread):
                 runmode = self.runmode
             sleep_until = loop_start_time + reading['readout_interval']
             if reading['config'][runmode]['active'] and self._connected:
-                self.controller.AddToSchedule(reading_index=i,
+                self.sensor.AddToSchedule(reading_index=i,
                         callback=self.process_queue.put)
             now = time.time()
             while self.running and not self.sh.interrupted and now < sleep_until:
@@ -263,7 +250,7 @@ class Plugin(threading.Thread):
 
     def HandleCommands(self):
         """
-        Pings the database for new commands for the controller and deals with them
+        Pings the database for new commands for the sensor and deals with them
         """
         doc = self.db.FindCommand(self.name)
         while doc is not None:
@@ -271,7 +258,7 @@ class Plugin(threading.Thread):
             self.logger.info(f"Found command '{command}'")
             if command.startswith('runmode'):
                 _, runmode = command.split()
-                self.db.SetControllerSetting(self.name, 'runmode', runmode)
+                self.db.SetSensorSetting(self.name, 'runmode', runmode)
                 loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
                 self.logger.setLevel(int(loglevel))
             elif command == 'stop':
@@ -279,11 +266,11 @@ class Plugin(threading.Thread):
                 self.has_quit = True
                 # makes sure we don't get restarted
             elif command == 'wake':
-                self.db.SetControllerSetting(self.name, 'status', 'online')
+                self.db.SetSensorSetting(self.name, 'status', 'online')
             elif command == 'sleep':
-                self.db.SetControllerSetting(self.name, 'status', 'sleep')
+                self.db.SetSensorSetting(self.name, 'status', 'sleep')
             elif self._connected:
-                self.controller.ExecuteCommand(command)
+                self.sensor.ExecuteCommand(command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
             doc = self.db.FindCommand(self.name)

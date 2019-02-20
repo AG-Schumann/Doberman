@@ -1,12 +1,12 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 import time
 
 
-class iseries(SerialController):
+class iseries(SerialSensor):
     """
-    iseries controller connection
+    iseries sensor
     """
 
     def __init__(self, opts):

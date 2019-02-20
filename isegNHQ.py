@@ -1,12 +1,12 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class isegNHQ(SerialController):
+class isegNHQ(SerialSensor):
     """
-    iseg NHQ controller
+    iseg NHQ sensor
     """
     accepted_commands = [
             'Vset <value>: voltage setpoint',

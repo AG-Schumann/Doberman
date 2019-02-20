@@ -1,10 +1,10 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 import time
 
 
-class Teledyne(SerialController):
+class Teledyne(SerialSensor):
     """
     Teledyne flow controller
     THCD-100

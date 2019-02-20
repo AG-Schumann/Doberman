@@ -1,11 +1,11 @@
-from BaseController import SoftwareController
+from BaseSensor import SoftwareSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class sonar(SoftwareController):
+class sonar(SoftwareSensor):
     """
-    Controller that pings another machine to see if it is alive
+    Sensor that pings another machine to see if it is alive
     """
     def __init__(self, opts):
         super().__init__(opts)

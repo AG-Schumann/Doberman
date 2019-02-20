@@ -1,9 +1,9 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class caen_n1470(SerialController):
+class caen_n1470(SerialSensor):
     """
     Connects to the CAEN N1470. Command syntax:
     '$BD:<board number>,CMD:<MON,SET>,CH<channel>,PAR:<parameter>[,VAL:<%.2f>]\\r\\n'

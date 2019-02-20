@@ -1,9 +1,9 @@
-from ControllerBase import LANController
+from SensorBase import LANSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class cryocon_22c(LANController):
+class cryocon_22c(LANSensor):
     """
     Cryogenic controller
     """

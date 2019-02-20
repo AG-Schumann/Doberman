@@ -64,9 +64,9 @@ class Doberman(object):
             self.logger.debug('Not updating tty settings')
         return 0
 
-    def StartController(self, name, runmode='testing'):
+    def StartSensor(self, name, runmode='testing'):
         """
-        Starts the specified controller and releases it into the wild
+        Starts the specified sensor and releases it into the wild
         """
         self.logger.info('Starting %s' % name)
         self.db.ManagePlugins(name, 'add')
@@ -107,10 +107,10 @@ class Doberman(object):
             if time_since > 3*utils.heartbeat_timer:
                 self.logger.info('%s hasn\'t reported in recently (%i seconds). Let me try restarting it...' % (name, time_since))
                 # log alarm?
-                #self.db.updateDatabase('settings','controllers',cuts={'name' : name},
+                #self.db.updateDatabase('settings','sensors',cuts={'name' : name},
                 #        updates={'$set' : {'status' : 'offline'}})
-                runmode = self.db.GetControllerSettings(name)['runmode']
-                self.StartController(name, runmode=runmode)
+                runmode = self.db.GetSensorSettings(name)['runmode']
+                self.StartSensor(name, runmode=runmode)
                 time.sleep(5)
                 if self.db.CheckHeartbeat(name) > utils.heartbeat_timer:
                     self.logger.error('I can\'t restart %s')
@@ -138,7 +138,7 @@ class Doberman(object):
                 _, name, runmode = command.split()
                 if runmode == 'None':
                     runmode = self.db.getDefaultSettings(name='runmode')
-                self.StartController(name, runmode)
+                self.StartSensor(name, runmode)
             elif command.startswith('runmode'):
                 _, runmode = command.split()
                 self.db.updateDatabase(*db_col,{},{'$set' : {'runmode' : runmode}})
