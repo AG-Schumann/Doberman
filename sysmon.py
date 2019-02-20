@@ -1,12 +1,12 @@
-from ControllerBase import SoftwareController
+from SensorBase import SoftwareSensor
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK xkcd.com/207
 from utils import number_regex
 
 
-class sysmon(SoftwareController):
+class sysmon(SoftwareSensor):
     """
-    Controller to monitor the health of the computer
+    Sensor to monitor the health of the computer
     """
     def __init__(self, opts):
         super().__init__(opts)

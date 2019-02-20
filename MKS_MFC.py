@@ -1,11 +1,11 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class MKS_MFC(SerialController):
+class MKS_MFC(SerialSensor):
     """
-    MKS flow controller
+    MKS flow sensor
     """
     accepted_commands = [
             'setpoint <value>: change the setpoint',

@@ -1,11 +1,11 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK
 
 
-class smartec_uti(SerialController):
+class smartec_uti(SerialSensor):
     """
-    Level meter controllers
+    Level meter sensors
     """
 
     def __init__(self, opts):
@@ -37,7 +37,7 @@ class smartec_uti(SerialController):
     def isThisMe(self, dev):
         """
         The smartec serial protocol is very poorly designed, so we have to use
-        dmesg to see if we found the right controller
+        dmesg to see if we found the right sensor
         """
         ttyUSB = int(dev.port.split('USB')[-1])
         proc = Popen('dmesg | grep ttyUSB%i | tail -n 1' % ttyUSB,
@@ -48,13 +48,13 @@ class smartec_uti(SerialController):
             proc.kill()
             out, err = proc.communicate()
         if not len(out) or len(err):
-            self.logger.error('Could not check controller! stdout: %s, stderr: %s' % (
+            self.logger.error('Could not check sensor! stdout: %s, stderr: %s' % (
                 out.decode(), err.decode()))
             return False
         pattern = r'usb (?P<which>[^:]+):'
         match = re.search(pattern, out.decode())
         if not match:
-            #self.logger.error('Could not find controller')
+            #self.logger.error('Could not find sensor')
             return False
         proc = Popen('dmesg | grep \'%s: SerialNumber\' | tail -n 1' % match.group('which'),
                 shell=True, stdout=PIPE, stderr=PIPE)
@@ -64,7 +64,7 @@ class smartec_uti(SerialController):
             proc.kill()
             out, err = proc.communicate()
         if not len(out) or len(err):
-            #self.logger.error('Could not check controller! stdout: %s, stderr: %s' % (
+            #self.logger.error('Could not check sensor! stdout: %s, stderr: %s' % (
             #    out.decode(), err.decode()))
             pass
         if self.serialID in out.decode():

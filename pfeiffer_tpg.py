@@ -1,9 +1,9 @@
-from ControllerBase import LANController
+from SensorBase import LANSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class pfeiffer_tpg(LANController):
+class pfeiffer_tpg(LANSensor):
     def __init__(self, opts):
         self._msg_begin = ''
         self._msg_end = '\r\n\x05'

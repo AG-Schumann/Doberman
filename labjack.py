@@ -1,13 +1,13 @@
-from ControllerBase import Controller
+from SensorBase import Sensor
 import u12
 import logging
 import time
 
 
-class labjack(Controller):
+class labjack(Sensor):
     """
     Labjack U12. Has a very different interface, so we don't inherit from more
-    than Controller
+    than Sensor
     """
     def __init__(self, opts):
         self.name = opts['name']
@@ -34,7 +34,7 @@ class labjack(Controller):
     def AddToSchedule(self, reading_index=None, command=None, callback=None):
         """
         The labjack doesn't have a SendRecv interface, so we can't
-        rely on the framework for other controllers here. As the labjack
+        rely on the framework for other sensors here. As the labjack
         doesn't accept external commands, we can combine the functionality of
         `ReadoutScheduler`, `AddToSchedule` (the only thing actually called from
         the owning Plugin), `_ProcessReading`, and `ProcessOneReading`

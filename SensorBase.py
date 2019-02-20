@@ -6,9 +6,9 @@ import queue
 import threading
 
 
-class Controller(object):
+class Sensor(object):
     """
-    Generic controller class. Defines the interface with Doberman
+    Generic sensor class. Defines the interface with Doberman
     """
     _msg_start = ''
     _msg_end = ''
@@ -133,7 +133,7 @@ class Controller(object):
 
     def SendRecv(self, message, dev=None):
         """
-        General controller interface. Returns a dict with retcode -1 if controller not connected,
+        General sensor interface. Returns a dict with retcode -1 if sensor not connected,
         -2 if there is an exception, (larger numbers also possible) and whatever data was read. Adds _msg_start and _msg_end
         to the message before sending it
         """
@@ -141,7 +141,7 @@ class Controller(object):
 
     def ExecuteCommand(self, command):
         """
-        Allows Doberman to issue commands to the controller (change setpoints, valve
+        Allows Doberman to issue commands to the sensor (change setpoints, valve
         positions, etc)
         """
         if not hasattr(self, 'command_patterns'):
@@ -171,9 +171,9 @@ class Controller(object):
         return
 
 
-class SoftwareController(Controller):
+class SoftwareSensor(Sensor):
     """
-    Class for software-only controllers (heartbeats, system monitors, etc)
+    Class for software-only sensors (heartbeats, system monitors, etc)
     """
     class DummyObject(object):
         def close():
@@ -199,9 +199,9 @@ class SoftwareController(Controller):
         return out, err
 
 
-class SerialController(Controller):
+class SerialSensor(Sensor):
     """
-    Serial controller class. Implements more direct serial connection specifics
+    Serial sensor class. Implements more direct serial connection specifics
     """
 
     def __init__(self, opts):
@@ -234,7 +234,7 @@ class SerialController(Controller):
 
     def isThisMe(self, dev):
         """
-        Makes sure the specified controller is the correct one
+        Makes sure the specified sensor is the correct one
         """
         raise NotImplementedError()
 
@@ -242,7 +242,7 @@ class SerialController(Controller):
         device = dev if dev else self._device
         ret = {'retcode' : 0, 'data' : None}
         if not self._connected and dev is None:
-            self.logger.error('No controller connected, can\'t send message %s' % message)
+            self.logger.error('No sensor connected, can\'t send message %s' % message)
             ret['retcode'] = -1
             return ret
         try:
@@ -264,9 +264,9 @@ class SerialController(Controller):
         return ret
 
 
-class LANController(Controller):
+class LANSensor(Sensor):
     """
-    Class for LAN-connected controllers
+    Class for LAN-connected sensors
     """
 
     def __init__(self, opts):
@@ -275,7 +275,7 @@ class LANController(Controller):
 
     def _getControl(self):
         """
-        Connects to the controller
+        Connects to the sensor
         """
         num_tries = 3
         for _ in range(num_tries):
@@ -295,7 +295,7 @@ class LANController(Controller):
         ret = {'retcode' : 0, 'data' : None}
 
         if not self._connected:
-            self.logger.error('No controller connected, can\'t send message %s' % message)
+            self.logger.error('No sensor connected, can\'t send message %s' % message)
             ret['retcode'] = -1
             return ret
         message = str(message).rstrip()
@@ -311,7 +311,7 @@ class LANController(Controller):
         try:
             ret['data'] = self._device.recv(1024)
         except socket.error as e:
-            self.logger.fatal('Could not receive data from controller. Error: %s' % e)
+            self.logger.fatal('Could not receive data from sensor. Error: %s' % e)
             ret['retcode'] = -2
         return ret
 
