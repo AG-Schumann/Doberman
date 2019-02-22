@@ -205,7 +205,7 @@ class SerialSensor(Sensor):
     """
 
     def __init__(self, opts):
-        self.ttyUSB = -1
+        self.tty = None
         self._device = serial.Serial()
         self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
@@ -215,10 +215,10 @@ class SerialSensor(Sensor):
         super().__init__(opts)
 
     def _getControl(self):
-        if self.ttyUSB == -1:
-            self.logger.error('Could not find device: no ttyUSB')
+        if self.tty == '0':
+            self.logger.error('No tty port specified!')
             return False
-        self._device.port = '/dev/ttyUSB%i' % (self.ttyUSB)
+        self._device.port = '/dev/tty%s' % (self.tty)
         try:
             self._device.open()
         except serial.SerialException as e:
