@@ -1,10 +1,10 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 import time
 
 
-class Teledyne(SerialController):
+class Teledyne(SerialSensor):
     """
     Teledyne flow controller
     THCD-100
@@ -34,7 +34,7 @@ class Teledyne(SerialController):
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
 
         self.setpoint_map = {'auto' : 0, 'open' : 1, 'close' : 2}
-
+        self.reading_commands = [self.commands['read']]
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<params>%s)' % number_regex),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointValue'],
@@ -56,21 +56,9 @@ class Teledyne(SerialController):
             return False
         return True
 
-    def Readout(self):
-        command = self.basecommand.format(cmd=self.commands['read'])
-        resp = self.SendRecv(command)
-        if resp['retcode'] or not resp['data']:
-            return resp
-        m = self.get_reading.search(resp['data'])
+    def ProcessOneReading(self, index, data):
+        m = self.get_reading.search(data)
         if not m:
-            self.logger.debug('Lemme try again')
-            time.sleep(1)
-            resp = self.SendRecv(command)
-            if resp['retcode'] or not resp['data']:
-                self.logger.error('No data')
-                return resp
-            m = self.get_reading.search(resp['data'])
-            if not m:
-                return {'retcode' : -4, 'data' : -1}
-        return {'retcode' : 0, 'data' : float(m.group('value'))}
+            return None
+        return float(m.group('value'))
 

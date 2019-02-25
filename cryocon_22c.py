@@ -1,9 +1,9 @@
-from ControllerBase import LANController
+from SensorBase import LANSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class cryocon_22c(LANController):
+class cryocon_22c(LANSensor):
     """
     Cryogenic controller
     """
@@ -27,6 +27,7 @@ class cryocon_22c(LANController):
                 }
         super().__init__(opts)
         self.read_pattern = re.compile(b'(?P<value>%s)' % bytes(number_regex, 'utf-8'))
+        self.reading_commands = [self.commands[x] for x in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']]
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<ch>1|2) (?P<value>%s)' % number_regex),
                     lambda x : self.commands['setSP'].format(**x.groupdict())),
@@ -39,25 +40,6 @@ class cryocon_22c(LANController):
             self.logger.warning('But I am leh tired...')
         return 'stop'
 
-    def Readout(self):
-        resp = []
-        stats = []
-        for com in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']:
-            val = self.SendRecv(self.commands[com])
-            if val['retcode']:
-                resp.append(-1)
-                stats.append(val['retcode'])
-            else:
-                try:
-                    m = self.read_pattern.search(val['data'])
-                    if m:
-                        resp.append(float(m.group('value')))
-                        stats.append(0)
-                    else:
-                        resp.append(-1)
-                        stats.append(-4)
-                except Exception as e:
-                    self.logger.error('Could not read device! Error: %s' % e)
-                    return {'retcode' : -4, 'data' : None}
-        return {'retcode' : stats, 'data' : resp}
+    def ProcessOneReading(self, index, data):
+        return float(self.read_pattern.search(data).group('value'))
 

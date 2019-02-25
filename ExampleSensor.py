@@ -1,11 +1,11 @@
-from BaseController import SerialController  # or LANController, if applicable
+from BaseSensor import SerialSensor  # or LANSensor, if applicable
 import re  # if you want to accept commands
 import time
 
 
-class ExampleController(SerialController):
+class ExampleSensor(SerialSensor):
     """
-    An example of how to make your own controller
+    An example of how to make your own sensor
     """
     accepted_commands = [
             "a pattern: a description of what this command does",
@@ -18,7 +18,7 @@ class ExampleController(SerialController):
                          'check_id' : 'check_id',
                          'set', 'set_value',
                          }
-        super().__init__(opts)  # calls SerialController.__init__, which calls Controller.__init__
+        super().__init__(opts)  # calls SerialSensor.__init__, which calls Sensor.__init__
         # if you need any quantities from the config doc in the command dictionary, call init first
 
         self.command_patterns = [
@@ -26,12 +26,12 @@ class ExampleController(SerialController):
                 ]
         # this is a list of (regular expression, function) objects. The regular expression
         # matches the commmand issued via the command line, and the function takes as
-        # argument a re.match object and returns the string to the sent to the controller
+        # argument a re.match object and returns the string to the sent to the sensor
 
     def isThisMe(self, dev):
         """
-        This function checks to see if the device 'dev' is, in fact, this controller.
-        This is only necessary if you inherit from SerialController.
+        This function checks to see if the device 'dev' is, in fact, this sensor.
+        This is only necessary if you inherit from SerialSensor.
         """
         resp = self.SendRecv(self.commands['check_id'], dev)
         if resp['retcode'] or not ret['data']:
@@ -41,7 +41,7 @@ class ExampleController(SerialController):
 
     def Readout(self):
         """
-        Queries the controller for whatever readings you want. If you only read one value you
+        Queries the sensor for whatever readings you want. If you only read one value you
         don't need to make the values into arrays, that will be done upstream
         """
         vals = []
@@ -58,7 +58,7 @@ class ExampleController(SerialController):
 
     def FeedbackReadout(self):
         """
-        For controllers wishing to be part of a feedback control loop. Should measure
+        For sensors wishing to be part of a feedback control loop. Should measure
         only one quantity and return [timestamp, value, status]
         """
         resp = self.SendRecv(self.commands['read'])

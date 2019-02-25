@@ -27,9 +27,9 @@ def main(db):
     logger.addHandler(DobermanLogging.DobermanLogger(db))
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
-    doc = db.ControllerSettings(args.plugin_name)
+    doc = db.GetControllerSettings(args.plugin_name)
     if doc['status'] == 'online':
-        if (datetime.datetime.now() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
+        if (datetime.datetime.now() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)
             return
     if args.runmode == 'default' and os.environ['USER'] != 'doberman':
@@ -44,10 +44,10 @@ def main(db):
         ctor = BlindPlugin
     else:
         ctor = Plugin
-    sh = utils.SignalHandler(logger)
     running = True
     try:
         plugin = ctor(db, args.plugin_name, plugin_paths)
+        sh = plugin.sh
         plugin.start()
         while running and not sh.interrupted:
             loop_start = time.time()
@@ -55,7 +55,7 @@ def main(db):
             logger.debug('I\'m still here')
             while time.time() - loop_start < utils.heartbeat_timer and not sh.interrupted:
                 time.sleep(1)
-            if plugin.has_quit:
+            if plugin.has_quit or sh.interrupted:
                 logger.info('Plugin stopped')
                 break
             if not (plugin.running and plugin.is_alive()):
