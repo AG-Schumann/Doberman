@@ -1,12 +1,12 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 import time
 
 
-class iseries(SerialController):
+class iseries(SerialSensor):
     """
-    iseries controller connection
+    iseries sensor
     """
 
     def SetParameters(self):
@@ -21,6 +21,7 @@ class iseries(SerialController):
                 'getCommunicationParameters' : 'R10',
                 }
         self.read_pattern = re.compile(b'%s(?P<value>%s)' % (bytes(self.commands['getDisplayedValue'], 'utf-8'), bytes(number_regex, 'utf-8')))
+        self.reading_commands = [self.commands['getDisplayedValue']]
         self.id_pattern = re.compile(b'%s%s' % (bytes(self.commands['getAddress'], 'utf-8'), bytes(self.serialID, 'utf-8')))
 
     def isThisMe(self, dev):
@@ -36,21 +37,9 @@ class iseries(SerialController):
         except:
             return False
 
-    def Readout(self):
-        val = self.SendRecv(self.commands['getDisplayedValue'])
-        if not val['data'] or val['retcode']:
-            self.logger.debug('No data?')
-            time.sleep(1)
-            val = self.SendRecv(self.commands['getDisplayedValue'])
-            if not val['data'] or val['retcode']:
-                self.logger.error('No data!')
-                return val
-        m = self.read_pattern.search(val['data'])
+    def ProcessOneReading(self, index, data):
+        m = self.read_pattern.search(data)
         if not m:
-            self.logger.error('Device didn\'t echo correct command')
-            val['retcode'] = -4
-            val['data'] = -1
-            return val
-        val['data'] = float(m.group('value'))
-        return val
+            return None
+        return float(m.group('value'))
 

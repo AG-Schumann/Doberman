@@ -1,9 +1,9 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class caen_n1470(SerialController):
+class caen_n1470(SerialSensor):
     """
     Connects to the CAEN N1470. Command syntax:
     '$BD:<board number>,CMD:<MON,SET>,CH<channel>,PAR:<parameter>[,VAL:<%.2f>]\\r\\n'
@@ -27,8 +27,11 @@ class caen_n1470(SerialController):
         self.setcommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par},VAL:{val}'
         self.powercommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par}'
         self.error_pattern = re.compile(b',[A-Z]{2,3}:ERR')
-        s = 'VAL:%s' % ';'.join(['(?P<val%i>%s)' % (i, number_regex) for i in range(4)])
-        self.read_pattern = re.compile(bytes(s, 'utf-8'))
+        self.reading_commands = []
+        for cmd in ['VMON','VSET','IMON','STAT']:
+            for i in self.channel_map.values():
+                self.reading_commands.append(self.commands['read'].format(ch=i,par=cmd))
+        self.read_pattern = re.compile(bytes('OK,VAL:(?P<value>%s)' % number_regex, 'utf-8'))
         self.command_patterns = [
                 (re.compile('(?P<ch>anode|cathode|screen) (?P<par>on|off)'),
                     lambda x : self.powercommand.format(
@@ -53,32 +56,8 @@ class caen_n1470(SerialController):
         else:
             return True
 
-    def Readout(self):
-        """
-        We need to read voltage and current from all channels
-        """
-        readings = []
-        status = []
-        ch = 4  # reads all channels in one command
-        for com in ['VMON','VSET','IMON','STAT']:
-            res = self.SendRecv(self.commands['read'].format(ch=ch,par=com))
-            if not res['data'] or res['retcode']:
-                readings += [-1] * len(self.channel_map)
-                status += [res['retcode']] * len(self.channel_map)
-                self.logger.error("No data for %s" % com)
-                continue
-            m = self.error_pattern.search(res['data'])
-            if m:
-                readings += [-1] * len(self.channel_map)
-                status += [-3] * len(self.channel_map)
-                self.logger.error('Error reading %s: %s' % (com,m.group(0)))
-                continue
-            m = self.read_pattern.search(res['data'])
-            if m:
-                status += [0] * len(self.channel_map)
-                readings += map(float, [m.group('val%i' % i) for _,i in self.channel_map.items()])
-            else:
-                status += [-4] * len(self.channel_map)
-                readings += [-1] * len(self.channel_map)
-        return {'retcode' : status, 'data' : readings}
+    def ProcessOneReading(self, index, data):
+        if self.error_pattern.search(data):
+            return -1
+        return float(self.read_pattern.search(data).group('value'))
 

@@ -1,12 +1,12 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class isegNHQ(SerialController):
+class isegNHQ(SerialSensor):
     """
-    iseg NHQ controller
+    iseg NHQ sensor
     """
     accepted_commands = [
             'Vset <value>: voltage setpoint',
@@ -36,6 +36,7 @@ class isegNHQ(SerialController):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
+        self.reading_commands = [self.commands[x] for x in ['Current','Voltage','Vset','Status']]
 
         self.command_patterns = [
                 (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
@@ -56,6 +57,19 @@ class isegNHQ(SerialController):
         if resp['data'].decode().rstrip().split(';')[0] == self.serialID:
             return True
         return False
+
+    def ProcessOneReading(self, index, data):
+        data = data.splitlines()[1]
+        if index == 0:  # current
+            data = data.decode()
+            return float(f'{data[:3]}E{data[4:]}')
+        elif index == 1:  # voltage
+            return float(data)
+        elif index == 2:  # setpoint
+            return float(data)
+        elif index == 3:  # state
+            data = data.split(b'=')[1].strip()
+            return self.state.get(data.decode(), -1)
 
     def Readout(self):
         vals = []

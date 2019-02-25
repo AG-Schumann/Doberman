@@ -1,11 +1,11 @@
-from BaseController import SerialController  # or LANController, if applicable
+from BaseSensor import SerialSensor  # or LANSensor, if applicable
 import re  # if you want to accept commands
 from utils import number_regex  # a regex that matches numbers (ints and floats)
 
 
-class ExampleController(SerialController):
+class ExampleSensor(SerialSensor):
     """
-    An example of how to make your own controller
+    An example of how to make your own sensor
     """
     # this object is used if you ask for help from the command line
     accepted_commands = [
@@ -60,3 +60,18 @@ class ExampleController(SerialController):
             return -2
         return float(m.group('value'))
 
+    def FeedbackReadout(self):
+        """
+        For sensors wishing to be part of a feedback control loop. Should measure
+        only one quantity and return [timestamp, value, status]
+        """
+        resp = self.SendRecv(self.commands['read'])
+        readout_delay = 1.2  # time betwen when we send a command and when we get
+        # the result back, because serial devices are sloooooow
+        # Is this necessary? Probably not, because the device being controlled
+        # gets the updated value sometime within the next second
+        try:
+            value = float(resp['data'])
+        except ValueError, TypeError:
+            value = None
+        return (time.time() - readout_delay, value, resp['retcode'])

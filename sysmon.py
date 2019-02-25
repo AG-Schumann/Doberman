@@ -1,54 +1,32 @@
-from ControllerBase import SoftwareController
+from SensorBase import SoftwareSensor
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK xkcd.com/207
 from utils import number_regex
 
 
-class sysmon(SoftwareController):
+class sysmon(SoftwareSensor):
     """
-    Controller to monitor the health of the computer
+    Sensor to monitor the health of the computer
     """
-    args = {'shell' : True, 'stdout' : PIPE, 'stderr' : PIPE}
-    mem_patterns = {
-            'free' : re.compile('MemFree: +(?P<free>%s) kB' % number_regex),
-            'avail' : re.compile('MemAvailable: +(?P<avail>%s) kB' % number_regex),
-            'swap' : re.compile('SwapFree: +(?P<swap>%s) kB' % number_regex)
-        }
+    def __init__(self, opts):
+        super().__init__(opts)
+        self.mem_patterns = [
+            re.compile(bytes('MemFree: +(?P<val>%s) kB' % number_regex), 'utf-8'),
+            re.compile(bytes('MemAvailable: +(?P<val>%s) kB' % number_regex), 'utf-8'),
+            re.compile(bytes('SwapFree: +(?P<val>%s) kB' % number_regex), 'utf-8')
+        ]
+        self.reading_commands = \
+            ['cat /proc/loadavg']*3 + \  # 1/5/15 min load
+            ['cat /proc/meminfo']*3 + \  # free mem, avail mem, avail swap
+            [f'cat /sys/devices/platform/coretemp.0/hwon/{self.hwmon}/temp1_input']
 
-    def Readout(self):
+    def ProcessOneReading(self, index, data):
         kb_to_gb = 1 << 20
-        ret = [-1]*7
-        filename = '/proc/loadavg'
-        out, err = self.call(command = 'cat %s' % filename)
-        if not len(out) or len(err):
-            pass
-        else:
-            ret[:3] = list(map(float, out.decode().split(' ')[:3]))
+        if index in [0,1,2]:  # system load
+            return float(data.split(' ')[index])
+        if index in [3,4,5]:  # memory info
+            m = self.mem_patterns[i-3].search(data)
+            return int(m.group('val'))/kb_to_gb
+        if index in [6]:  # cpu temp
+            return int(data)/1000.
 
-        filename = '/proc/meminfo'
-        out, err = self.call(command = 'cat %s' % filename)
-        if not len(out) or len(err):
-            pass
-        else:
-            out = out.decode()
-            for i,k in enumerate(mem_patterns):
-                m = mem_patterns[k].search(out)
-                if m:
-                    ret[i+3] = int(m.group(k))/kb_to_gb
-
-        filename = '/sys/devices/platform/coretemp.0/hwmon/%s/temp1_input' % self.hwmon
-        out, err = self.call(command = 'cat %s' % filename)
-        if not len(out) or len(err):
-            pass
-        else:
-            ret[6] = int(out)/1000.
-        return {'data' : ret, 'retcode' : [0]*len(ret)}
-
-    def call(self, filename):
-        proc = Popen('cat %s' % filename, **self.args)
-        try:
-            out, err = proc.communicate(timeout=1)
-        except TimeoutExpired:
-            proc.kill()
-            out, err = proc.communicate()
-        return out, err
