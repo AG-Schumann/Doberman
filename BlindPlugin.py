@@ -9,8 +9,8 @@ class BlindPlugin(Plugin):
     other than handle commands.
     """
 
-    def Readout(self, rundoc):
+    def ReadoutLoop(self, i):
         return
 
-    def ProcessData(self, data, configdoc):
+    def ProcessReading(self, index, timestamp, value, retcode):
         return

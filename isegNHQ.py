@@ -1,12 +1,12 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class isegNHQ(SerialController):
+class isegNHQ(SerialSensor):
     """
-    iseg NHQ controller
+    iseg NHQ sensor
     """
     accepted_commands = [
             'Vset <value>: voltage setpoint',
@@ -36,6 +36,7 @@ class isegNHQ(SerialController):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
+        self.reading_commands = [self.commands[x] for x in ['Current','Voltage','Vset','Status']]
         super().__init__(opts)
 
         self.command_patterns = [
@@ -48,10 +49,7 @@ class isegNHQ(SerialController):
     def _getControl(self):
         super()._getControl()
         self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
-        #self.SendRecv(self.setcommand.format(cmd=self.commands['Delay'],
-        #    value=int(self.delay)))
         return True
-    
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.commands['open'], dev)
@@ -63,6 +61,19 @@ class isegNHQ(SerialController):
         if resp['data'].decode().rstrip().split(';')[0] == self.serialID:
             return True
         return False
+
+    def ProcessOneReading(self, index, data):
+        data = data.splitlines()[1]
+        if index == 0:  # current
+            data = data.decode()
+            return float(f'{data[:3]}E{data[4:]}')
+        elif index == 1:  # voltage
+            return float(data)
+        elif index == 2:  # setpoint
+            return float(data)
+        elif index == 3:  # state
+            data = data.split(b'=')[1].strip()
+            return self.state.get(data.decode(), -1)
 
     def Readout(self):
         vals = []
