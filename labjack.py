@@ -1,6 +1,5 @@
 from ControllerBase import Controller
 import u12
-import logging
 
 
 class labjack(Controller):
@@ -8,18 +7,19 @@ class labjack(Controller):
     Labjack U12. Has a very different interface, so we don't inherit from more
     than Controller
     """
-    def __init__(self, opts):
-        self.name = opts['name']
-        for k, v in opts.items():
-            setattr(self, k, v)
+    def SetParameters(self):
         self.analog_channels = list(map(int, self.analog_channels))
         self.digital_channels = list(map(int, self.digital_channels))
-        self.logger = logging.getLogger(opts['name'])
-        self._device = u12.U12()
 
         self.then = 0
         self.read_args = {'idNum' : None, 'demo' : 0}
-        self._getControl()
+
+    def OpenDevice(self):
+        self._device = u12.U12()
+        return True
+
+    def Setup(self):
+        self.then = self._device.eCount(resetCounter=1)['ms']
 
     def NTCtoTemp(self, val):
         # rc (old) = [5 10e3 8.181e-6 11.67e-6 1000]
@@ -30,10 +30,6 @@ class labjack(Controller):
         #        (self.rc[2]*val)+self.rc[3])/self.rc[4]
         temp = sum([v*resistance**i for i,v in enumerate(self.tc)])
         return temp
-
-    def _getControl(self):
-        self.then = self._device.eCount(resetCounter=1)['ms']
-        return True
 
     def Readout(self):
         voltage = [None]*len(self.analog_channels)

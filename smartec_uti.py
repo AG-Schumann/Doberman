@@ -8,7 +8,7 @@ class smartec_uti(SerialController):
     Level meter controllers
     """
 
-    def __init__(self, opts):
+    def SetParameters(self):
         self.commands = {
                 'greet' : '@',
                 'help' : '?',
@@ -23,15 +23,11 @@ class smartec_uti(SerialController):
                 }
         self._msg_start = ''
         self._msg_end = '\r\n'
-        super().__init__(opts)
 
-    def _getControl(self):
-        if not super()._getControl():
-            return False
+    def Setup(self):
         self.SendRecv(self.commands['greet'])
         self.SendRecv(self.commands['setSlow'])
         self.SendRecv(self.commands['setMode%s' % int(self.mode)])
-        return True
 
     def isThisMe(self, dev):
         """
