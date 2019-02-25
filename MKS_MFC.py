@@ -1,11 +1,11 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
 
 
-class MKS_MFC(SerialController):
+class MKS_MFC(SerialSensor):
     """
-    MKS flow controller
+    MKS flow sensor
     """
     accepted_commands = [
             'setpoint <value>: change the setpoint',
@@ -49,6 +49,8 @@ class MKS_MFC(SerialController):
         self._NAK = 'NAK'
         self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
         self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
+        self.reading_commands = [self.getCommand.format(cmd=self.commands[com])
+            for com in ['FlowRate','FlowRatePercent','InternalTemperature']]
         self.setpoint_map = {'auto' : 'NORMAL', 'purge' : 'PURGE', 'close' : 'FLOW_OFF'}
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<value>%s)' % number_regex),
@@ -67,53 +69,12 @@ class MKS_MFC(SerialController):
             return True
         return False
 
-    def Checksum(self, message):
-        checksum = 0
-        checksum += sum(map(ord, message))
-        checksum += sum(map(ord, self.serialID))
-        checksum += sum(map(ord, self._msg_start[-1] + self._msg_end[0]))
-        return checksum
-
-    def Readout(self):
-        values = []
-        status = []
-        for com in ['FlowRate','FlowRatePercent','InternalTemperature']:
-            resp = self.SendRecv(self.getCommand.format(cmd=self.commands[com]))
-            if resp['retcode']:
-                values.append(-1)
-                status.append(resp['retcode'])
-            else:
-                try:
-                    values.append(float(resp['data']))
-                except ValueError:
-                    values.append(-1)
-                    status.append(-4)
-                else:
-                    status.append(0)
-        return {'retcode' : status, 'data' : values}
-
-    def SendRecv(self, message, dev=None):
-        """
-        Message format: @@@<device address><command>;<checksum>
-        Checksum = FF -> ignore
-        Command = FX? (or something else)
-        Returned info format: @@@<masterID><response>;<checksum>
-        response is 'ACK<value>' or 'NAK<error code>'
-        """
-        resp = super().SendRecv(message, dev)
-        if not resp['data'] or resp['retcode']:
-            return resp
-        if self._NAK in resp['data']:
-            m = self.nak_pattern.search(resp['data'])
-            resp['retcode'] = -3
-            if m:
-                resp['data'] = self.errorcodes[m.group('errcode')]
-            else:
-                resp['data'] = None
-            return resp
-        m = self.ack_pattern.search(resp['data'])
+    def ProcessOneReading(self, index, data):
+        m = self.nak_pattern.search(data)
+        if m:
+            return -1*int(m.group('value'))
+        m = self.ack_pattern.search(data)
         if not m:
-            return {'retcode' : 0, 'data' : None}
-        else:
-            return {'retcode' : 0, 'data' : m.group('value')}
+            return -2
+        return float(m.group('value'))
 

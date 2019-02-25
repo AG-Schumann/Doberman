@@ -6,10 +6,14 @@ import importlib.machinery
 import time
 import datetime
 import signal
+import os.path
+import inspect
 dtnow = datetime.datetime.now
+
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
+doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
 def getUserInput(text, input_type=None, be_in=None, be_not_in=None, be_array=False, limits=None, string_length=None, exceptions=None):
     """
@@ -125,15 +129,15 @@ def refreshTTY(db):
     all possible combinations, and updates the database
     """
     cuts = {'status' : 'online', 'address.ttyUSB' : {'$exists' : 1}}
-    if db.Count('settings','controllers', cuts):
-        print('Some USB controllers are running! Stopping them now')
-        running_controllers = db.Distinct('settings','controllers','name', cuts)
-        for name in running_controllers:
+    if db.Count('settings','sensors', cuts):
+        print('Some USB sensors are running! Stopping them now')
+        running_sensors = db.Distinct('settings','sensors','name', cuts)
+        for name in running_sensors:
             db.ParseCommand('stop %s' % name)
         time.sleep(35)
     else:
-        running_controllers = []
-    db.updateDatabase('settings','controllers',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
+        running_sensors = []
+    db.updateDatabase('settings','sensors',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
     print('Refreshing ttyUSB mapping...')
     proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
     try:
@@ -144,7 +148,7 @@ def refreshTTY(db):
     if not len(out) or len(err):
         raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
     ttyUSBs = out.decode().splitlines()
-    cursor = db.readFromDatabase('settings','controllers', {'address.ttyUSB' : {'$exists' : 1}})
+    cursor = db.readFromDatabase('settings','sensors', {'address.ttyUSB' : {'$exists' : 1}})
     sensor_config = {row['name'] : row for row in cursor}
     sensor_names = list(sensor_config.keys())
     sensors = {name: None for name in sensor_names}
@@ -155,7 +159,7 @@ def refreshTTY(db):
         opts.update(sensor_config[sensor]['address'])
         if 'additional_params' in sensor_config[sensor]:
             opts.update(sensor_config[sensor]['additional_params'])
-        sensors[sensor] = FindPlugin(sensor, ['/scratch/doberman'])(opts)
+        sensors[sensor] = FindPlugin(sensor, [doberman_dir])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
         tty_num = int(tty.split('USB')[-1])
@@ -173,7 +177,7 @@ def refreshTTY(db):
                 print('Matched %s to %s' % (tty_num, name))
                 matched['sensors'].append(name)
                 matched['ttys'].append(tty)
-                db.updateDatabase('settings','controllers',
+                db.updateDatabase('settings','sensors',
                         {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
                 dev.close()
                 break
@@ -187,7 +191,7 @@ def refreshTTY(db):
             name = (set(sensors.keys())-set(matched['sensors'])).pop()
             tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
             print('Matched %s to %s via n-1' % (name, tty))
-            db.updateDatabase('settings','controllers', {'name' : name},
+            db.updateDatabase('settings','sensors', {'name' : name},
                     {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
         except:
             pass
@@ -202,61 +206,49 @@ def refreshTTY(db):
         print('\n'.join(l))
         return False
     for usb, name in zip(matched['ttys'],matched['sensors']):
-            db.updateDatabase('settings','controllers', {'name' : name},
+            db.updateDatabase('settings','sensors', {'name' : name},
                     {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
 
     db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
-    for name in running_controllers:
+    for name in running_sensors:
         db.ParseCommand('start %s' % name)
     return True
 
 def FindPlugin(name, path):
     """
-    Finds the controller constructor with the specified name, in the specified paths
+    Finds the sensor constructor with the specified name, in the specified paths.
+    Will attempt to strip numbers off the end of the name if necessary (ex,
+    'iseries1' -> iseries, 'caen_n1470' -> caen_n1470)
 
-    Parameters
-    ---------
-    name : str
-        The name of the controller to load
-    path : [str]
-        The paths to look through to find the file named `name.py`
-
-    Returns
-    -------
-    fcn
-        The constructor of the controller
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified file can't be found
-    AttributeError
-        If the constructor can't be found
+    :param name: the name of the sensor you want
+    :param path: a list of paths in which to search for the file
+    :returns constructor: the constructor of the requested sensor
     """
     spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
         spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
     if spec is None:
-        raise FileNotFoundError('Could not find a controller named %s' % name)
+        raise FileNotFoundError('Could not find a sensor named %s' % name)
     try:
-        controller_ctor = getattr(spec.loader.load_module(), name)
+        sensor_ctor = getattr(spec.loader.load_module(), name)
     except AttributeError:
         try:
-            controller_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
+            sensor_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
         except AttributeError:
             raise AttributeError('Cound not find constructor for %s!' % name)
-    return controller_ctor
+    return sensor_ctor
 
 class SignalHandler(object):
     """ Handles signals from the OS
     """
-    def __init__(self, logger):
+    def __init__(self, logger=None):
         self.interrupted = False
         signal.signal(signal.SIGINT, self.interrupt)
         signal.signal(signal.SIGTERM, self.interrupt)
         self.logger = logger
 
     def interrupt(self, *args):
-        self.logger.info('Received signal %i' % args[0])
+        if self.logger is not None:
+            self.logger.info('Received signal %i' % args[0])
         self.signal_number = int(args[0])
         self.interrupted = True
