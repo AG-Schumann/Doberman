@@ -11,7 +11,7 @@ class ExampleController(SerialController):
     accepted_commands = [
             "a pattern: a description of what this command does",
         ]
-    def SetupBeforeOpening(self):
+    def SetParameters(self):
         # Values from the database configuration document are loaded before this
         # function is called. The hardware connection has not been opened yet.
         self._msg_start = ''  # whatever character(s) messages start with
@@ -38,7 +38,7 @@ class ExampleController(SerialController):
                 (re.compile('a pattern'), lambda x : self.commands['set'].format(**x.groupdict())),
                 ]
 
-    def SetupAfterOpening(self):
+    def Setup(self):
         # This function is called after the connection to the hardware is opened
         self.SendRecv(self.commands['prepare'])
 

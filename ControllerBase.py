@@ -20,22 +20,23 @@ class Controller(object):
             setattr(self, key, value)
         self.logger = logging.getLogger(self.name)
         self._connected = False
-        self.SetupBeforeOpening()
-        if self.initialize:
-            if self.OpenDevice():
-                self.SetupAfterOpening()
-                time.sleep(0.2)
-            else:
-                raise ValueError('Could not properly initialize!')
+        self.SetParameters()
 
-    def SetupBeforeOpening(self):
+    def _Setup(self):
+        if self.OpenDevice():
+            self.Setup()
+            time.sleep(0.2)
+        else:
+            raise ValueError('Could not properly initialize!')
+
+    def SetParameters(self):
         """
         A function for a controller to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
         pass
 
-    def SetupAfterOpening(self):
+    def Setup(self):
         """
         If a controller needs to receive a command after opening but
         before starting "normal" operation, that goes here

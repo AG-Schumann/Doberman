@@ -14,7 +14,7 @@ class isegNHQ(SerialController):
             'Vramp <value>: voltage ramp speed',
         ]
 
-    def SetupBeforeOpening(self):
+    def SetParameters(self):
         self._msg_end = '\r\n'
         self._msg_start = ''
         self.basecommand = '{cmd}'
@@ -43,7 +43,7 @@ class isegNHQ(SerialController):
                         value=m.group('value'))),
                 ]
 
-    def SetupAfterOpening(self):
+    def Setup(self):
         self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
 
     def isThisMe(self, dev):
