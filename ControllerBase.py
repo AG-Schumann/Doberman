@@ -2,7 +2,7 @@ import serial
 import socket
 import time
 import logging
-from subprocess import Pope, PIPE, TimeoutExpired
+from subprocess import Popen, PIPE, TimeoutExpired
 
 class Controller(object):
     """
