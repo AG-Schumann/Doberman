@@ -152,7 +152,6 @@ def refreshTTY(db):
     for sensor in sensor_names:
         opts = {}
         opts['name'] = sensor
-        opts['initialize'] = False
         opts.update(sensor_config[sensor]['address'])
         if 'additional_params' in sensor_config[sensor]:
             opts.update(sensor_config[sensor]['additional_params'])

@@ -4,7 +4,7 @@ from utils import number_regex
 
 
 class pfeiffer_tpg(LANController):
-    def SetupBeforeOpening(self):
+    def SetParameters(self):
         self._msg_begin = ''
         self._msg_end = '\r\n\x05'
         self.commands = {
@@ -13,7 +13,7 @@ class pfeiffer_tpg(LANController):
                 }
         self.read_command = re.compile(b'(?P<status>[0-9]),(?P<value>%s)' % bytes(number_regex, 'utf-8'))
 
-    def SetupAfterOpening(self):
+    def Setup(self):
         self.SendRecv(self.commands['identify'])
         # stops the continuous flow of data
 

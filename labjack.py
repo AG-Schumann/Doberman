@@ -7,7 +7,7 @@ class labjack(Controller):
     Labjack U12. Has a very different interface, so we don't inherit from more
     than Controller
     """
-    def SetupBeforeOpening(self):
+    def SetParameters(self):
         self.analog_channels = list(map(int, self.analog_channels))
         self.digital_channels = list(map(int, self.digital_channels))
 
@@ -18,7 +18,7 @@ class labjack(Controller):
         self._device = u12.U12()
         return True
 
-    def SetupAfterOpening(self):
+    def Setup(self):
         self.then = self._device.eCount(resetCounter=1)['ms']
 
     def NTCtoTemp(self, val):
