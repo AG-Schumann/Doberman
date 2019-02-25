@@ -6,10 +6,14 @@ import importlib.machinery
 import time
 import datetime
 import signal
+import os.path
+import inspect
 dtnow = datetime.datetime.now
+
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
+doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
 def getUserInput(text, input_type=None, be_in=None, be_not_in=None, be_array=False, limits=None, string_length=None, exceptions=None):
     """
@@ -156,7 +160,7 @@ def refreshTTY(db):
         opts.update(sensor_config[sensor]['address'])
         if 'additional_params' in sensor_config[sensor]:
             opts.update(sensor_config[sensor]['additional_params'])
-        sensors[sensor] = FindPlugin(sensor, ['/scratch/doberman'])(opts)
+        sensors[sensor] = FindPlugin(sensor, [doberman_dir])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
         tty_num = int(tty.split('USB')[-1])
