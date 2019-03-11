@@ -25,7 +25,7 @@ class DobermanDB(object):
             print("Can not load database connection details. Error %s" % e)
             raise
         try:
-            with open(os.path.join(utils.doberman_dir, 'experiment_name', 'r') as f:
+            with open(os.path.join(utils.doberman_dir, 'experiment_name'), 'r') as f:
                 self.experiment_name = f.read().strip()
         except Exception as e:
             print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
@@ -153,30 +153,29 @@ class DobermanDB(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
-    def GetData(self, plugin_name, start_time, data_index, end_time=None):
+    def GetData(self, name, start_time, index, end_time=None):
         """
         This function basically exists to support the PID loop. Returns a
         numpy-structurable array of (timestamp, value) between start_time
         and end_time, for the specified data index. 'Timestamp' is a float
         of time since epoch
 
-        :param plugin_name: the name of the plugin to get data for
+        :param name: the name of the plugin to get data for
         :param start_time: python Datetime instance of the earliest time to fetch
-        :param data_index: which entry in the data array you want
+        :param index: which entry in the data array you want
         :param end_time: python Datetime instance of the latest time to fetch
 
         Returns [(timestamp, value), (timestamp, value), ...]
         """
-        collection = self._check('data', plugin_name)
         query = {'when' : {'$gte' : start_time}}
+        coll_name = "%s__%s" % (name,
+                self.GetSensorSettings(name)['readings'][index]['name'])
         if end_time is not None:
             query['when'].update({'$lte' : end_time})
-        proj = {'status' : 0, '_id' : 0, 'data' : 1, 'when' : 1}
         sort = [('when', 1)]
         b = []
-        for row in self.readFromDatabase('data', plugin_name, query,
-                projection=proj, sort=sort):
-            b.append((row['when'].timestamp(), row['data'][data_index]))
+        for row in self.readFromDatabase('data', coll_name, query, sort=sort):
+            b.append((row['when'].timestamp(), row['data']))
         return b
 
     def Distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
