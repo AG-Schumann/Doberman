@@ -33,7 +33,7 @@ class ExampleSensor(SerialSensor):
 
         # this is a list of (regular expression, function) objects. The regular expression
         # matches the commmand issued via the command line, and the function takes as
-        # argument a re.match object and returns the string to be sent to the controller
+        # argument a re.match object and returns the string to be sent to the sensor
         self.command_patterns = [
                 (re.compile('a pattern'), lambda x : self.commands['set'].format(**x.groupdict())),
                 ]
@@ -43,8 +43,8 @@ class ExampleSensor(SerialSensor):
         self.SendRecv(self.commands['prepare'])
 
     def isThisMe(self, dev):
-        # This function checks to see if the device 'dev' is, in fact, this controller.
-        # This is only necessary if you inherit from SerialController.
+        # This function checks to see if the device 'dev' is, in fact, this sensor.
+        # This is only necessary if you inherit from SerialSensor.
         resp = self.SendRecv(self.commands['check_id'], dev)
         if resp['retcode'] or not ret['data']:
             return False
