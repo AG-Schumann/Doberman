@@ -79,7 +79,7 @@ class FeedbackController(Plugin):
     def KillTime(self, configdoc):
         feedback = configdoc['feedback']
         if feedback['status'] == 'ON':
-            timestamp, value, status = self.controller.FeedbackReadout()
+            timestamp, value, status = self.sensor.FeedbackReadout()
             if status != 0 or value is None:
                 pass
             else:
@@ -90,7 +90,7 @@ class FeedbackController(Plugin):
                 except:
                     pass
                 else:
-                    doc = {'name' : feedback['controller'], 'by' : 'feedback',
+                    doc = {'name' : feedback['sensor'], 'by' : 'feedback',
                            'logged' : datetime.now(),
                            'command' : feedback['command'].format(value=u)}
                     self.db.InsertIntoDatabase('logging','commands', doc)
