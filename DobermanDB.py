@@ -447,9 +447,31 @@ class DobermanDB(object):
         Reads the settings in the database.
 
         :param name: the name of the sensor
-        :returns configuration document for the specified sensor
+        :returns: configuration document for the specified sensor
         """
         return self.readFromDatabase('settings', 'sensors', cuts={'name' : name}, onlyone=True)
+
+    def GetSensorSetting(self, sensor_name, field):
+        """
+        Gets a specific setting from one sensor
+
+        :param sensor_name: the name of the sensor
+        :param field: the field you want
+        :returns: the value of the named field
+        """
+        doc = self.GetSensorSettings(sensor_name)
+        return doc[field]
+
+    def GetReading(self, sensor_name, reading_name):
+        """
+        Gets the document from one reading
+
+        :param sensor_name: the name of the sensor
+        :param reading_name: the name of the reading
+        :returns: reading document
+        """
+        doc = self.GetSensorSettings(sensor_name)
+        return doc['readings'][reading_name]
 
     def SetSensorSetting(self, name, field, value):
         """
@@ -694,6 +716,12 @@ class DobermanDB(object):
             else:
                 print('Sensor added')
         return
+
+    def GetCurrentStatus(self):
+        """
+        Gives a snapshot of the current system status
+        """
+        pass
 
     def CurrentStatus(self):
         """
