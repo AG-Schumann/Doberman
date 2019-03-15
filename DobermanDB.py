@@ -1,4 +1,4 @@
-#!/scratch/anaconda3/bin/python3
+#!/usr/bin/env python3
 import logging
 import datetime
 import pymongo
@@ -449,7 +449,8 @@ class DobermanDB(object):
         :param name: the name of the sensor
         :returns: configuration document for the specified sensor
         """
-        return self.readFromDatabase('settings', 'sensors', cuts={'name' : name}, onlyone=True)
+        return self.readFromDatabase('settings', 'sensors', cuts={'name' : name},
+                onlyone=True)
 
     def GetSensorSetting(self, sensor_name, field):
         """
@@ -462,16 +463,28 @@ class DobermanDB(object):
         doc = self.GetSensorSettings(sensor_name)
         return doc[field]
 
-    def GetReading(self, sensor_name, reading_name):
+    def GetReading(self, key=None):
         """
         Gets the document from one reading
 
-        :param sensor_name: the name of the sensor
-        :param reading_name: the name of the reading
+        :param key: the reading's key. Default 'None'
         :returns: reading document
         """
-        doc = self.GetSensorSettings(sensor_name)
-        return doc['readings'][reading_name]
+        return self.readFromDatabase('settings', 'readings', cuts={'key' : key},
+                onlyone=True)
+
+    def UpdateReading(self, key=None, field=None, value=None):
+        """
+        Updates a parameter for a reading
+
+        :param key: the reading's key
+        :param field: the specific field to update
+        :param value: the new value
+        """
+        if key is None:
+            key = '%s__%s' % (sensor_name, reading_name)
+        self.updateDatabase('settings', 'readings', cuts={'key' : key},
+                updates={'$set' : {field : value}})
 
     def SetSensorSetting(self, name, field, value):
         """
@@ -481,7 +494,7 @@ class DobermanDB(object):
         :param field: the specific field to update
         :param value: the new value
         """
-        self.updateDatabase('settings','sensors',cuts={'name' : name},
+        self.updateDatabase('settings', 'sensors', cuts={'name' : name},
                 updates = {'$set' : {field : value}})
 
     def getDefaultSettings(self, runmode=None, name=None):

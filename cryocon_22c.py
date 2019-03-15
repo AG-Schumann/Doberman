@@ -25,8 +25,15 @@ class cryocon_22c(LANSensor):
                 'settempBUnits' : 'input b:units k',
                 'setSP' : 'loop {ch}:setpt {value}',
                 }
-        self.read_pattern = re.compile(b'(?P<value>%s)' % bytes(number_regex, 'utf-8'))
-        self.reading_commands = [self.commands[x] for x in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']]
+        self.reading_pattern = re.compile(('(?P<value>%s)' % number_regex).encode())
+        self.reading_commands = {
+                'cf_temp_top' : self.commands['getTempA'],
+                'cf_temp_bot' : self.commands['getTempB'],
+                'setpt1' : self.commands['getSP1'],
+                'setpt2' : self.commands['getSP2'],
+                'heater1' : self.commands['getLp1Pwr'],
+                'heater2' : self.commands['getLp2Pwr']
+                }
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<ch>1|2) (?P<value>%s)' % number_regex),
                     lambda x : self.commands['setSP'].format(**x.groupdict())),
@@ -38,7 +45,4 @@ class cryocon_22c(LANSensor):
         if 'missiles' in m.group(0):
             self.logger.warning('But I am leh tired...')
         return 'stop'
-
-    def ProcessOneReading(self, index, data):
-        return float(self.read_pattern.search(data).group('value'))
 

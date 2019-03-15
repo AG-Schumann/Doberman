@@ -20,9 +20,9 @@ class iseries(SerialSensor):
                 'getDisplayedValue' : 'X01',
                 'getCommunicationParameters' : 'R10',
                 }
-        self.read_pattern = re.compile(b'%s(?P<value>%s)' % (bytes(self.commands['getDisplayedValue'], 'utf-8'), bytes(number_regex, 'utf-8')))
-        self.reading_commands = [self.commands['getDisplayedValue']]
-        self.id_pattern = re.compile(b'%s%s' % (bytes(self.commands['getAddress'], 'utf-8'), bytes(self.serialID, 'utf-8')))
+        self.reading_pattern = re.compile(('%s(?P<value>%s)' % (self.commands['getDisplayedValue'], number_regex)).encode())
+        self.reading_commands = {self.reading_names[0]:self.commands['getDisplayedValue']}
+        self.id_pattern = re.compile(('%s%s' % (self.commands['getAddress'], self.serialID)).encode())
 
     def isThisMe(self, dev):
         info = self.SendRecv(self.commands['getAddress'], dev)
@@ -36,10 +36,4 @@ class iseries(SerialSensor):
                 return True
         except:
             return False
-
-    def ProcessOneReading(self, index, data):
-        m = self.read_pattern.search(data)
-        if not m:
-            return None
-        return float(m.group('value'))
 

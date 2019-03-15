@@ -27,13 +27,13 @@ class Teledyne(SerialSensor):
         self.setcommand = self.basecommand + ' {params}'
         self.getcommand = self.basecommand + '?'
 
-        self.get_reading = re.compile(b'READ:(?P<value>%s)' % bytes(number_regex, 'utf-8'))
+        self.reading_pattern = re.compile(('READ:(?P<value>%s)' % number_regex).encode())
         self.get_addr = re.compile(b'ADDR: *(?P<addr>[a-z])')
         self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
 
         self.setpoint_map = {'auto' : 0, 'open' : 1, 'close' : 2}
-        self.reading_commands = [self.commands['read']]
+        self.reading_commands = {'flow' : self.commands['read']}
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<params>%s)' % number_regex),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointValue'],
@@ -54,10 +54,4 @@ class Teledyne(SerialSensor):
         if self.device_address != m.group('addr').decode():
             return False
         return True
-
-    def ProcessOneReading(self, index, data):
-        m = self.get_reading.search(data)
-        if not m:
-            return None
-        return float(m.group('value'))
 

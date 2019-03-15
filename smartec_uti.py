@@ -1,6 +1,7 @@
 from SensorBase import SerialSensor
 from subprocess import Popen, PIPE, TimeoutExpired
 import re  # EVERYBODY STAND BACK
+from itertools import repeat
 
 
 class smartec_uti(SerialSensor):
@@ -24,6 +25,8 @@ class smartec_uti(SerialSensor):
         self._msg_start = ''
         self._msg_end = '\r\n'
         self.reading_commands = [self.commands['measure']]*3  # handles all cases
+        self.reading_commands = dict(zip(self.reading_names,
+                                         repeat(self.commands['measure'])))
 
     def Setup(self):
         self.SendRecv(self.commands['greet'])
@@ -67,7 +70,7 @@ class smartec_uti(SerialSensor):
             return True
         return False
 
-    def ProcessOneReading(self, index, data):
+    def ProcessOneReading(self, name, data):
         """
         """
         values = data.decode().rstrip().split()
@@ -80,6 +83,6 @@ class smartec_uti(SerialSensor):
             resp = [(v-c_off)/div*self.c_ref for v in values[2:]]
             if len(resp) > 1:
                 return resp
-            return resp[index]
+            return resp[0]
         return None
 
