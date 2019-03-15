@@ -11,16 +11,10 @@ class pfeiffer_tpg(LANSensor):
                 'identify' : 'AYT',
                 'read' : 'PR1',
                 }
-        self.reading_commands = [self.commands['read']]
-        self.read_command = re.compile(b'(?P<status>[0-9]),(?P<value>%s)' % bytes(number_regex, 'utf-8'))
+        self.reading_commands = {'iso_pressure' : self.commands['read']}
+        self.reading_pattern = re.compile(('(?P<status>[0-9]),(?P<value>%s)' % number_regex).encode())
 
     def Setup(self):
         self.SendRecv(self.commands['identify'])
         # stops the continuous flow of data
-
-    def ProcessOneReading(self, index, data):
-        m = self.read_command.search(data)
-        if not m:
-            return None
-        return float(m.group('value'))
 

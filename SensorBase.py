@@ -4,6 +4,7 @@ import time
 import logging
 import queue
 import threading
+from functools import partial
 
 
 class Sensor(object):
@@ -60,7 +61,7 @@ class Sensor(object):
     def ReadoutScheduler(self):
         """
         Pulls tasks from the command queue and deals with them. If the queue is empty
-        it sleeps for 100ms and retries. This function returns when self.running
+        it sleeps for 10ms and retries. This function returns when self.running
         becomes False. While the sensor is in normal operation, this is the only
         function that should call SendRecv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
@@ -73,72 +74,72 @@ class Sensor(object):
                 continue
             else:
                 command, callback = packet
-                if isinstance(command, int):  # reading index
-                    command = self.reading_commands[command]
                 ret = self.SendRecv(command)
                 callback(ret)
 
-    def AddToSchedule(self, reading_index=None, command=None, callback=None):
+    def AddToSchedule(self, reading_name=None, command=None, callback=None):
         """
         Adds one thing to the command queue. This is the only function called
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
-        :param reading_index: the i-th reading to do
-        :param command: a string other than a reading command
+        :param command: the command to issue to the sensor
         :param callback: the function called with the results. Must accept
             a dictionary as argument with the result from SendRecv. Required for
-            reading_index != None
+            reading_name != None
         :returns None
         """
-        if reading_index is not None:
+        if reading_name is not None:
             if callback is None:
                 return
-            self.logger.debug('Queuing %i' % (reading_index))
-            self.cmd_queue.put((reading_index,
-                # is there a better way to do this?
-                lambda x : self._ProcessReading(reading_index, x, callback)))
+            self.logger.debug('Queuing %s' % (reading_name))
+            self.cmd_queue.put((self.reading_commands[reading_name],
+                partial(self._ProcessReading(reading_name=reading_name, cb=callback)))
         elif command is not None:
             self.cmd_queue.put((command, lambda x : None))
 
-
-    def _ProcessReading(self, index, pkg, callback):
+    def _ProcessReading(self, pkg, reading_name=None, cb=None):
         """
         Reads one value from the sensor. Unpacks the result from SendRecv
         and passes the data to ProcessOneReading for processing. The results, along
         with timestamp, are passed back upstream.
 
-        :param index: the index of the reading
         :param pkg: the dict returned by SendRecv
-        :param callback: a function to call with the results. Must accept
-            as argument a tuple containing (index, timestamp, value, retcode). Will
+        :param reading_name: the name of the reading
+        :param cb: a function to call with the results. Must accept
+            as argument a tuple containing (name, timestamp, value, retcode). Will
             most often be the 'put' method on the owning Plugin's process_queue.
             If ProcessOneReading throws an exception, value will be None
         :returns None
         """
         try:
-            value = self.ProcessOneReading(index, pkg['data'])
+            value = self.ProcessOneReading(reading_name, pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug('Caught a %s: %s' % (type(e),e))
             value = None
-        self.logger.debug('Index %i values %s' % (index, value))
+        self.logger.debug('Name %s values %s' % (reading_name, value))
         if isinstance(value, (list, tuple)):
             now = time.time()
-            for i,v in enumerate(value):
-                callback((i, now, v, pkg['retcode']))
+            for n,v in zip(self.reading_commands.keys(), value):
+                cb((n, now, v, pkg['retcode']))
         else:
-            callback((index, time.time(), value, pkg['retcode']))
+            cb((reading_name, time.time(), value, pkg['retcode']))
         return
 
-    def ProcessOneReading(self, index, data):
+    def ProcessOneReading(self, name, data):
         """
         Takes the raw data as returned by SendRecv and parses
-        it for the (probably) float. Does not need to catch exceptions
+        it for the (probably) float. Does not need to catch exceptions.
+        If the data is "simple", add a 'reading_pattern' member that is a
+        regex with a named 'value' group that is float-castable, like:
+        re.compile(('OK;(?P<value>%s)' % utils.number_regex).encode())
 
-        :param index: the index of the reading
+        :param name: the name of the reading
         :param data: the raw bytes string
         :returns: probably a float. Sensor-dependent
         """
+        if hasattr(self, 'reading_pattern'):
+            return float(self.reading_pattern.search(data).group('value'))
         raise NotImplementedError()
 
     def FeedbackReadout(self):
@@ -289,7 +290,7 @@ class LANSensor(Sensor):
         """
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self._device.settimeout(5)
+            self._device.settimeout(1)
             self._device.connect((self.ip, int(self.port)))
         except socket.error as e:
             self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))

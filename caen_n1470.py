@@ -1,6 +1,7 @@
 from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
+from itertools import product
 
 
 class caen_n1470(SerialSensor):
@@ -26,12 +27,13 @@ class caen_n1470(SerialSensor):
                         'snum' : f'BD:{self.board},CMD:MON,PAR:BDSNUM'}
         self.setcommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par},VAL:{val}'
         self.powercommand = f'BD:{self.board},CMD:SET,' + 'CH:{ch},PAR:{par}'
-        self.error_pattern = re.compile(b',[A-Z]{2,3}:ERR')
-        self.reading_commands = []
-        for cmd in ['VMON','VSET','IMON','STAT']:
-            for i in self.channel_map.values():
-                self.reading_commands.append(self.commands['read'].format(ch=i,par=cmd))
-        self.read_pattern = re.compile(bytes('OK,VAL:(?P<value>%s)' % number_regex, 'utf-8'))
+        self.error_pattern = re.compile(r',[A-Z]{2,3}:ERR'.encode())
+        self.reading_commands = {}
+        cmds = [('VMON','voltage'), ('VSET','setpt'), ('IMON','i'), ('STAT','status')]
+        for (cmd, cmd_n),(ch,ch_i) in product(cmds, self.channel_map.items()):
+            key = '%s_%s' % (ch, cmd_n)
+            self.reading_commands[key] = self.commands['read'].format(ch=ch_i,par=cmd))
+        self.reading_pattern = re.compile(('OK,VAL:(?P<value>%s)' % number_regex).encode())
         self.command_patterns = [
                 (re.compile('(?P<ch>anode|cathode|screen) (?P<par>on|off)'),
                     lambda x : self.powercommand.format(
@@ -55,9 +57,4 @@ class caen_n1470(SerialSensor):
             return False
         else:
             return True
-
-    def ProcessOneReading(self, index, data):
-        if self.error_pattern.search(data):
-            return -1
-        return float(self.read_pattern.search(data).group('value'))
 

@@ -39,10 +39,7 @@ class Plugin(threading.Thread):
         self.ctor_opts.update(config_doc['address'])
         if 'additional_params' in config_doc:
             self.ctor_opts.update(config_doc['additional_params'])
-
-        self.recurrence_counter = [0] * len(config_doc['readings'])
-        self.status_counter = [0] * len(config_doc['readings'])
-        self.runmode = config_doc['runmode']
+        self.status_counter = 0
         self.last_message_time = dtnow()
         self.late_counter = 0
         self.last_measurement_time = time.time()
@@ -50,7 +47,7 @@ class Plugin(threading.Thread):
         self.OpenSensor()
         self.running = False
         self.has_quit = False
-        self.readings = config_doc['readings']
+        self.reading_keys = config_doc['readings']
         self.readout_threads = []
         self.process_queue = queue.Queue()
         self.reading_lock = threading.RLock()
@@ -93,22 +90,19 @@ class Plugin(threading.Thread):
         """
         self.OpenSensor()
         self.running = True
-        for i in range(len(self.readings)):
+        for key in self.reading_keys:
             self.readout_threads.append(threading.Thread(
                 target=self.ReadoutLoop,
-                args=(i,)))
+                args=(key,)))
             self.readout_threads[-1].start()
             time.sleep(0.1)
         self.logger.debug('Running...')
         while self.running and not self.sh.interrupted:
             self.logger.debug('Top of main loop')
             loop_start_time = time.time()
-            with self.reading_lock:
-                configdoc = self.db.GetSensorSettings(self.name)
-                self.readings = configdoc['readings']
-                self.runmode = configdoc['runmode']
             self.HandleCommands()
-            while (time.time() - loop_start_time) < utils.heartbeat_timer and self.running:
+            loop_until = utils.heartbeat_timer + loop_start_time
+            while time.time() < loop_until and self.running:
                 try:
                     packet = self.process_queue.get_nowait()
                 except queue.Empty:
@@ -156,26 +150,24 @@ class Plugin(threading.Thread):
         self.HandleCommands()
         return
 
-    def ReadoutLoop(self, i):
+    def ReadoutLoop(self, reading_key):
         """
         A loop that puts readout commands into the Sensor's readout queue
 
-        :param i: the index of the reading that this loop handles
+        :param reading_key: the key of the reading that this loop handles
         """
         while self.running and not self.sh.interrupted:
             loop_start_time = time.time()
-            with self.reading_lock:
-                reading = self.readings[i]
-                runmode = self.runmode
-            sleep_until = loop_start_time + reading['readout_interval']
-            if reading['config'][runmode]['active'] and self._connected:
-                self.sensor.AddToSchedule(reading_index=i,
+            reading = self.db.GetReading(key=reading_key)
+            if reading['status'] == 'online' and self._connected:
+                self.sensor.AddToSchedule(reading_name=reading['name'],
                         callback=self.process_queue.put)
+            sleep_until = loop_start_time + reading['readout_interval']
             now = time.time()
             while self.running and not self.sh.interrupted and now < sleep_until:
                 time.sleep(min(1, sleep_until - now))
                 now = time.time()
-        self.logger.debug('Loop %i returning' % i)
+        self.logger.debug('Loop "%s" returning' % reading_key)
 
     def ProcessReading(self, index, timestamp, value, retcode):
         """
