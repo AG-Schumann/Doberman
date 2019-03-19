@@ -1,6 +1,6 @@
 
 
 __all__ = [
-    'alarmDistribution','ControllerBase','DobermanDB',
+    'alarmDistribution','SensorBase','DobermanDB',
     'DobermanLogging','Doberman','Plugin'
 ]
