@@ -13,13 +13,13 @@ class isegNHQ(SerialSensor):
             'Ilim <value>: current limit',
             'Vramp <value>: voltage ramp speed',
         ]
-    def __init__(self, opts):
+
+    def SetParameters(self):
         self._msg_end = '\r\n'
         self._msg_start = ''
         self.basecommand = '{cmd}'
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
-        self.channel = 1
         self.commands = {'open'     : '',
                          'identify' : '#',
                          'Delay'    : 'W',
@@ -37,7 +37,6 @@ class isegNHQ(SerialSensor):
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
         self.reading_commands = [self.commands[x] for x in ['Current','Voltage','Vset','Status']]
-        super().__init__(opts)
 
         self.command_patterns = [
                 (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
@@ -45,11 +44,8 @@ class isegNHQ(SerialSensor):
                         value=m.group('value'))),
                 ]
 
-
-    def _getControl(self):
-        super()._getControl()
+    def Setup(self):
         self.SendRecv(self.basecommand.format(cmd=self.commands['open']))
-        return True
 
     def isThisMe(self, dev):
         resp = self.SendRecv(self.commands['open'], dev)

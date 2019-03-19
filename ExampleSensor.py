@@ -1,60 +1,64 @@
 from BaseSensor import SerialSensor  # or LANSensor, if applicable
 import re  # if you want to accept commands
-import time
+from utils import number_regex  # a regex that matches numbers (ints and floats)
 
 
 class ExampleSensor(SerialSensor):
     """
     An example of how to make your own sensor
     """
+    # this object is used if you ask for help from the command line
     accepted_commands = [
             "a pattern: a description of what this command does",
-        ] # this object is used if you ask for help from the command line
-    def __init__(self, opts):
+        ]
+    def SetParameters(self):
+        # Values from the database configuration document are loaded before this
+        # function is called. The hardware connection has not been opened yet.
         self._msg_start = ''  # whatever character(s) messages start with
         self._msg_end = '\r\n'  # same, for end
         self.commands = {'read' : 'command',
                          'also_read' : 'also_command',
                          'check_id' : 'check_id',
                          'set', 'set_value',
+                         'prepare', 'some_command'
                          }
-        super().__init__(opts)  # calls SerialSensor.__init__, which calls Sensor.__init__
-        # if you need any quantities from the config doc in the command dictionary, call init first
 
+        # this object is a list of the commands for the various readings this
+        # sensor provides.
+        self.reading_commands = [self.commands['read'], self.commands['also_read']]
+
+        # helpful regexes for output handling
+        self.read_pattern = re.compile(bytes('OK;(?P<value>%s)' % number_regex, 'utf-8'))
+        self.error_pattern = re.compile(b'ERR;')
+
+        # this is a list of (regular expression, function) objects. The regular expression
+        # matches the commmand issued via the command line, and the function takes as
+        # argument a re.match object and returns the string to be sent to the sensor
         self.command_patterns = [
                 (re.compile('a pattern'), lambda x : self.commands['set'].format(**x.groupdict())),
                 ]
-        # this is a list of (regular expression, function) objects. The regular expression
-        # matches the commmand issued via the command line, and the function takes as
-        # argument a re.match object and returns the string to the sent to the sensor
+
+    def Setup(self):
+        # This function is called after the connection to the hardware is opened
+        self.SendRecv(self.commands['prepare'])
 
     def isThisMe(self, dev):
-        """
-        This function checks to see if the device 'dev' is, in fact, this sensor.
-        This is only necessary if you inherit from SerialSensor.
-        """
+        # This function checks to see if the device 'dev' is, in fact, this sensor.
+        # This is only necessary if you inherit from SerialSensor.
         resp = self.SendRecv(self.commands['check_id'], dev)
         if resp['retcode'] or not ret['data']:
             return False
         if resp['data'] == self.some_uniquely_identifying_quantity:
             True
 
-    def Readout(self):
-        """
-        Queries the sensor for whatever readings you want. If you only read one value you
-        don't need to make the values into arrays, that will be done upstream
-        """
-        vals = []
-        status = []
-        for coms in ['read','also_read']:
-            resp = self.SendRecv(self.commands[com])
-            if resp['retcode'] or not resp['data']:
-                status.append(resp['retcode'])
-                vals.append(-1)
-            else:
-                status.append(0)
-                vals.append(float(resp['data']))
-        return {'retcode' : status, 'data' : vals}
+    def ProcessOneReading(self, index, data):
+        # Processes data returned from the sensor. `data` is of type bytes
+        if self.error_pattern.search(data):
+            return -1
+        m = self.read_pattern.search(data)
+        if not m:
+            return -2
+        return float(m.group('value'))
 
     def FeedbackReadout(self):
         """
@@ -71,4 +75,3 @@ class ExampleSensor(SerialSensor):
         except ValueError, TypeError:
             value = None
         return (time.time() - readout_delay, value, resp['retcode'])
-

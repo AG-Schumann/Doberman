@@ -1,7 +1,10 @@
 from SensorBase import Sensor
 import u12
+<<<<<<< HEAD
+=======
 import logging
 import time
+>>>>>>> a5a4c8479b2709631910e74f3fc91e85d1f349f9
 
 
 class labjack(Sensor):
@@ -9,27 +12,24 @@ class labjack(Sensor):
     Labjack U12. Has a very different interface, so we don't inherit from more
     than Sensor
     """
-    def __init__(self, opts):
-        self.name = opts['name']
-        for k, v in opts.items():
-            setattr(self, k, v)
+    def SetParameters(self):
         self.analog_channels = list(map(int, self.analog_channels))
         self.digital_channels = list(map(int, self.digital_channels))
-        self.logger = logging.getLogger(opts['name'])
-        self._device = u12.U12()
 
         self.then = 0
         self.read_args = {'idNum' : None, 'demo' : 0}
-        self._getControl()
+
+    def OpenDevice(self):
+        self._device = u12.U12()
+        return True
+
+    def Setup(self):
+        self.then = self._device.eCount(resetCounter=1)['ms']
 
     def NTCtoTemp(self, val):
         resistance = self.rc[0]*val/(self.rc[1] + self.rc[2]*val)
         temp = sum([v*resistance**i for i,v in enumerate(self.tc)])
         return temp
-
-    def _getControl(self):
-        self.then = self._device.eCount(resetCounter=1)['ms']
-        return True
 
     def AddToSchedule(self, reading_index=None, command=None, callback=None):
         """

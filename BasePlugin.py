@@ -36,7 +36,6 @@ class Plugin(threading.Thread):
         self.sensor_ctor = utils.FindPlugin(self.name, plugin_paths)
         self.ctor_opts = {}
         self.ctor_opts['name'] = self.name
-        self.ctor_opts['initialize'] = True
         self.ctor_opts.update(config_doc['address'])
         if 'additional_params' in config_doc:
             self.ctor_opts.update(config_doc['additional_params'])
@@ -77,6 +76,7 @@ class Plugin(threading.Thread):
             return
         try:
             self.sensor = self.sensor_ctor(self.ctor_opts)
+            self.sensor._Setup()
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
