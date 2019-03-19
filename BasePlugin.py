@@ -144,6 +144,8 @@ class Plugin(threading.Thread):
         while not self.sh.interrupted:
             loop_start_time = time.time()
             reading = self.db.GetReading(sensor=self.name, name=reading_name)
+            if reading['readout_interval'] <= 0:
+                break
             if reading['status'] == 'online' and self._connected:
                 self.sensor.AddToSchedule(reading_name=reading_name,
                                           callback=self.ProcessReading)
