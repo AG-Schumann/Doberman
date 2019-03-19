@@ -38,14 +38,14 @@ class Sensor(object):
 
     def SetParameters(self):
         """
-        A function for a controller to set its operating parameters (commands,
+        A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
         pass
 
     def Setup(self):
         """
-        If a controller needs to receive a command after opening but
+        If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
         pass

@@ -4,7 +4,7 @@ import logging
 
 class BlindPlugin(Plugin):
     """
-    Special class to handle output-only controllers that might be
+    Special class to handle output-only sensors that might be
     used with feedback controllers. Basically doesn't do anything
     other than handle commands.
     """

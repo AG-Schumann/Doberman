@@ -75,8 +75,8 @@ class Plugin(threading.Thread):
         if self.sensor is not None:
             return
         try:
-            self.controller = self.controller_ctor(self.ctor_opts)
-            self.controller._Setup()
+            self.sensor = self.sensor_ctor(self.ctor_opts)
+            self.sensor._Setup()
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
