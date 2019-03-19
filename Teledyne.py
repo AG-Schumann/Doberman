@@ -13,7 +13,7 @@ class Teledyne(SerialSensor):
             'setpoint <value>: change setpoint',
             'valve <auto|open|close>: change valve status',
         ]
-    def __init__(self, opts):
+    def SetParameters(self):
         self._msg_end = '\r\n'
         self.commands = {
                 'Address' : 'add',
@@ -22,7 +22,6 @@ class Teledyne(SerialSensor):
                 'Unit' : 'uiu',
                 'SetpointValue' : 'spv'
                 }
-        super().__init__(opts)
         self.device_address = 'a'  # changeable, but default is a
         self.basecommand = f'{self.device_address}' + '{cmd}'
         self.setcommand = self.basecommand + ' {params}'

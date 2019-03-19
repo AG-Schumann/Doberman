@@ -11,7 +11,7 @@ class cryocon_22c(LANSensor):
             'setpoint <channel> <value>: change the setpoint for the given channel',
             'loop stop: shut down both heaters'
         ]
-    def __init__(self, opts):
+    def SetParameters(self):
         self._msg_end = ';\n'
         self.commands = { # these are not case sensitive
                 'identify' : '*idn?',
@@ -25,7 +25,6 @@ class cryocon_22c(LANSensor):
                 'settempBUnits' : 'input b:units k',
                 'setSP' : 'loop {ch}:setpt {value}',
                 }
-        super().__init__(opts)
         self.read_pattern = re.compile(b'(?P<value>%s)' % bytes(number_regex, 'utf-8'))
         self.reading_commands = [self.commands[x] for x in ['getTempA','getTempB','getSP1','getSP2','getLp1Pwr','getLp2Pwr']]
         self.command_patterns = [

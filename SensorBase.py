@@ -18,24 +18,42 @@ class Sensor(object):
         opts is a dict with all the options needed for initialization
         (addresses, configuration options, etc)
         """
-        self.logger = logging.getLogger(opts['name'])
         for key, value in opts.items():
             setattr(self, key, value)
+        self.logger = logging.getLogger(self.name)
         self._connected = False
-        self.cmd_queue = queue.Queue(30)
-        if self.initialize:
-            if self._getControl():
-                time.sleep(0.2)
-                self.running = True
-                self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
-                self.readout_thread.start()
-            else:
-                self.logger.error('Something went wrong during initialization...')
-                raise ValueError('Initialization failed')
+        self.SetParameters()
 
-    def _getControl(self):
+    def _Setup(self):
+        self.cmd_queue = queue.Queue(30)
+        if self.OpenDevice():
+            self.Setup()
+            time.sleep(0.2)
+            self.running = True
+            self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
+            self.readout_thread.start()
+        else:
+            self.logger.error('Something went wrong during initialization...')
+            raise ValueError('Initialization failed')
+
+    def SetParameters(self):
         """
-        Opens the connection to the device
+        A function for a sensor to set its operating parameters (commands,
+        _ms_start token, etc). Will be called by the c'tor
+        """
+        pass
+
+    def Setup(self):
+        """
+        If a sensor needs to receive a command after opening but
+        before starting "normal" operation, that goes here
+        """
+        pass
+
+    def OpenDevice(self):
+        """
+        Opens the connection to the device. The instance MUST have a _device object
+        after this function returns successfully. Should return True on success
         """
         raise NotImplementedError()
 
@@ -51,7 +69,7 @@ class Sensor(object):
             try:
                 packet = self.cmd_queue.get_nowait()
             except queue.Empty:
-                time.sleep(0.1)
+                time.sleep(0.01)
                 continue
             else:
                 command, callback = packet
@@ -131,7 +149,7 @@ class Sensor(object):
         """
         raise NotImplementedError()
 
-    def SendRecv(self, message, dev=None):
+    def SendRecv(self, message):
         """
         General sensor interface. Returns a dict with retcode -1 if sensor not connected,
         -2 if there is an exception, (larger numbers also possible) and whatever data was read. Adds _msg_start and _msg_end
@@ -179,24 +197,25 @@ class SoftwareSensor(Sensor):
         def close():
             return
 
-    def __init__(self, opts):
+    def OpenDevice(self):
         self._device = self.DummyObject()
-        super().__init__(opts)
-
-    def _getControl(self):
         return True
 
-    def call(self, command, timeout=1, **kwargs):
+    def SendRecv(self, command, timeout=1, **kwargs):
         for k,v in zip(['shell','stdout','stderr'],[True,PIPE,PIPE]):
             if k not in kwargs:
                 kwargs.update({k:v})
         proc = Popen(command, **kwargs)
+        ret = {'data' : None, 'retcode' : 0}
         try:
             out, err = proc.communicate(timeout=timeout, **kwargs)
+            ret['data'] = out
         except TimeoutExpired:
             proc.kill()
             out, err = proc.communicate()
-        return out, err
+            ret['data'] = err
+            ret['retcode'] = -1
+        return ret
 
 
 class SerialSensor(Sensor):
@@ -204,17 +223,14 @@ class SerialSensor(Sensor):
     Serial sensor class. Implements more direct serial connection specifics
     """
 
-    def __init__(self, opts):
-        self.tty = None
+    def OpenDevice(self):
         self._device = serial.Serial()
         self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
         self._device.write_timeout = 5
-        super().__init__(opts)
 
-    def _getControl(self):
         if self.tty == '0':
             self.logger.error('No tty port specified!')
             return False
@@ -223,14 +239,13 @@ class SerialSensor(Sensor):
             self._device.open()
         except serial.SerialException as e:
             self.logger.error('Problem opening %s: %s' % (self._device.port, e))
-            raise
+            return False
         if not self._device.is_open:
             self.logger.error('Error while connecting to device')
             return False
         else:
             self._connected = True
             return True
-        return False
 
     def isThisMe(self, dev):
         """
@@ -269,29 +284,21 @@ class LANSensor(Sensor):
     Class for LAN-connected sensors
     """
 
-    def __init__(self, opts):
-        self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        super().__init__(opts)
-
-    def _getControl(self):
+    def OpenDevice(self):
         """
         Connects to the sensor
         """
-        num_tries = 3
-        for _ in range(num_tries):
-            try:
-                self._device.settimeout(5)
-                self._device.connect((self.ip, int(self.port)))
-            except socket.error as e:
-                self.logger.error('Didn\'t find anything at %s:%i. Trying again in 5 seconds...' % (self.ip, self.port))
-                #sock._device.close()
-                time.sleep(5)
-            else:
-                self._connected = True
-                return True
-        return False
+        self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self._device.settimeout(5)
+            self._device.connect((self.ip, int(self.port)))
+        except socket.error as e:
+            self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
+            return False
+        self._connected = True
+        return True
 
-    def SendRecv(self, message, dev=None):
+    def SendRecv(self, message):
         ret = {'retcode' : 0, 'data' : None}
 
         if not self._connected:
