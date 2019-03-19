@@ -39,7 +39,7 @@ class Plugin(threading.Thread):
         self.ctor_opts.update(config_doc['address'])
         if 'additional_params' in config_doc:
             self.ctor_opts.update(config_doc['additional_params'])
-        self.status_counter = 0
+        self.status_counter = {}
         self.last_message_time = dtnow()
         self.late_counter = 0
         self.last_measurement_time = time.time()
@@ -69,10 +69,13 @@ class Plugin(threading.Thread):
         self.logger.info('Stopping...')
         return
 
-    def OpenSensor(self):
+    def OpenSensor(self, reopen=False):
         """Tries to call the sensor constructor. Raises any exceptions recieved"""
-        if self.sensor is not None:
+        if self.sensor is not None and not reopen:
             return
+        if reopen:
+            self.controller.running = False
+            self.controller.close()
         try:
             self.controller = self.controller_ctor(self.ctor_opts)
             self.controller._Setup()
@@ -100,47 +103,9 @@ class Plugin(threading.Thread):
         self.logger.debug('Running...')
         while not self.sh.interrupted:
             self.logger.debug('Top of main loop')
-            loop_start_time = time.time()
-            self.HandleCommands()
-            loop_until = utils.heartbeat_timer + loop_start_time
+            loop_until = utils.heartbeat_timer + time.time()
             while time.time() < loop_until and not self.sh.interrupted:
-                try:
-                    packet = self.process_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                else:
-                    while packet is not None:
-                        if packet[3] < 0:
-                            self._connected = False
-                            self.logger.error('Lost connection to device?')
-                            try:
-                                self.sensor.close()
-                                self.sensor = None
-                                self.OpenSensor()
-                            except:
-                                self.logger.fatal('Could not reconnect!')
-                                try:
-                                    self.sensor.close()
-                                except:
-                                    pass
-                                finally:
-                                    self.sensor = None
-                                    self.sh.interrupted = True
-                                    break
-                            else:
-                                self.logger.info('Reconnected successfully')
-
-                        self.ProcessReading(*packet)
-                        try:
-                            self.logger.debug('Queue at %i' % self.process_queue.qsize())
-                            packet = self.process_queue.get_nowait()
-                        except queue.Empty:
-                            packet = None
-                        else:
-                            continue
                 self.KillTime()
-                if self.sh.interrupted:
-                    break
         self.close()
 
     def KillTime(self):
@@ -168,11 +133,7 @@ class Plugin(threading.Thread):
             wait_until = loop_start_time + utils.buffer_time
             while time.time() < wait_until and not self.sh.interrupted:
                 time.sleep(1)
-
-    def BufferData(self, reading_name, value):
-        """
-        Adds data to the storage buffer
-        """
+        self.log.debug('Bufferer returning')
 
     def ReadoutLoop(self, reading_name):
         """
@@ -213,19 +174,37 @@ class Plugin(threading.Thread):
         too_soon = (dt < message_time*60)
         alarm_level = reading['config'][runmode]['level']
         alarm_ranges = reading['alarms']
-        if alarm_level > -1:
-            if retcode < 0:
-                self.status_counter[rd_name] += 1
-                if self.status_counter[rd_name] >= 3 and not too_soon:
-                    msg = f'Something wrong? Status {index} is {retcode}'
-                    self.logger.warning(msg)
-                    self.db.logAlarm({'name' : self.name, 'reading' : rd_name,
+        if retcode < 0:
+            try:
+                self.logger.error('Lost connection to device?')
+                self._connected = False
+                self.OpenSensor(reopen=True)
+            except Exception as e:
+                self.logger.critical('Could not reconnect')
+                try:
+                    self._connected = False
+                    self.sensor.running = False
+                    self.sensor.close()
+                except:
+                    pass
+                finally:
+                    self.sensor = None
+                    self.sh.interrupted = True
+                    return
+            else:
+                self.logger.info('Successfully reconnected')
+            self.status_counter[rd_name] += 1
+            if self.status_counter[rd_name] >= 3 and not too_soon:
+                msg = f'Something wrong? Status {index} is {retcode}'
+                self.logger.warning(msg)
+                self.db.logAlarm({'name' : self.name, 'reading' : rd_name,
                             'when' : when, 'status' : retcode,
                             'reason' : 'status', 'howbad' : 0, 'msg' : msg})
-                    self.status_counter[rd_name] = 0
-                    self.last_message_time = dtnow()
-            else:
                 self.status_counter[rd_name] = 0
+                self.last_message_time = dtnow()
+        else:
+            self.status_counter[rd_name] = 0
+        if alarm_level > -1:
             try:
                 levels_to_check = list(range(alarm_level, len(alarm_ranges)))[::-1]
                 for j in levels_to_check:
@@ -237,7 +216,7 @@ class Plugin(threading.Thread):
                                f'{value:.3g}) is outside the level {j} alarm range '
                                f'({lo:.3g}, {hi:.3g})')
                             self.logger.warning(msg)
-                            self.db.logAlarm({'name' : self.name, 'rd_name' : rd_name,
+                            self.db.logAlarm({'name' : self.name, 'reading' : rd_name,
                                 'when' : dtnow(), 'data' : value,
                                 'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
                             self.recurrence_counter[rd_name] = 0
@@ -265,6 +244,7 @@ class Plugin(threading.Thread):
         self.last_measurement_time = time.time()
         with self.buffer_lock:
             self.buffer.append((rd_name, value))
+        return
 
     def HandleCommands(self):
         """
