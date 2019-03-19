@@ -13,11 +13,11 @@ import os
 
 
 def main(db):
-    names = db.Distinct('settings','controllers','name')
+    names = db.Distinct('settings','sensors','name')
     runmodes = db.Distinct('settings','runmodes','mode')
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
-                        help='Name of the controller',choices=names)
+                        help='Name of the sensor',choices=names)
     parser.add_argument('--runmode', type=str, dest='runmode', choices=runmodes,
                         help='Which run mode to use', default='testing')
     args = parser.parse_args()
@@ -27,7 +27,7 @@ def main(db):
     logger.addHandler(DobermanLogging.DobermanLogger(db))
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
-    doc = db.GetControllerSettings(args.plugin_name)
+    doc = db.GetSensorSettings(args.plugin_name)
     if doc['status'] != 'offline':
         if (datetime.datetime.now() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)
@@ -35,7 +35,7 @@ def main(db):
     if args.runmode == 'default' and os.environ['USER'] != 'doberman':
         print('Only doberman can start plugins in the default runmode')
         return
-    db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
+    db.updateDatabase('settings','sensors',{'name' : args.plugin_name},
             {'$set' : {'runmode' : args.runmode, 'status' : 'online'}})
     logger.info('Starting %s' % args.plugin_name)
     if 'feedback' in doc:
@@ -58,7 +58,7 @@ def main(db):
                 logger.info('Plugin stopped')
                 break
             if not plugin.is_alive():
-                logger.error('Controller died! Restarting...')
+                logger.error('Sensor died! Restarting...')
                 try:
                     sh.interrupted = True
                     plugin.join()
@@ -72,7 +72,7 @@ def main(db):
     except Exception as e:
         logger.fatal(f'Why did I catch a {type(e)} here? {e}')
     finally:
-        db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
+        db.updateDatabase('settings','sensors',{'name' : args.plugin_name},
                 {'$set' : {'status' : 'offline'}})
         plugin.sh.interrupted = True
         plugin.join()

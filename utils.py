@@ -129,16 +129,16 @@ def refreshTTY(db):
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
-    cuts = {'status' : 'online', 'address.ttyUSB' : {'$exists' : 1}}
+    cuts = {'status' : 'online', 'address.tty' : {'$exists' : 1, '$regex' : 'USB'}}
     if db.Count('settings','sensors', cuts):
         print('Some USB sensors are running! Stopping them now')
         running_sensors = db.Distinct('settings','sensors','name', cuts)
         for name in running_sensors:
             db.ParseCommand('stop %s' % name)
-        time.sleep(35)
+        time.sleep(heartbeat_timer*1.2)
     else:
         running_sensors = []
-    db.updateDatabase('settings','sensors',cuts={'address.ttyUSB' : {'$exists' : 1}}, updates={'$set' : {'address.ttyUSB' : -1}})
+    db.updateDatabase('settings','sensors',cuts={'address.tty' : {'$exists' : 1, '$regex' : 'USB'}}, updates={'$set' : {'address.tty' : '0'}})
     print('Refreshing ttyUSB mapping...')
     proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
     try:
@@ -179,7 +179,7 @@ def refreshTTY(db):
                 matched['sensors'].append(name)
                 matched['ttys'].append(tty)
                 db.updateDatabase('settings','sensors',
-                        {'name' : name}, {'$set' : {'address.ttyUSB' : tty_num}})
+                        {'name' : name}, {'$set' : {'address.tty' : 'USB%i' % tty_num}})
                 dev.close()
                 break
             #print('Not %s' % name)
@@ -193,7 +193,7 @@ def refreshTTY(db):
             tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
             print('Matched %s to %s via n-1' % (name, tty))
             db.updateDatabase('settings','sensors', {'name' : name},
-                    {'$set' : {'address.ttyUSB' : int(tty.split('USB')[-1])}})
+                    {'$set' : {'address.tty' : tty.split('tty')[-1]}})
         except:
             pass
     elif len(matched['sensors']) != len(sensors):
