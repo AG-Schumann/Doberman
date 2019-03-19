@@ -1,5 +1,4 @@
 from BasePlugin import Plugin
-import logging
 
 
 class BlindPlugin(Plugin):
