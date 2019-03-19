@@ -463,27 +463,30 @@ class DobermanDB(object):
         doc = self.GetSensorSettings(sensor_name)
         return doc[field]
 
-    def GetReading(self, key=None):
+    def GetReading(self, sensor=None, name=None):
         """
         Gets the document from one reading
 
-        :param key: the reading's key. Default 'None'
+        :param sensor: the name of the sensor
+        :param name: the name of the reading
         :returns: reading document
         """
-        return self.readFromDatabase('settings', 'readings', cuts={'key' : key},
-                onlyone=True)
+        return self.readFromDatabase('settings', 'readings',
+                cuts={'sensor' : sensor, 'name' : name}, onlyone=True)
 
-    def UpdateReading(self, key=None, field=None, value=None):
+    def UpdateReading(self, sensor=None, name=None, field=None, value=None):
         """
         Updates a parameter for a reading
 
-        :param key: the reading's key
+        :param sensor: the name of the sensor
+        :param name: the name of the reading
         :param field: the specific field to update
         :param value: the new value
         """
         if key is None:
             key = '%s__%s' % (sensor_name, reading_name)
-        self.updateDatabase('settings', 'readings', cuts={'key' : key},
+        self.updateDatabase('settings', 'readings',
+                cuts={'sensor' : sensor, 'name' : name},
                 updates={'$set' : {field : value}})
 
     def SetSensorSetting(self, name, field, value):
@@ -507,7 +510,7 @@ class DobermanDB(object):
         """
         if runmode:
             doc = self.readFromDatabase('settings','runmodes',
-                    {'mode' : runmode},onlyone=True)
+                    {'mode' : runmode}, onlyone=True)
             if name:
                 return doc[name]
             return doc
@@ -581,20 +584,18 @@ class DobermanDB(object):
         print()
         return 0
 
-    def writeDataToDatabase(self, collection_name, when, value):
+    def WriteDataToDatabase(self, sensor_name, data_doc):
         """
         Writes data to the database
 
-        :param collection_name: <sensor name>__<reading name>
-        :param when: datetime instance of reading timestamp
-        :param value: the actual value to insert
+        :param sensor_name: the name of the sensor
+        :param data_doc: the document with data
         :returns 0 on success, -1 otherwise
         """
-        ret = self.insertIntoDatabase('data', collection_name,
-                {'when' : when, 'data' : value})
+        ret = self.insertIntoDatabase('data', sensor_name, data_doc)
         if ret:
             self.logger.warning("Can not write data from %s to Database. "
-                                "Database interaction error." % collection_name)
+                                "Database interaction error." % sensor_name)
             return -1
         return 0
 

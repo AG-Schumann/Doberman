@@ -45,21 +45,23 @@ class Plugin(threading.Thread):
         self.last_measurement_time = time.time()
         self.sensor = None
         self.OpenSensor()
-        self.running = False
         self.has_quit = False
-        self.reading_keys = config_doc['readings']
-        self.readout_threads = []
+        self.reading_names = config_doc['readings']
+        self.readout_threads = {}
         self.process_queue = queue.Queue()
-        self.reading_lock = threading.RLock()
+        self.buffer_thread = None
+        self.buffer_lock = threading.Rlock()
+        self.buffer = [], []
         self.sh = utils.SignalHandler(self.logger)
         self.logger.debug('Started')
 
     def close(self):
         """Closes the sensor"""
         self.logger.debug('Beginning shutdown')
-        self.running = False
-        for t in self.readout_threads:
+        self.sh.interrupted = True
+        for t in self.readout_threads.values():
             t.join()
+        self.buffer_thread.join()
         if not self.sensor:
             return
         self.sensor.close()
@@ -89,20 +91,19 @@ class Plugin(threading.Thread):
         new commands, and repeats until told to quit. Closes the sensor when finished
         """
         self.OpenSensor()
-        self.running = True
-        for key in self.reading_keys:
-            self.readout_threads.append(threading.Thread(
-                target=self.ReadoutLoop,
-                args=(key,)))
-            self.readout_threads[-1].start()
+        self.buffer_thread = threading.Thread(target=self.Bufferer)
+        for key in self.reading_names:
+            t = threading.Thread(target=self.ReadoutLoop, args=(key, ))
+            t.start()
+            self.readout_threads[key] = t
             time.sleep(0.1)
         self.logger.debug('Running...')
-        while self.running and not self.sh.interrupted:
+        while not self.sh.interrupted:
             self.logger.debug('Top of main loop')
             loop_start_time = time.time()
             self.HandleCommands()
             loop_until = utils.heartbeat_timer + loop_start_time
-            while time.time() < loop_until and self.running:
+            while time.time() < loop_until and not self.sh.interrupted:
                 try:
                     packet = self.process_queue.get_nowait()
                 except queue.Empty:
@@ -124,7 +125,7 @@ class Plugin(threading.Thread):
                                     pass
                                 finally:
                                     self.sensor = None
-                                    self.running = False
+                                    self.sh.interrupted = True
                                     break
                             else:
                                 self.logger.info('Reconnected successfully')
@@ -150,38 +151,63 @@ class Plugin(threading.Thread):
         self.HandleCommands()
         return
 
-    def ReadoutLoop(self, reading_key):
+    def Bufferer(self):
+        """
+        Empties the buffer into the database periodically
+        """
+        while not self.sh.interrupted:
+            loop_start_time = time.time()
+            with self.buffer_lock:
+                if len(self.buffer[0]):
+                    doc = dict(self.buffer)
+                    self.logger.debug('%i readings, %i values' % (len(doc), len(self.buffer)))
+                    self.db.WriteDataToDatabase(self.name, doc)
+                    self.buffer = []
+                else:
+                    self.logger.debug('No data in buffer')
+            wait_until = loop_start_time + utils.buffer_time
+            while time.time() < wait_until and not self.sh.interrupted:
+                time.sleep(1)
+
+    def BufferData(self, reading_name, value):
+        """
+        Adds data to the storage buffer
+        """
+
+    def ReadoutLoop(self, reading_name):
         """
         A loop that puts readout commands into the Sensor's readout queue
 
         :param reading_key: the key of the reading that this loop handles
         """
-        while self.running and not self.sh.interrupted:
+        while not self.sh.interrupted:
             loop_start_time = time.time()
-            reading = self.db.GetReading(key=reading_key)
+            reading = self.db.GetReading(sensor=self.name, name=reading_name)
             if reading['status'] == 'online' and self._connected:
-                self.sensor.AddToSchedule(reading_name=reading['name'],
-                        callback=self.process_queue.put)
+                self.sensor.AddToSchedule(reading_name=reading_name,
+                                          callback=self.ProcessReading)
             sleep_until = loop_start_time + reading['readout_interval']
             now = time.time()
-            while self.running and not self.sh.interrupted and now < sleep_until:
+            while not self.sh.interrupted and now < sleep_until:
                 time.sleep(min(1, sleep_until - now))
                 now = time.time()
-        self.logger.debug('Loop "%s" returning' % reading_key)
+        self.logger.debug('Loop "%s" returning' % reading_name)
 
-    def ProcessReading(self, index, timestamp, value, retcode):
+    def ProcessReading(self, rd_name, value, retcode):
         """
         Checks data for warning/alarms and writes it to the database
 
-        :param index: the index of the reading to process
-        :param timestamp: unix timestamp of when the value was recorded
+        :param rd_name: the name of the reading to process
         :param value: the value the sensor returns
         :param retcode: the status code the sensor returns
         """
-        self.logger.debug('Processing (%i %s %i)' % (index, value, retcode))
-        runmode = self.runmode
-        reading = self.readings[index]
-        message_time = self.db.getDefaultSettings(runmode=runmode,name='message_time')
+        self.logger.debug('Processing (%s %s %i)' % (rd_name, value, retcode))
+        reading = db.GetReading(self.name, rd_name)
+        runmode = reading['runmode']
+        if rd_name not in self.status_counter:
+            self.status_counter[rd_name] = 0
+            self.recurrence_counter[rd_name] = 0
+        message_time = self.db.getDefaultSettings(runmode=runmode, name='message_time')
         readout_interval = reading['readout_interval']
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
@@ -189,44 +215,45 @@ class Plugin(threading.Thread):
         alarm_ranges = reading['alarms']
         if alarm_level > -1:
             if retcode < 0:
-                self.status_counter[index] += 1
-                if self.status_counter[index] >= 3 and not too_soon:
+                self.status_counter[rd_name] += 1
+                if self.status_counter[rd_name] >= 3 and not too_soon:
                     msg = f'Something wrong? Status {index} is {retcode}'
                     self.logger.warning(msg)
-                    self.db.logAlarm({'name' : self.name, 'index' : index,
+                    self.db.logAlarm({'name' : self.name, 'reading' : rd_name,
                             'when' : when, 'status' : retcode,
                             'reason' : 'status', 'howbad' : 0, 'msg' : msg})
-                    self.status_counter[index] = 0
+                    self.status_counter[rd_name] = 0
                     self.last_message_time = dtnow()
             else:
-                self.status_counter[index] = 0
+                self.status_counter[rd_name] = 0
             try:
                 levels_to_check = list(range(alarm_level, len(alarm_ranges)))[::-1]
                 for j in levels_to_check:
                     lo, hi = alarm_ranges[j]
                     if clip(value, lo, hi) in [lo, hi]:
-                        self.recurrence_counter[index] += 1
-                        if self.recurrence_counter[index] >= reading['recurrence'] and not too_soon:
-                            msg = (f"Reading {index} ({reading['description']}, value "
+                        self.recurrence_counter[rd_name] += 1
+                        if self.recurrence_counter[rd_name] >= reading['recurrence'] and not too_soon:
+                            msg = (f"Reading {rd_name} ({reading['description']}, value "
                                f'{value:.3g}) is outside the level {j} alarm range '
                                f'({lo:.3g}, {hi:.3g})')
-                            self.logger.critical(msg)
-                            self.db.logAlarm({'name' : self.name, 'index' : index,
+                            self.logger.warning(msg)
+                            self.db.logAlarm({'name' : self.name, 'rd_name' : rd_name,
                                 'when' : dtnow(), 'data' : value,
                                 'reason' : 'alarm', 'howbad' : j, 'msg' : msg})
-                            self.recurrence_counter[index] = 0
+                            self.recurrence_counter[rd_name] = 0
                             self.last_message_time = dtnow()
                     break
                 else:
-                    self.recurrence_counter[index] = 0
+                    self.recurrence_counter[rd_name] = 0
             except Exception as e:
-                self.logger.critical(f"Could not check reading {index} ({reading['description']}): {e} ({str(type(e))})")
+                self.logger.error(f"Could not check reading {rd_name} "
+                    f"({reading['description']}): {e} ({str(type(e))})")
         if value is None:
             return
-        time_diff = timestamp - self.last_measurement_time
-        if time_diff > 3*reading['readout_interval']:
+        time_diff = time.time() - self.last_measurement_time
+        if time_diff > 1.5*max(reading['readout_interval'], utils.heartbeat_timer):
             self.late_counter += 1
-            if self.late_counter >= 3 and not too_soon:
+            if self.late_counter >= 2 and not too_soon:
                 msg = f'Sensor responding slowly?'
                 self.logger.warning(msg)
                 self.db.logAlarm({'name' : self.name, 'when' : dtnow(),
@@ -235,10 +262,9 @@ class Plugin(threading.Thread):
                 self.late_counter = 0
         else:
             self.late_counter = 0
-        self.last_measurement_time = timestamp
-        collection_name = '%s__%s' % (self.name, reading['name'])
-        when = datetime.datetime.fromtimestamp(timestamp)
-        self.db.writeDataToDatabase(collection_name, when, value)
+        self.last_measurement_time = time.time()
+        with self.buffer_lock:
+            self.buffer.append((rd_name, value))
 
     def HandleCommands(self):
         """
@@ -254,7 +280,7 @@ class Plugin(threading.Thread):
                 loglevel = self.db.getDefaultSettings(runmode=runmode,name='loglevel')
                 self.logger.setLevel(int(loglevel))
             elif command == 'stop':
-                self.running = False
+                self.sh.interrupted = True
                 self.has_quit = True
                 # makes sure we don't get restarted
             elif command == 'wake':
