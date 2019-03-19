@@ -306,11 +306,11 @@ class DobermanDB(object):
         print()
         if name:
             print('Commands specific to %s:' % name)
-            ctrl_cls = utils.FindPlugin(name, ['.'])
-            if not hasattr(ctrl_cls, 'accepted_commands'):
+            snsr_cls = utils.FindPlugin(name, ['.'])
+            if not hasattr(snsr_cls, 'accepted_commands'):
                 print('none')
             else:
-                for row in ctrl_cls.accepted_commands:
+                for row in snsr_cls.accepted_commands:
                     print(row)
         print()
         print('Plugin name == "all" issues the command to applicable plugins. Context-aware.')

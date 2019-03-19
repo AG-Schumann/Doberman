@@ -39,14 +39,14 @@ class Sensor(object):
 
     def SetParameters(self):
         """
-        A function for a controller to set its operating parameters (commands,
+        A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
         pass
 
     def Setup(self):
         """
-        If a controller needs to receive a command after opening but
+        If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
         pass
@@ -233,10 +233,11 @@ class SerialSensor(Sensor):
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
         self._device.write_timeout = 5
-        if self.ttyUSB == -1:
-            self.logger.error('Could not find device: no ttyUSB')
+
+        if self.tty == '0':
+            self.logger.error('No tty port specified!')
             return False
-        self._device.port = '/dev/ttyUSB%i' % (self.ttyUSB)
+        self._device.port = '/dev/tty%s' % (self.tty)
         try:
             self._device.open()
         except serial.SerialException as e:
