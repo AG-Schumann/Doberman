@@ -28,7 +28,7 @@ def main(db):
     loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
     logger.setLevel(int(loglevel))
     doc = db.GetControllerSettings(args.plugin_name)
-    if doc['status'] == 'online':
+    if doc['status'] != 'offline':
         if (datetime.datetime.now() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)
             return
@@ -44,38 +44,37 @@ def main(db):
         ctor = BlindPlugin
     else:
         ctor = Plugin
-    running = True
     try:
         plugin = ctor(db, args.plugin_name, plugin_paths)
         sh = plugin.sh
         plugin.start()
-        while running and not sh.interrupted:
-            loop_start = time.time()
+        while not sh.interrupted:
+            loop_until = time.time + utils.heartbeat_timer
             db.Heartbeat(plugin.name)
             logger.debug('I\'m still here')
-            while time.time() - loop_start < utils.heartbeat_timer and not sh.interrupted:
+            while time.time() < loop_until and not sh.interrupted:
                 time.sleep(1)
             if plugin.has_quit or sh.interrupted:
                 logger.info('Plugin stopped')
                 break
-            if not (plugin.running and plugin.is_alive()):
+            if not plugin.is_alive():
                 logger.error('Controller died! Restarting...')
                 try:
-                    plugin.running = False
+                    sh.interrupted = True
                     plugin.join()
                     plugin = ctor(db, args.plugin_name, plugin_paths)
                     plugin.start()
+                    sh = plugin.sh
                 except Exception as e:
                     logger.critical('Could not restart: %s | %s' % (type(e), e))
-                    plugin.running = False
+                    sh.interrupted = True
                     plugin.join()
-                    running = False
     except Exception as e:
         logger.fatal(f'Why did I catch a {type(e)} here? {e}')
     finally:
         db.updateDatabase('settings','controllers',{'name' : args.plugin_name},
                 {'$set' : {'status' : 'offline'}})
-        plugin.running = False
+        plugin.sh.interrupted = True
         plugin.join()
         logger.info('Shutting down')
         if plugin.has_quit or (hasattr(sh, 'signal_number') and sh.signal_number == 2):

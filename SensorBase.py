@@ -94,7 +94,7 @@ class Sensor(object):
                 return
             self.logger.debug('Queuing %s' % (reading_name))
             self.cmd_queue.put((self.reading_commands[reading_name],
-                partial(self._ProcessReading(reading_name=reading_name, cb=callback)))
+                partial(self._ProcessReading(reading_name=reading_name, cb=callback))))
         elif command is not None:
             self.cmd_queue.put((command, lambda x : None))
 
@@ -107,7 +107,7 @@ class Sensor(object):
         :param pkg: the dict returned by SendRecv
         :param reading_name: the name of the reading
         :param cb: a function to call with the results. Must accept
-            as argument a tuple containing (name, timestamp, value, retcode). Will
+            as argument a tuple containing (name, value, retcode). Will
             most often be the 'put' method on the owning Plugin's process_queue.
             If ProcessOneReading throws an exception, value will be None
         :returns None
@@ -119,11 +119,10 @@ class Sensor(object):
             value = None
         self.logger.debug('Name %s values %s' % (reading_name, value))
         if isinstance(value, (list, tuple)):
-            now = time.time()
             for n,v in zip(self.reading_commands.keys(), value):
-                cb((n, now, v, pkg['retcode']))
+                cb(n, v, pkg['retcode'])
         else:
-            cb((reading_name, time.time(), value, pkg['retcode']))
+            cb(reading_name, value, pkg['retcode'])
         return
 
     def ProcessOneReading(self, name, data):
@@ -178,7 +177,10 @@ class Sensor(object):
         self.running = False
         self.readout_thread.join()
         self._connected = False
-        self._device.close()
+        try:
+            self._device.close()
+        except:
+            pass
         return
 
     def __del__(self):
