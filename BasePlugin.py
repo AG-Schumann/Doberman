@@ -51,7 +51,7 @@ class Plugin(threading.Thread):
         self.process_queue = queue.Queue()
         self.buffer_thread = None
         self.buffer_lock = threading.Rlock()
-        self.buffer = [], []
+        self.buffer = []
         self.sh = utils.SignalHandler(self.logger)
         self.logger.debug('Started')
 
@@ -95,10 +95,10 @@ class Plugin(threading.Thread):
         """
         self.OpenSensor()
         self.buffer_thread = threading.Thread(target=self.Bufferer)
-        for key in self.reading_names:
-            t = threading.Thread(target=self.ReadoutLoop, args=(key, ))
+        for name in self.reading_names:
+            t = threading.Thread(target=self.ReadoutLoop, args=(name, ))
             t.start()
-            self.readout_threads[key] = t
+            self.readout_threads[name] = t
             time.sleep(0.1)
         self.logger.debug('Running...')
         while not self.sh.interrupted:
@@ -139,7 +139,7 @@ class Plugin(threading.Thread):
         """
         A loop that puts readout commands into the Sensor's readout queue
 
-        :param reading_key: the key of the reading that this loop handles
+        :param reading_name: the name of the reading that this loop handles
         """
         while not self.sh.interrupted:
             loop_start_time = time.time()
