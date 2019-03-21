@@ -619,76 +619,6 @@ class DobermanDB(object):
                 print('Invalid input: %s' % which)
         return
 
-    def updateAlarms(self):
-        """
-        Allows a command-line user to update alarm settings. Disabled due to abuse
-        """
-        names = self.Distinct('settings','sensors','name')
-        print('Here are the available sensors:')
-        print('\n'.join(names))
-        print()
-        print('Which one do you want to update?')
-        name = input('>>> ')
-        if name not in names:
-            print('What is "%s"? It isn\'t in the above list' % name)
-            return
-        config_doc = self.GetSensorSettings(name)
-        descs = [r['description'] for r in config_doc['readings']]
-        print('Here are the different readings for %s:' % name)
-        for d in enumerate(descs):
-            print('%i: %s' % d)
-        print('What is the number of the reading you want to change?')
-        number = input('>>> ')
-        if number != 'expert':
-            try:
-                number = int(number)
-                if number not in range(len(descs)):
-                    raise ValueError
-            except ValueError:
-                print('Invalid number')
-                return
-
-            print('Here are the alarm levels for %s:' % descs[number])
-            for i,(lo,hi) in enumerate(config_doc['readings'][number]['alarms']):
-                print('(%i) low: %.2g | high: %.2g' % (i, lo, hi))
-
-            print('Which alarm level do you want to change?')
-            al_num = input('>>> ')
-            try:
-                al_num = int(al_num)
-                if al_num not in range(len(config_doc['readings'][number]['alarms'])):
-                    raise ValueError
-            except ValueError:
-                print('Invalid number')
-                return
-        else:
-            print('Give it to me:')
-            number, al_num = map(int, input('>>> ').split())
-
-        s = 'readings.%i.alarms.%i' % (number, al_num)
-
-        print('Enter new low value (n for no change):')
-        lo = input('>>> ')
-        print('Enter new high value (n for no change):')
-        hi = input('>>> ')
-        try:
-            if lo != 'n':
-                lo = float(lo)
-            else:
-                lo = config_doc['readings'][number]['alarms'][al_num][0]
-            if hi != 'n':
-                hi = float(hi)
-            else:
-                hi = config_doc['readings'][number]['alarms'][al_num][1]
-        except ValueError:
-            print('Invalid numbers')
-            return
-
-        cuts = {'name' : name}
-        updates = {'$set' : {s : [lo,hi]}}
-        self.updateDatabase('settings','sensors',cuts=cuts,updates=updates)
-        print('You got it')
-
     def addContact(self):
         """
         Allows a command-line user to add a new contact
@@ -735,46 +665,56 @@ class DobermanDB(object):
         """
         Gives a snapshot of the current system status
         """
-        pass
+        sensor_status = {}
+        reading_status = {}
+        now = dtnow()
+        for sensor_doc in self.readFromDatabase('settings','sensors'):
+            if 'Test' in sensor_doc['name']:
+                continue
+            sensor_status[sensor_doc['name']] = {
+                    'status' : sensor_doc['status'],
+                    'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
+                }
+            for reading_name in sensor_doc['readings']:
+                reading_doc = self.GetReading(sensor_doc['name'], reading_name):
+                reading_status['%s__%s' % (sensor_doc['name'], reading_name)] = {
+                            'status' : reading_doc['status'],
+                            'runmode' : reading_doc['runmode'],
+                        }
+                if reading_doc['status'] == 'online':
+                    data_doc = self.readFromDatabase('data', sensor_doc['name'],
+                                cuts={reading_doc['name'] : {'$exists' : 1}}
+                                sort=[('_id', -1)], onlyone=True):
+                    reading_doc['last_measured_value'] = data_doc[reading_doc['name']]
+                    doc_time = int(str(data_doc['_id'])[:8], 16)
+                    reading_doc['last_measurement_time'] = time.time() - doc_time
+        return {'sensor_status' : sensor_status, 'reading_status' : reading_status}
 
-    def CurrentStatus(self):
+def PrintCurrentStatus(status_doc):
         """
         Gives a command-line user a snapshot of the current system status
         """
         now = dtnow()
-        doc = self.getDefaultSettings()
-        print('Status: %s\nRunmode: %s' % (doc['status'], doc['runmode']))
-        print('Last heartbeat: %i seconds ago' % ((now - doc['heartbeat']).total_seconds()))
         print()
-        print('Currently running sensors:')
-        print("  Name: runmode")
-        print("    Description: seconds since last measurement | value")
-        s = "{name: >18s}: {dt: .3g} | {value: .3g}"
-        for row in self.readFromDatabase('settings','sensors',{'status' : 'online'}):
-            runmode = row['runmode']
-            print('{name: <12s}: {runmode: >12s}'.format(**row))
-            for reading in row['readings']:
-                datadoc = self.readFromDatabase('data','%s__%s' % (row['name'], reading['name']), onlyone=True, sort=[('when',-1)])
-                try:
-                    print(s.format(name=reading['description'],
-                        when=(now-datadoc['when']).total_seconds(),
-                        value=datadoc['data']))
-                except TypeError as e:
-                    print('{name: <12s} | TypeError | {desc}'.format(
-                        name=reading['description'], desc=e))
-        for row in self.readFromDatabase('settings','sensors',{'status' : 'sleep'}):
-            print('  {name} | sleep'.format(name=row['name']))
-        return
+        print('Sensor status and latest heartbeat:')
+        for name, doc in status_doc['sensor_status'].items():
+            print("\t{0}: {1} | {2:.2g} s".format(name, doc['status'], doc['last_heartbeat']))
+        print()
+        print('Reading status and latest value:')
+        for name, doc in status_doc['reading_status'].items():
+            print("\t{0} {1} {2}".format(
+                '%s - %s:' % name.split('__'),
+                doc['status'],
+                f"{(doc['runmode'])} | {doc['last_measurement_time']:.1f} s, {doc['last_measured_value']:.3g}" if doc['status'] == 'online' else ''))
+
 
 def main(db):
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman interface')
 
     parser.add_argument('--update', action='store_true', default=False,
-                        help='Update settings/contacts/etc')
+                        help='Update contacts')
     parser.add_argument('command', nargs='*',
                         help='Issue a command to the system. Try \'help\'')
-    parser.add_argument('--add-runmode', action='store_true', default=False,
-                        help='Add a new operation preset')
     parser.add_argument('--add-contact', action='store_true', default=False,
                         help='Add a new contact')
     parser.add_argument('--add-sensor', default=None, type=str,
@@ -786,17 +726,14 @@ def main(db):
         db.ParseCommand(' '.join(args.command))
         return
     if args.status:
-        db.CurrentStatus()
+        PrintCurrentStatus(db.GetCurrentStatus())
         return
     try:
-        if args.add_runmode:
-            db.addOpmode()
         if args.add_contact:
             db.addContact()
         if args.add_sensor:
             db.addSensor(args.add_sensor)
         if args.update:
-            #db.askForUpdates()
             db.updateContacts()
     except KeyboardInterrupt:
         print('Interrupted!')
