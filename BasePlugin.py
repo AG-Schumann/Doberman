@@ -40,6 +40,7 @@ class Plugin(threading.Thread):
         if 'additional_params' in config_doc:
             self.ctor_opts.update(config_doc['additional_params'])
         self.status_counter = {}
+        self.recurrence_counter = {}
         self.last_message_time = dtnow()
         self.late_counter = 0
         self.last_measurement_time = time.time()
@@ -50,7 +51,7 @@ class Plugin(threading.Thread):
         self.readout_threads = {}
         self.process_queue = queue.Queue()
         self.buffer_thread = None
-        self.buffer_lock = threading.Rlock()
+        self.buffer_lock = threading.RLock()
         self.buffer = []
         self.sh = utils.SignalHandler(self.logger)
         self.logger.debug('Started')
@@ -61,7 +62,10 @@ class Plugin(threading.Thread):
         self.sh.interrupted = True
         for t in self.readout_threads.values():
             t.join()
-        self.buffer_thread.join()
+        self.readout_threads = {}
+        if self.buffer_thread is not None:
+            self.buffer_thread.join()
+            self.buffer_thread = None
         if not self.sensor:
             return
         self.sensor.close()
@@ -71,9 +75,12 @@ class Plugin(threading.Thread):
 
     def OpenSensor(self, reopen=False):
         """Tries to call the sensor constructor. Raises any exceptions recieved"""
+        self.logger.debug('Connecting to sensor')
         if self.sensor is not None and not reopen:
+            self.logger.debug('Already connected!')
             return
         if reopen:
+            self.logger.debug('Attempting reconnect')
             self.controller.running = False
             self.controller.close()
         try:
@@ -95,6 +102,7 @@ class Plugin(threading.Thread):
         """
         self.OpenSensor()
         self.buffer_thread = threading.Thread(target=self.Bufferer)
+        self.buffer_thread.start()
         for name in self.reading_names:
             t = threading.Thread(target=self.ReadoutLoop, args=(name, ))
             t.start()
@@ -120,20 +128,23 @@ class Plugin(threading.Thread):
         """
         Empties the buffer into the database periodically
         """
+        self.logger.debug('Bufferer starting')
         while not self.sh.interrupted:
             loop_start_time = time.time()
             with self.buffer_lock:
-                if len(self.buffer[0]):
+                if len(self.buffer):
                     doc = dict(self.buffer)
                     self.logger.debug('%i readings, %i values' % (len(doc), len(self.buffer)))
                     self.db.WriteDataToDatabase(self.name, doc)
                     self.buffer = []
                 else:
                     self.logger.debug('No data in buffer')
-            wait_until = loop_start_time + utils.buffer_time
-            while time.time() < wait_until and not self.sh.interrupted:
-                time.sleep(1)
-        self.log.debug('Bufferer returning')
+            sleep_until = loop_start_time + utils.buffer_timer
+            now = time.time()
+            while now < sleep_until and not self.sh.interrupted:
+                time.sleep(min(1, sleep_until-now))
+                now = time.time()
+        self.logger.debug('Bufferer returning')
 
     def ReadoutLoop(self, reading_name):
         """
@@ -141,6 +152,7 @@ class Plugin(threading.Thread):
 
         :param reading_name: the name of the reading that this loop handles
         """
+        self.logger.debug('Loop "%s" starting' % reading_name)
         while not self.sh.interrupted:
             loop_start_time = time.time()
             reading = self.db.GetReading(sensor=self.name, name=reading_name)
@@ -165,7 +177,7 @@ class Plugin(threading.Thread):
         :param retcode: the status code the sensor returns
         """
         self.logger.debug('Processing (%s %s %i)' % (rd_name, value, retcode))
-        reading = db.GetReading(self.name, rd_name)
+        reading = self.db.GetReading(self.name, rd_name)
         runmode = reading['runmode']
         if rd_name not in self.status_counter:
             self.status_counter[rd_name] = 0

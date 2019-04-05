@@ -66,6 +66,7 @@ class Sensor(object):
         function that should call SendRecv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
+        self.logger.debug('Readout scheduler starting')
         while self.running:
             try:
                 packet = self.cmd_queue.get_nowait()
@@ -92,9 +93,8 @@ class Sensor(object):
         if reading_name is not None:
             if callback is None:
                 return
-            self.logger.debug('Queuing %s' % (reading_name))
             self.cmd_queue.put((self.reading_commands[reading_name],
-                partial(self._ProcessReading(reading_name=reading_name, cb=callback))))
+                partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
         elif command is not None:
             self.cmd_queue.put((command, lambda x : None))
 
