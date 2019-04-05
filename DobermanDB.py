@@ -452,16 +452,16 @@ class DobermanDB(object):
             return -1
         return 0
 
-    def LogUpdate(self, key, value, client_addr, client_name, client_user):
+    def LogUpdate(self, key, value, client):
         """
         Logs changes submitted from the website
         """
         self.insertIntoDatabase('logging', 'updates', {
             'update_key' : key,
             'update_val' : value,
-            'client_addr' : client_addr,
-            'client_name' : client_name,
-            'client_user' : client_user,
+            'client_addr' : client['client_addr'],
+            'client_name' : client['client_name'],
+            'client_user' : client['client_user'],
             })
         return
 
