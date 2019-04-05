@@ -255,7 +255,7 @@ def main(db):
     return 0
 
 if __name__ == '__main__':
-    db = DobermanDB.DobermanDB()
+    db = DobermanDB.DobermanDB(appname='monitor')
     try:
         main(db)
     except Exception as e:

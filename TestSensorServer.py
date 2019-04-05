@@ -11,27 +11,31 @@ class TestSensorLAN(object):
         self.dev.listen(1)
 
     def sandwich(self):
+        print('Ready')
         client, _ = self.dev.accept()
         with client:
             while True:
-                msg = client.recv(1024)
-                print('Received %s' % msg)
-                if not msg:
+                try:
+                    msg = client.recv(1024)
+                    print('Received %s' % msg)
+                    if not msg:
+                        break
+                    sleep_for = 0.006*random.random()
+                    print('Processing time: %.3g' % sleep_for)
+                    time.sleep(sleep_for)
+                    if b'one' in msg:
+                        client.sendall(b'OK;%.3g\r\n' % (5*random.random()))
+                    elif b'two' in msg:
+                        client.sendall(b'OK;%.3g\r\n' % (random.randint(1,6)))
+                    else:
+                        client.sendall(b'ERR;01\r\n')
+                    #client.close()
+                    sleep_for = 0.05*random.random()
+                    print('Cleanup time: %.3g' % sleep_for)
+                    time.sleep(sleep_for)
+                    print()
+                except:
                     break
-                sleep_for = 0.006*random.random()
-                print('Processing time: %.3g' % sleep_for)
-                time.sleep(sleep_for)
-                if b'one' in msg:
-                    client.sendall(b'OK;%.3g\r\n' % (5*random.random()))
-                elif b'two' in msg:
-                    client.sendall(b'OK;%.3g\r\n' % (random.randint(1,6)))
-                else:
-                    client.sendall(b'ERR;01\r\n')
-                #client.close()
-                sleep_for = 0.05*random.random()
-                print('Cleanup time: %.3g' % sleep_for)
-                time.sleep(sleep_for)
-                print()
 
 def main():
     dev = TestSensorLAN()

@@ -27,7 +27,7 @@ class Teledyne(SerialSensor):
         self.setcommand = self.basecommand + ' {params}'
         self.getcommand = self.basecommand + '?'
 
-        self.reading_pattern = re.compile(('READ:(?P<value>%s)' % number_regex).encode())
+        self.reading_pattern = re.compile(('READ: *(?P<value>%s)' % number_regex).encode())
         self.get_addr = re.compile(b'ADDR: *(?P<addr>[a-z])')
         self.command_echo = f'\\*{self.device_address}\\*:' + '{cmd} *;'
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
