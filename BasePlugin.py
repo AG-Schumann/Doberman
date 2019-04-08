@@ -110,10 +110,7 @@ class Plugin(threading.Thread):
             time.sleep(0.1)
         self.logger.debug('Running...')
         while not self.sh.interrupted:
-            self.logger.debug('Top of main loop')
-            loop_until = utils.heartbeat_timer + time.time()
-            while time.time() < loop_until and not self.sh.interrupted:
-                self.KillTime()
+            self.KillTime()
         self.close()
 
     def KillTime(self):

@@ -225,7 +225,7 @@ class DobermanDB(object):
                       'logged' : {'$lte' : now}},
                 updates={'$set' : {'acknowledged' : now}},
                 sort=[('logged',1)])
-        if doc and doc['by'] == 'feedback':
+        if doc and 'by' in doc and doc['by'] == 'feedback':
             self.DeleteDocuments('logging', 'commands', {'_id' : doc['_id']})
         return doc
 
@@ -323,7 +323,7 @@ class DobermanDB(object):
         print()
         return
 
-    def ProcessCommandStepOne(self, command_str, external_user=None):
+    def ProcessCommandStepOne(self, command_str, user=None):
         """
         Does the regex matching for command input
 
@@ -452,17 +452,11 @@ class DobermanDB(object):
             return -1
         return 0
 
-    def LogUpdate(self, key, value, client):
+    def LogUpdate(self, **kwargs):
         """
         Logs changes submitted from the website
         """
-        self.insertIntoDatabase('logging', 'updates', {
-            'update_key' : key,
-            'update_val' : value,
-            'client_addr' : client['client_addr'],
-            'client_name' : client['client_name'],
-            'client_user' : client['client_user'],
-            })
+        self.insertIntoDatabase('logging', 'updates', kwargs)
         return
 
     def GetSensorSettings(self, name):
@@ -506,8 +500,6 @@ class DobermanDB(object):
         :param field: the specific field to update
         :param value: the new value
         """
-        if key is None:
-            key = '%s__%s' % (sensor_name, reading_name)
         self.updateDatabase('settings', 'readings',
                 cuts={'sensor' : sensor, 'name' : name},
                 updates={'$set' : {field : value}})
