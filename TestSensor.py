@@ -10,3 +10,6 @@ class TestSensor(LANSensor):
         self.reading_commands = {'one' : 'one',
                                  'two' : 'two'}
         self.reading_pattern = re.compile(('OK;(?P<value>%s)' % number_regex).encode())
+        self.command_patterns = [
+                (re.compile('d(?P<sides>[1-9][0-9]*)',
+                    lambda m : f'SET:sides={m.group("sides")}'))]
