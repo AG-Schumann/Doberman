@@ -36,7 +36,7 @@ class isegNHQ(SerialSensor):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
-        self.reading_commands = [self.commands[x] for x in ['Current','Voltage','Vset','Status']]
+        self.reading_commands = {s.lower:self.commands[s] for s in ['Current','Voltage','Vset','Status']}
 
         self.command_patterns = [
                 (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),

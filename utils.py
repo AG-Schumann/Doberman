@@ -11,7 +11,8 @@ import inspect
 dtnow = datetime.datetime.now
 
 
-heartbeat_timer = 30
+heartbeat_timer = 300
+buffer_timer = 5
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 

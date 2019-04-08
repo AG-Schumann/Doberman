@@ -1,10 +1,6 @@
 from SensorBase import Sensor
 import u12
-<<<<<<< HEAD
-=======
-import logging
 import time
->>>>>>> a5a4c8479b2709631910e74f3fc91e85d1f349f9
 
 
 class labjack(Sensor):
@@ -31,7 +27,7 @@ class labjack(Sensor):
         temp = sum([v*resistance**i for i,v in enumerate(self.tc)])
         return temp
 
-    def AddToSchedule(self, reading_index=None, command=None, callback=None):
+    def AddToSchedule(self, reading_name=None, command=None, callback=None):
         """
         The labjack doesn't have a SendRecv interface, so we can't
         rely on the framework for other sensors here. As the labjack
@@ -39,15 +35,17 @@ class labjack(Sensor):
         `ReadoutScheduler`, `AddToSchedule` (the only thing actually called from
         the owning Plugin), `_ProcessReading`, and `ProcessOneReading`
         """
-        if index == 0:  # bias volate
+        value = None
+        retcode = 1
+        if reading_name == 'vbias':  # bias voltage
             v = self._device.eAnalogIn(channel=2, gain=0, **self.read_args)
             value = v['voltage']
             retcode = 0
-        elif index == 1:  # glovebox temperature
+        elif reading_name == 'box_temp':  # glovebox temperature
             v = self._devide.eAnalogIn(channel=0, gain=0, **self.read_args)
             value = self.NTCtoTemp(v['voltage'])
             retcode = 0
-        elif index == 2:  # MV frequency
+        elif reading_name == 'mv_freq':  # MV frequency
             count = self._device.eCount(resetCounter=1)
             counts = count['count']
             now = count['ms']
@@ -58,12 +56,12 @@ class labjack(Sensor):
                 value = counts/(now - self.then)*1000
                 self.then = now
                 retcode = 0
-        elif index == 3:  # valve sensors
+        elif reading_name == 'valve_sens':  # valve sensors
             v = self._device.eDigitalIn(channel=0, readD=0, **self.read_args)
             value = v['state']
             retcode = 0
-        elif index == 4:  # nitrogen valve state
+        elif reading_name == 'valve_state':  # nitrogen valve state
             v = self._device.eDigitalIn(channel=1, readD=0, **self.read_args)
             value = v['state']
             retcode = 0
-        callback((index, time.time(), value, retcode))
+        callback((reading_name, time.time(), value, retcode))
