@@ -23,12 +23,13 @@ class ExampleSensor(SerialSensor):
                          'prepare', 'some_command'
                          }
 
-        # this object is a list of the commands for the various readings this
+        # this object is a dict of the commands for the various readings this
         # sensor provides.
-        self.reading_commands = [self.commands['read'], self.commands['also_read']]
+        self.reading_commands = {zip(['cmd_name_0', 'cmd_name_1'],
+                                     [self.commands['read'], self.commands['also_read'])}
 
         # helpful regexes for output handling
-        self.read_pattern = re.compile(bytes('OK;(?P<value>%s)' % number_regex, 'utf-8'))
+        self.reading_pattern = re.compile(('OK;(?P<value>%s)' % number_regex).encode())
         self.error_pattern = re.compile(b'ERR;')
 
         # this is a list of (regular expression, function) objects. The regular expression
