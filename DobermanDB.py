@@ -21,17 +21,22 @@ class DobermanDB(object):
         self.appname = appname
         # Load database connection details
         try:
-            with open(os.path.join(utils.doberman_dir, 'connection_uri'), 'r') as f:
-                conn_str = f.read().rstrip()
-        except Exception as e:
-            print("Can not load database connection details. Error %s" % e)
-            raise
+            conn_str = os.environ['connection_uri']
+        except KeyError:
+            try:
+                with open(os.path.join(utils.doberman_dir, 'connection_uri'), 'r') as f:
+                    conn_str = f.read().rstrip()
+            except Exception as e:
+                print("Can not load database connection details. Error %s" % e)
+                raise
         try:
-            with open(os.path.join(utils.doberman_dir, 'experiment_name'), 'r') as f:
-                self.experiment_name = f.read().strip()
-        except Exception as e:
-            print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
-            raise
+            self.experiment_name = os.environ['experiment_name']
+        except KeyError:
+            try:
+                with open(os.path.join(utils.doberman_dir, 'experiment_name'), 'r') as f:
+                    self.experiment_name = f.read().strip()
+            except Exception as e:
+                print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
 
         self.client = None
         self._connect(conn_str)
@@ -65,6 +70,8 @@ class DobermanDB(object):
         :param collection_name: the name of the collections
         :returns collection instance of the requested collection.
         """
+        if not hasattr(self, 'experiment_name'):
+            raise ValueError('I don\'t know what experiment to look for')
         db_name = self.experiment_name + '_' + db_name
         if db_name not in self.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
