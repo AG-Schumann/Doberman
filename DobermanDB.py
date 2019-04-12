@@ -6,6 +6,7 @@ import utils
 import json
 import argparse
 import os
+import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 dtnow = datetime.datetime.now
 
@@ -15,21 +16,27 @@ class DobermanDB(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self):
+    def __init__(self, appname):
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.appname = appname
         # Load database connection details
         try:
-            with open(os.path.join(utils.doberman_dir, 'connection_uri'), 'r') as f:
-                conn_str = f.read().rstrip()
-        except Exception as e:
-            print("Can not load database connection details. Error %s" % e)
-            raise
+            conn_str = os.environ['connection_uri']
+        except KeyError:
+            try:
+                with open(os.path.join(utils.doberman_dir, 'connection_uri'), 'r') as f:
+                    conn_str = f.read().rstrip()
+            except Exception as e:
+                print("Can not load database connection details. Error %s" % e)
+                raise
         try:
-            with open(os.path.join(utils.doberman_dir, 'experiment_name'), 'r') as f:
-                self.experiment_name = f.read().strip()
-        except Exception as e:
-            print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
-            raise
+            self.experiment_name = os.environ['experiment_name']
+        except KeyError:
+            try:
+                with open(os.path.join(utils.doberman_dir, 'experiment_name'), 'r') as f:
+                    self.experiment_name = f.read().strip()
+            except Exception as e:
+                print("Cannot load experiment name. %s: %s" % (type(e), str(e)))
 
         self.client = None
         self._connect(conn_str)
@@ -50,7 +57,7 @@ class DobermanDB(object):
     def _connect(self, conn_str):
         if self.client is not None:
             return
-        self.client = pymongo.MongoClient(conn_str)
+        self.client = pymongo.MongoClient(conn_str, appname=self.appname, w=1)
 
     def _check(self, db_name, collection_name):
         """
@@ -63,6 +70,8 @@ class DobermanDB(object):
         :param collection_name: the name of the collections
         :returns collection instance of the requested collection.
         """
+        if not hasattr(self, 'experiment_name'):
+            raise ValueError('I don\'t know what experiment to look for')
         db_name = self.experiment_name + '_' + db_name
         if db_name not in self.client.list_database_names():
             self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
@@ -223,7 +232,7 @@ class DobermanDB(object):
                       'logged' : {'$lte' : now}},
                 updates={'$set' : {'acknowledged' : now}},
                 sort=[('logged',1)])
-        if doc and doc['by'] == 'feedback':
+        if doc and 'by' in doc and doc['by'] == 'feedback':
             self.DeleteDocuments('logging', 'commands', {'_id' : doc['_id']})
         return doc
 
@@ -266,7 +275,7 @@ class DobermanDB(object):
         """
         if name == 'doberman':
             cuts={}
-            coll = 'defaults'
+            coll = 'current_settings'
         else:
             cuts={'name' : name}
             coll = 'sensors'
@@ -321,27 +330,12 @@ class DobermanDB(object):
         print()
         return
 
-    def StoreCommand(self, name, command, future=None):
-        """
-        Puts a command into the database
-
-        :param name: the name of the entity the command is for
-        :param command: the command to be issued
-        :param future: a timedelta instance of how far into the future the
-        command should be handled, default None
-        """
-        template = {'name' : name, 'command' : command,
-                'by' : os.environ['USER'], 'logged' : dtnow()}
-        if future is not None:
-            template['logged'] += future
-        self.insertIntoDatabase('logging','commands', template)
-        return
-
-    def ParseCommand(self, command_str):
+    def ProcessCommandStepOne(self, command_str, user=None):
         """
         Does the regex matching for command input
 
         :param command_str: the string as received from the command line
+        :param external_user: a dict of info from the web interface
         """
         names = self.Distinct('settings','sensors','name')
         names_ = '|'.join(names + ['all'])
@@ -364,14 +358,14 @@ class DobermanDB(object):
         for pattern in patterns:
             m = re.search(pattern, command_str)
             if m:
-                self.ProcessCommand(m)
+                self.ProcessCommandStepTwo(m, user=user)
                 break
         else:
             print('Command \'%s\' not understood' % command_str)
 
-    def ProcessCommand(self, m):
+    def ProcessCommandStepTwo(self, m, user=None):
         """
-        Takes the match object (m) and figures out what it actually means
+        Takes the match object (m) from StepOne and figures out what it actually means
         """
         command = m['command']
         name = str(m['name'])
@@ -399,22 +393,22 @@ class DobermanDB(object):
                 'runmode' : online}[command]})
         if command == 'start':
             for n in names[name]:
-                self.StoreCommand('doberman', 'start %s %s' % (n, m['runmode']))
+                self.ProcessCommandStepThree('doberman', 'start %s %s' % (n, m['runmode']), user=user)
         elif command == 'stop':
             for n in names[name]:
-                self.StoreCommand(n, 'stop')
+                self.ProcessCommandStepThree(n, 'stop', user=user)
         elif command == 'restart':
             td = datetime.timedelta(seconds=1.1*utils.heartbeat_timer)
             for n in names[name]:
-                self.StoreCommand(n, 'stop')
-                self.StoreCommand('doberman', 'start %s None' % n, td)
+                self.ProcessCommandStepThree(n, 'stop', user=user)
+                self.ProcessCommandStepThree('doberman', 'start %s None' % n, td, user=user)
         elif command == 'sleep':
             duration = m['duration']
             if duration is None:
                 print('Can\'t sleep without specifying a duration!')
             elif duration == 'inf':
                 for n in names[name]:
-                    self.StoreCommand(n, 'sleep')
+                    self.ProcessCommandStepThree(n, 'sleep')
             else:
                 howmany = int(duration[:-1])
                 which = duration[-1]
@@ -422,16 +416,39 @@ class DobermanDB(object):
                 kwarg = {time_map[which] : howmany}
                 sleep_time = datetime.timedelta(**kwarg)
                 for n in names[name]:
-                    self.StoreCommand(n, 'sleep')
-                    self.StoreCommand(n, 'wake', sleep_time)
+                    self.ProcessCommandStepThree(n, 'sleep', user=user)
+                    self.ProcessCommandStepThree(n, 'wake', sleep_time, user=user)
         elif command == 'wake':
             for n in names[name]:
-                self.StoreCommand(n, 'wake')
+                self.ProcessCommandStepThree(n, 'wake', user=user)
         elif command == 'runmode':
             for n in names[name]:
-                self.StoreCommand(n, 'runmode %s' % m['runmode'])
+                self.ProcessCommandStepThree(n, 'runmode %s' % m['runmode'], user=user)
         else:
-            self.StoreCommand(name, command)
+            self.ProcessCommandStepThree(name, command, user=user)
+
+    def ProcessCommandStepThree(self, name, command, future=None, user=None):
+        """
+        Puts a command into the database
+
+        :param name: the name of the entity the command is for
+        :param command: the command to be issued
+        :param future: a timedelta instance of how far into the future the
+        command should be handled, default None
+        :param user: the info about an external user
+        """
+        command_doc = {'name' : name, 'command' : command, 'logged' : dtnow()}
+        if user is None:
+            user = {
+                    'client_addr' : '127.0.0.1',
+                    'client_host' : 'localhost',
+                    'client_name' : os.environ['USER']
+                    }
+        command_doc.update(user)
+        if future is not None:
+            command_doc['logged'] += future
+        self.insertIntoDatabase('logging','commands', command_doc)
+        return
 
     def logAlarm(self, document):
         """
@@ -441,6 +458,13 @@ class DobermanDB(object):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
+
+    def LogUpdate(self, **kwargs):
+        """
+        Logs changes submitted from the website
+        """
+        self.insertIntoDatabase('logging', 'updates', kwargs)
+        return
 
     def GetSensorSettings(self, name):
         """
@@ -483,8 +507,6 @@ class DobermanDB(object):
         :param field: the specific field to update
         :param value: the new value
         """
-        if key is None:
-            key = '%s__%s' % (sensor_name, reading_name)
         self.updateDatabase('settings', 'readings',
                 cuts={'sensor' : sensor, 'name' : name},
                 updates={'$set' : {field : value}})
@@ -514,7 +536,7 @@ class DobermanDB(object):
             if name:
                 return doc[name]
             return doc
-        doc = self.readFromDatabase('settings','defaults', onlyone=True)
+        doc = self.readFromDatabase('settings','current_status', onlyone=True)
         if name:
             return doc[name]
         return doc
@@ -532,13 +554,13 @@ class DobermanDB(object):
             if name in managed_plugins:
                 self.logger.info('%s already managed' % name)
             else:
-                self.updateDatabase('settings','defaults',cuts={},
+                self.updateDatabase('settings','current_settings',cuts={},
                         updates={'$push' : {'managed_plugins' : name}})
         elif action=='remove':
             if name not in managed_plugins:
                 self.logger.debug('%s isn\'t managed' % name)
             else:
-                self.updateDatabase('settings','defaults',cuts={},
+                self.updateDatabase('settings','current_settings',cuts={},
                         updates={'$pull' : {'managed_plugins' : name}})
         return
 
@@ -665,30 +687,32 @@ class DobermanDB(object):
         """
         Gives a snapshot of the current system status
         """
-        sensor_status = {}
-        reading_status = {}
+        status = {}
         now = dtnow()
         for sensor_doc in self.readFromDatabase('settings','sensors'):
-            if 'Test' in sensor_doc['name']:
-                continue
-            sensor_status[sensor_doc['name']] = {
+            sensor_name = sensor_doc['name']
+            #if 'Test' in sensor_name:
+            #    continue
+            status[sensor_name] = {
                     'status' : sensor_doc['status'],
                     'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
+                    'readings' : {}
                 }
             for reading_name in sensor_doc['readings']:
-                reading_doc = self.GetReading(sensor_doc['name'], reading_name):
-                reading_status['%s__%s' % (sensor_doc['name'], reading_name)] = {
-                            'status' : reading_doc['status'],
-                            'runmode' : reading_doc['runmode'],
-                        }
+                reading_doc = self.GetReading(sensor_name, reading_name)
+                status[sensor_name]['readings'][reading_name] = {
+                        'description' : reading_doc['description'],
+                        'status' : reading_doc['status'],
+                    }
                 if reading_doc['status'] == 'online':
-                    data_doc = self.readFromDatabase('data', sensor_doc['name'],
-                                cuts={reading_doc['name'] : {'$exists' : 1}}
-                                sort=[('_id', -1)], onlyone=True):
-                    reading_doc['last_measured_value'] = data_doc[reading_doc['name']]
+                    status[sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
+                    data_doc = self.readFromDatabase('data', sensor_name,
+                                cuts={reading_name : {'$exists' : 1}},
+                                sort=[('_id', -1)], onlyone=True)
+                    status[sensor_name]['readings'][reading_name]['last_value'] = data_doc[reading_name]
                     doc_time = int(str(data_doc['_id'])[:8], 16)
-                    reading_doc['last_measurement_time'] = time.time() - doc_time
-        return {'sensor_status' : sensor_status, 'reading_status' : reading_status}
+                    status[sensor_name]['readings'][reading_name]['last_time'] = time.time() - doc_time
+        return status
 
 def PrintCurrentStatus(status_doc):
         """
