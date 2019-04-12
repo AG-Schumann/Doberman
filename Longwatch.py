@@ -26,7 +26,7 @@ def main(db):
     return
 
 if __name__ == '__main__':
-    db = DobermanDB.DobermanDB()
+    db = DobermanDB.DobermanDB(appname="Longwatch")
     try:
         main(db)
     except Exception as e:

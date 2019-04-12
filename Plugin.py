@@ -49,7 +49,7 @@ def main(db):
         sh = plugin.sh
         plugin.start()
         while not sh.interrupted:
-            loop_until = time.time + utils.heartbeat_timer
+            loop_until = time.time() + utils.heartbeat_timer
             db.Heartbeat(plugin.name)
             logger.debug('I\'m still here')
             while time.time() < loop_until and not sh.interrupted:
@@ -84,10 +84,13 @@ def main(db):
     return
 
 if __name__ == '__main__':
-    db = DobermanDB.DobermanDB()
+    db = DobermanDB.DobermanDB(appname="plugin")
     try:
         main(db)
     except Exception as e:
         print('Caught a %s: %s' % (type(e), e))
+    #except KeyboardInterrupt:
+    #    print('Not catching anything')
+    logging.shutdown()
     db.close()
 

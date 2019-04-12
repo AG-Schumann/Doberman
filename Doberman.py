@@ -123,7 +123,7 @@ class Doberman(object):
 
     def checkCommands(self):
         doc = self.db.FindCommand('doberman')
-        db_col = ('settings','defaults')
+        db_col = ('settings','current_status')
         while doc is not None:
             self.logger.debug('%s' % doc)
             command = doc['command']
@@ -239,7 +239,7 @@ def main(db):
     # Load and start script
     doberman = Doberman(db)
     try:
-        db.updateDatabase('settings','defaults',{},{'$set' : {
+        db.updateDatabase('settings','current_status',{},{'$set' : {
             'runmode' : 'testing', 'status' : 'online'}})
         if doberman.Start():
             logger.error('Something went wrong here...')
@@ -250,12 +250,12 @@ def main(db):
         logger.error(str(type(e)))
         logger.error(str(e))
     finally:
-        db.updateDatabase('settings','defaults',{},{'$set' : {'status' : 'offline'}})
+        db.updateDatabase('settings','current_status',{},{'$set' : {'status' : 'offline'}})
         doberman.close()
     return 0
 
 if __name__ == '__main__':
-    db = DobermanDB.DobermanDB()
+    db = DobermanDB.DobermanDB(appname='monitor')
     try:
         main(db)
     except Exception as e:
