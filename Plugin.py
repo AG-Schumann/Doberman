@@ -14,29 +14,22 @@ import os
 
 def main(db):
     names = db.Distinct('settings','sensors','name')
-    runmodes = db.Distinct('settings','runmodes','mode')
     parser = argparse.ArgumentParser(usage='%(prog)s [options] \n\n Doberman plugin standalone')
     parser.add_argument('--name', type=str, dest='plugin_name', required=True,
                         help='Name of the sensor',choices=names)
-    parser.add_argument('--runmode', type=str, dest='runmode', choices=runmodes,
-                        help='Which run mode to use', default='testing')
     args = parser.parse_args()
 
     plugin_paths=[utils.doberman_dir]
     logger = logging.getLogger(args.plugin_name)
     logger.addHandler(DobermanLogging.DobermanLogger(db))
-    loglevel = db.getDefaultSettings(runmode=args.runmode,name='loglevel')
-    logger.setLevel(int(loglevel))
+    logger.setLevel(20)
     doc = db.GetSensorSettings(args.plugin_name)
     if doc['status'] != 'offline':
         if (datetime.datetime.now() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:
             logger.fatal('%s already running!' % args.plugin_name)
             return
-    if args.runmode == 'default' and os.environ['USER'] != 'doberman':
-        print('Only doberman can start plugins in the default runmode')
-        return
     db.updateDatabase('settings','sensors',{'name' : args.plugin_name},
-            {'$set' : {'runmode' : args.runmode, 'status' : 'online'}})
+            {'$set' : {'status' : 'online'}})
     logger.info('Starting %s' % args.plugin_name)
     if 'feedback' in doc:
         ctor = FeedbackController

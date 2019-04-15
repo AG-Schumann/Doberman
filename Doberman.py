@@ -64,13 +64,13 @@ class Doberman(object):
             self.logger.debug('Not updating tty settings')
         return 0
 
-    def StartSensor(self, name, runmode='testing'):
+    def StartSensor(self, name):
         """
         Starts the specified sensor and releases it into the wild
         """
         self.logger.info('Starting %s' % name)
         self.db.ManagePlugins(name, 'add')
-        cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s --runmode %s' % (name, runmode)
+        cmd = '/scratch/anaconda3/envs/Doberman/bin/python3 Plugin.py --name %s' % (name)
         _ = Popen(cmd, shell=True, stdout=DEVNULL, stderr=DEVNULL, close_fds=False, cwd='/scratch/doberman')
 
     def watchBees(self):
