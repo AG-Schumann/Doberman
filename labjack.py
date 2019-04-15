@@ -36,15 +36,13 @@ class labjack(Sensor):
         the owning Plugin), `_ProcessReading`, and `ProcessOneReading`
         """
         value = None
-        retcode = 1
+        retcode = 0
         if reading_name == 'vbias':  # bias voltage
             v = self._device.eAnalogIn(channel=2, gain=0, **self.read_args)
             value = v['voltage']
-            retcode = 0
         elif reading_name == 'box_temp':  # glovebox temperature
             v = self._devide.eAnalogIn(channel=0, gain=0, **self.read_args)
             value = self.NTCtoTemp(v['voltage'])
-            retcode = 0
         elif reading_name == 'mv_freq':  # MV frequency
             count = self._device.eCount(resetCounter=1)
             counts = count['count']
@@ -55,13 +53,13 @@ class labjack(Sensor):
             else:
                 value = counts/(now - self.then)*1000
                 self.then = now
-                retcode = 0
         elif reading_name == 'valve_sens':  # valve sensors
             v = self._device.eDigitalIn(channel=0, readD=0, **self.read_args)
             value = v['state']
-            retcode = 0
         elif reading_name == 'valve_state':  # nitrogen valve state
             v = self._device.eDigitalIn(channel=1, readD=0, **self.read_args)
             value = v['state']
-            retcode = 0
-        callback((reading_name, time.time(), value, retcode))
+        elif reading_name == 'levelmeter':
+            v = self._device.eAnalogIn(channel=6, gain=0, **self.read_args)
+            value = v['voltage']
+        callback(reading_name, value, retcode)
