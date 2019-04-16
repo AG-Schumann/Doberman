@@ -24,9 +24,7 @@ class smartec_uti(SerialSensor):
                 }
         self._msg_start = ''
         self._msg_end = '\r\n'
-        self.reading_commands = [self.commands['measure']]*3  # handles all cases
-        self.reading_commands = dict(zip(self.reading_names,
-                                         repeat(self.commands['measure'])))
+        self.reading_commands = dict(zip(self.readings, repeat(self.commands['measure'])))
 
     def Setup(self):
         self.SendRecv(self.commands['greet'])

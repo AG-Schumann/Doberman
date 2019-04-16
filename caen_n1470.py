@@ -32,7 +32,7 @@ class caen_n1470(SerialSensor):
         cmds = [('VMON','voltage'), ('VSET','setpt'), ('IMON','i'), ('STAT','status')]
         for (cmd, cmd_n),(ch,ch_i) in product(cmds, self.channel_map.items()):
             key = '%s_%s' % (ch, cmd_n)
-            self.reading_commands[key] = self.commands['read'].format(ch=ch_i,par=cmd))
+            self.reading_commands[key] = self.commands['read'].format(ch=ch_i,par=cmd)
         self.reading_pattern = re.compile(('OK,VAL:(?P<value>%s)' % number_regex).encode())
         self.command_patterns = [
                 (re.compile('(?P<ch>anode|cathode|screen) (?P<par>on|off)'),
