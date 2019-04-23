@@ -275,7 +275,7 @@ class DobermanDB(object):
         """
         if name == 'doberman':
             cuts={}
-            coll = 'current_settings'
+            coll = 'current_status'
         else:
             cuts={'name' : name}
             coll = 'sensors'
@@ -554,13 +554,13 @@ class DobermanDB(object):
             if name in managed_plugins:
                 self.logger.info('%s already managed' % name)
             else:
-                self.updateDatabase('settings','current_settings',cuts={},
+                self.updateDatabase('settings','current_status',cuts={},
                         updates={'$push' : {'managed_plugins' : name}})
         elif action=='remove':
             if name not in managed_plugins:
                 self.logger.debug('%s isn\'t managed' % name)
             else:
-                self.updateDatabase('settings','current_settings',cuts={},
+                self.updateDatabase('settings','current_status',cuts={},
                         updates={'$pull' : {'managed_plugins' : name}})
         return
 
