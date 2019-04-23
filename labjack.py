@@ -9,9 +9,6 @@ class labjack(Sensor):
     than Sensor
     """
     def SetParameters(self):
-        self.analog_channels = list(map(int, self.analog_channels))
-        self.digital_channels = list(map(int, self.digital_channels))
-
         self.then = 0
         self.read_args = {'idNum' : None, 'demo' : 0}
 
