@@ -73,9 +73,9 @@ class DobermanDB(object):
         if not hasattr(self, 'experiment_name'):
             raise ValueError('I don\'t know what experiment to look for')
         db_name = self.experiment_name + '_' + db_name
-        if db_name not in self.client.list_database_names():
-            self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
-        elif collection_name not in self.client[db_name].list_collection_names(False):
+        #if db_name not in self.client.list_database_names():
+        #    self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
+        if collection_name not in self.client[db_name].list_collection_names(False):
             self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
             self.client[db_name].create_collection(collection_name)
             if 'data' in db_name:
