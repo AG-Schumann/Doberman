@@ -448,6 +448,7 @@ class DobermanDB(object):
         if future is not None:
             command_doc['logged'] += future
         self.insertIntoDatabase('logging','commands', command_doc)
+        print(f'Stored "{command}" for {name}')
         return
 
     def logAlarm(self, document):
@@ -651,15 +652,11 @@ class DobermanDB(object):
         print('New contact:')
         firstname = input('First name: ')
         lastname = input('Last name: ')
-        if firstname in self.Distinct('settings','contacts','name'):
-            firstname = firstname + lastname[0]
         sms = input('sms: ')
         email = input('email: ')
-        status = utils.getUserInput('Status (int): ', input_type=[int], exceptions=['n'])
-        if status == 'n':
-            status = '-1'
-        if self.insertIntoDatabase('settings','contacts',{'name' : firstname, 'sms' : sms,
-            'email' : email, 'status' : status}):
+        status = '-1'
+        if self.insertIntoDatabase('settings','contacts',{'name' : firstname + lastname[0],
+            'sms' : sms, 'email' : email, 'status' : status}):
             print('Could not add contact!')
         return
 
@@ -747,7 +744,7 @@ def main(db):
                         help='List current status')
     args = parser.parse_args()
     if args.command:
-        db.ParseCommand(' '.join(args.command))
+        db.ProcessCommandStepOne(' '.join(args.command))
         return
     if args.status:
         PrintCurrentStatus(db.GetCurrentStatus())
@@ -767,7 +764,7 @@ def main(db):
     return
 
 if __name__ == '__main__':
-    db = DobermanDB()
+    db = DobermanDB(appname='CLI')
     try:
         main(db)
     except Exception as e:
