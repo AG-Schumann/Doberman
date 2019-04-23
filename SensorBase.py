@@ -175,7 +175,8 @@ class Sensor(object):
 
     def close(self):
         self.running = False
-        self.readout_thread.join()
+        if hasattr(self, 'readout_thread'):
+            self.readout_thread.join()
         self._connected = False
         try:
             self._device.close()
