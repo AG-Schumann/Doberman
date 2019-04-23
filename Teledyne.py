@@ -33,7 +33,7 @@ class Teledyne(SerialSensor):
         self.retcode = f'!{self.device_address}!(?P<retcode>[beow])!'
 
         self.setpoint_map = {'auto' : 0, 'open' : 1, 'close' : 2}
-        self.reading_commands = {'flow' : self.commands['read']}
+        self.reading_commands = {'flow' : self.basecommand.format(cmd=self.commands['read'])}
         self.command_patterns = [
                 (re.compile(r'setpoint (?P<params>%s)' % number_regex),
                     lambda x : self.setcommand.format(cmd=self.commands['SetpointValue'],

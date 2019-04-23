@@ -4,7 +4,7 @@ from utils import number_regex
 
 
 class pfeiffer_tpg(LANSensor):
-    def SetParameters(self, opts):
+    def SetParameters(self):
         self._msg_begin = ''
         self._msg_end = '\r\n\x05'
         self.commands = {

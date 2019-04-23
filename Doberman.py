@@ -86,14 +86,12 @@ class Doberman(object):
             while not sh.interrupted:
                 loop_start_time = time.time()
                 self.Heartbeat()
-                if not self.sleep:
-                    self.logger.debug('Still watching the bees...')
-                    self.checkAlarms()
+                self.logger.debug('Still watching the bees...')
+                self.checkAlarms()
                 self.checkCommands()
                 while (time.time()-loop_start_time) < loop_time and not sh.interrupted:
                     time.sleep(1)
-                    if not self.sleep:
-                        self.checkCommands()
+                    self.checkCommands()
         except Exception as e:
             self.logger.fatal("Caught fatal exception: %s | %s" % (type(e), str(e)))
         finally:
@@ -107,13 +105,11 @@ class Doberman(object):
             if time_since > 3*utils.heartbeat_timer:
                 self.logger.info('%s hasn\'t reported in recently (%i seconds). Let me try restarting it...' % (name, time_since))
                 # log alarm?
-                #self.db.updateDatabase('settings','sensors',cuts={'name' : name},
-                #        updates={'$set' : {'status' : 'offline'}})
-                runmode = self.db.GetSensorSettings(name)['runmode']
-                self.StartSensor(name, runmode=runmode)
-                time.sleep(5)
+                self.db.SetSensorSetting(name, 'status', 'offline')
+                self.StartSensor(name)
+                time.sleep(10)
                 if self.db.CheckHeartbeat(name) > utils.heartbeat_timer:
-                    self.logger.error('I can\'t restart %s')
+                    self.logger.error('I can\'t restart %s' % name)
                     alarm_doc = {'name' : 'doberman', 'when' : dtnow(), 'howbad' : 1,
                             'msg' : '%s has died and I can\'t restart it' % name}
                     self.db.logAlarm(alarm_doc)
@@ -128,17 +124,9 @@ class Doberman(object):
             self.logger.debug('%s' % doc)
             command = doc['command']
             self.logger.info(f"Found '{command}'")
-            if command == 'sleep':
-                self.sleep = True
-                self.db.updateDatabase(*db_col,{},{'$set' : {'status' : 'sleep'}})
-            elif command == 'wake':
-                self.sleep = False
-                self.db.updateDatabase(*db_col,{},{'$set' : {'status' : 'online'}})
-            elif command.startswith('start'):
-                _, name, runmode = command.split()
-                if runmode == 'None':
-                    runmode = self.db.getDefaultSettings(name='runmode')
-                self.StartSensor(name, runmode)
+            if command.startswith('start'):
+                _, name, _ = command.split()
+                self.StartSensor(name)
             elif command.startswith('runmode'):
                 _, runmode = command.split()
                 self.db.updateDatabase(*db_col,{},{'$set' : {'runmode' : runmode}})
