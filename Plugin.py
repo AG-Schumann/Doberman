@@ -22,7 +22,7 @@ def main(db):
     plugin_paths=[utils.doberman_dir]
     logger = logging.getLogger(args.plugin_name)
     logger.addHandler(DobermanLogging.DobermanLogger(db))
-    logger.setLevel(20)
+    logger.setLevel(10)
     doc = db.GetSensorSettings(args.plugin_name)
     if doc['status'] != 'offline':
         if (datetime.datetime.now() - doc['heartbeat']).total_seconds() < 3*utils.heartbeat_timer:

@@ -8,6 +8,7 @@ import datetime
 import signal
 import os.path
 import inspect
+import re
 dtnow = datetime.datetime.now
 
 
@@ -138,7 +139,9 @@ def refreshTTY(db):
         time.sleep(heartbeat_timer*1.2)
     else:
         running_sensors = []
-    db.updateDatabase('settings','sensors',cuts={'address.tty' : {'$exists' : 1, '$regex' : 'USB'}}, updates={'$set' : {'address.tty' : '0'}})
+    db.updateDatabase('settings','sensors',
+            cuts={'address.tty' : {'$exists' : 1, '$regex' : '^0|USB[1-9]?[0-9]'}},
+            updates={'$set' : {'address.tty' : '0'}})
     print('Refreshing ttyUSB mapping...')
     proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
     try:
@@ -149,21 +152,18 @@ def refreshTTY(db):
     if not len(out) or len(err):
         raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
     ttyUSBs = out.decode().splitlines()
-    cursor = db.readFromDatabase('settings','sensors', {'address.ttyUSB' : {'$exists' : 1}})
+    cursor = db.readFromDatabase('settings','sensors',
+            cuts={'address.tty' : {'$exists' : 1, '$regex' : '^0|USB[1-9]?[0-9]'}})
     sensor_config = {row['name'] : row for row in cursor}
     sensor_names = list(sensor_config.keys())
     sensors = {name: None for name in sensor_names}
     matched = {'sensors' : [], 'ttys' : []}
     for sensor in sensor_names:
-        opts = {}
-        opts['name'] = sensor
-        opts.update(sensor_config[sensor]['address'])
-        if 'additional_params' in sensor_config[sensor]:
-            opts.update(sensor_config[sensor]['additional_params'])
+        opts = SensorOpts(sensor_config[sensor])
         sensors[sensor] = FindPlugin(sensor, [doberman_dir])(opts)
     dev = serial.Serial()
     for tty in ttyUSBs:
-        tty_num = int(tty.split('USB')[-1])
+        tty_num = int(re.search('USB([1-9]?[0-9])', tty).group(1))
         print('Checking %s' % tty)
         dev.port = tty
         try:
@@ -175,11 +175,11 @@ def refreshTTY(db):
             if name in matched['sensors']:
                 continue
             if sensor.isThisMe(dev):
-                print('Matched %s to %s' % (tty_num, name))
+                print('Matched %s to %s' % (tty, name))
                 matched['sensors'].append(name)
                 matched['ttys'].append(tty)
-                db.updateDatabase('settings','sensors',
-                        {'name' : name}, {'$set' : {'address.tty' : 'USB%i' % tty_num}})
+                db.updateDatabase('settings','sensors', {'name' : name},
+                        {'$set' : {'address.tty' : 'USB%i' % tty_num}})
                 dev.close()
                 break
             #print('Not %s' % name)
@@ -206,9 +206,9 @@ def refreshTTY(db):
         l = set(ttyUSBs) - set(matched['ttys'])
         print('\n'.join(l))
         return False
-    for usb, name in zip(matched['ttys'],matched['sensors']):
-            db.updateDatabase('settings','sensors', {'name' : name},
-                    {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
+    #for usb, name in zip(matched['ttys'],matched['sensors']):
+    #        db.updateDatabase('settings','sensors', {'name' : name},
+    #                {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
 
     db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
     for name in running_sensors:
@@ -225,19 +225,33 @@ def FindPlugin(name, path):
     :param path: a list of paths in which to search for the file
     :returns constructor: the constructor of the requested sensor
     """
+    strip = False
     spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
+        strip = True
         spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
     if spec is None:
         raise FileNotFoundError('Could not find a sensor named %s' % name)
     try:
-        sensor_ctor = getattr(spec.loader.load_module(), name)
-    except AttributeError:
-        try:
+        if strip:
             sensor_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
-        except AttributeError:
-            raise AttributeError('Cound not find constructor for %s!' % name)
+        else:
+            sensor_ctor = getattr(spec.loader.load_module(), name)
+    except AttributeError:
+        raise AttributeError('Cound not find constructor for %s!' % name)
     return sensor_ctor
+
+def SensorOpts(config_doc):
+    """
+    Returns the dictionary of settings to be passed to a Sensor constructor
+    """
+    opts = {}
+    opts['name'] = config_doc['name']
+    opts.update(config_doc['address'])
+    opts['readings'] = config_doc['readings']
+    if 'additional_params' in config_doc:
+        opts.update(config_doc['additional_params'])
+    return opts
 
 class SignalHandler(object):
     """ Handles signals from the OS

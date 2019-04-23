@@ -34,11 +34,7 @@ class Plugin(threading.Thread):
         self.db = db
         config_doc = self.db.GetSensorSettings(self.name)
         self.sensor_ctor = utils.FindPlugin(self.name, plugin_paths)
-        self.ctor_opts = {}
-        self.ctor_opts['name'] = self.name
-        self.ctor_opts.update(config_doc['address'])
-        if 'additional_params' in config_doc:
-            self.ctor_opts.update(config_doc['additional_params'])
+        self.ctor_opts = utils.SensorOpts(config_doc)
         self.status_counter = {}
         self.recurrence_counter = {}
         self.last_message_time = dtnow()
