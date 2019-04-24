@@ -135,7 +135,7 @@ def refreshTTY(db):
         print('Some USB sensors are running! Stopping them now')
         running_sensors = db.Distinct('settings','sensors','name', cuts)
         for name in running_sensors:
-            db.ParseCommand('stop %s' % name)
+            db.ProcessCommandStepOne('stop %s' % name)
         time.sleep(heartbeat_timer*1.2)
     else:
         running_sensors = []
