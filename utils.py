@@ -210,7 +210,7 @@ def refreshTTY(db):
     #        db.updateDatabase('settings','sensors', {'name' : name},
     #                {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
 
-    db.updateDatabase('settings','defaults', {}, {'$set' : {'tty_update' : dtnow()}})
+    db.updateDatabase('settings','current_status', {}, {'$set' : {'tty_update' : dtnow()}})
     for name in running_sensors:
         db.ParseCommand('start %s' % name)
     return True
