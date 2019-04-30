@@ -1,8 +1,8 @@
-from ControllerBase import SerialController
+from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/207
 
 
-class dg1022(SerialController):
+class dg1022(SerialSensor):
     """
     Pulser for the LED calibration
     """
@@ -11,26 +11,28 @@ class dg1022(SerialController):
             'stop led: stops the pulser'
             ]
 
-    def __init__(self, opts):
-        super().__init__(opts)
+    def SetParameters(self):
+        self.reading_patterns = {}
+        self.command_patterns = {
+                'start led' : self.start,
+                'stop led' : self.stop
+                }
 
     def isThisMe(self, dev):
         cmd = '*idn?'
         info = self.SendRecv(cmd, dev)
         try:
-            if info['data'].decode().split(',')[1] == 'DG1022':
-                return True
-            return False
+            return info['data'].decode().split(',')[1] == 'DG1022'
         except:
             return False
 
-    def start(self):
+    def start(self, *args):
         commands = [
                 'output off',
                 'system:rwlock',
                 'system:clksrc int',
                 'frequency %f' % self.frequency,
-                'function:square:dcycle %f' % self.width*self.frequency,
+                'function:square:dcycle %f' % self.duty_cycle,
                 'voltage:unit vpp',
                 'voltage:high %f' % self.amplitude,
                 'voltage:low 0',
@@ -46,7 +48,7 @@ class dg1022(SerialController):
                 return
         return
 
-    def stop(self):
+    def stop(self, *args):
         commands = [
                 'output off',
                 'system:local'
