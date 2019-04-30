@@ -17,6 +17,7 @@ class dg1022(SerialSensor):
                 'start led' : self.start,
                 'stop led' : self.stop
                 }
+        return
 
     def isThisMe(self, dev):
         cmd = '*idn?'
