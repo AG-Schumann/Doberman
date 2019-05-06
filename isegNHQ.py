@@ -58,16 +58,16 @@ class isegNHQ(SerialSensor):
             return True
         return False
 
-    def ProcessOneReading(self, index, data):
+    def ProcessOneReading(self, name, data):
         data = data.splitlines()[1]
-        if index == 0:  # current
+        if name == 'current':
             data = data.decode()
             return float(f'{data[:3]}E{data[4:]}')
-        elif index == 1:  # voltage
+        elif name == 'voltage':
             return float(data)
-        elif index == 2:  # setpoint
+        elif name == 'vset':
             return float(data)
-        elif index == 3:  # state
+        elif name == 'status':  # state
             data = data.split(b'=')[1].strip()
             return self.state.get(data.decode(), -1)
 
