@@ -179,7 +179,7 @@ class Plugin(threading.Thread):
         readout_interval = reading['readout_interval']
         dt = (dtnow() - self.last_message_time).total_seconds()
         too_soon = (dt < message_time*60)
-        alarm_level = reading['config'][runmode]['level']
+        alarm_level = int(reading['config'][runmode]['level'])
         alarm_ranges = reading['alarms']
         if retcode < 0:
             try:
@@ -187,7 +187,7 @@ class Plugin(threading.Thread):
                 self._connected = False
                 self.OpenSensor(reopen=True)
             except Exception as e:
-                self.logger.critical('Could not reconnect')
+                self.logger.critical(f'Could not reconnect: {type(e)}, {e}')
                 try:
                     self._connected = False
                     self.sensor.running = False
@@ -202,7 +202,7 @@ class Plugin(threading.Thread):
                 self.logger.info('Successfully reconnected')
             self.status_counter[rd_name] += 1
             if self.status_counter[rd_name] >= 3 and not too_soon:
-                msg = f'Something wrong? Status {index} is {retcode}'
+                msg = f'Something wrong? Status is {retcode}'
                 self.logger.warning(msg)
                 self.db.logAlarm({'name' : self.name, 'reading' : rd_name,
                             'when' : when, 'status' : retcode,
