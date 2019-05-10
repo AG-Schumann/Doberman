@@ -56,7 +56,7 @@ class isegNHQ(SerialSensor):
         return resp['data'].decode().rstrip().split(';')[0] == self.serialID
 
     def ProcessOneReading(self, name, data):
-        data = data.splitlines()[1]
+        data = data.splitlines()[1].rstrip()
         if name == 'current':
             data = data.decode()
             return float(f'{data[:3]}E{data[4:]}')
