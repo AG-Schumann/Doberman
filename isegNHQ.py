@@ -2,6 +2,7 @@ from SensorBase import SerialSensor
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
+from functools import partial
 
 
 class isegNHQ(SerialSensor):
@@ -9,16 +10,14 @@ class isegNHQ(SerialSensor):
     iseg NHQ sensor
     """
     accepted_commands = [
-            'Vset <value>: voltage setpoint',
-            'Ilim <value>: current limit',
-            'Vramp <value>: voltage ramp speed',
-            'Vstart: start voltage ramp after inhibit',
+            "ramp <up|down>: ramp the voltage",
         ]
 
     def SetParameters(self):
         self._msg_end = '\r\n'
         self._msg_start = ''
         self.basecommand = '{cmd}'
+        self.last_ramp_request = None
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
         self.commands = {'open'     : '',
@@ -37,13 +36,11 @@ class isegNHQ(SerialSensor):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
-        self.reading_commands = {s.lower:self.commands[s] for s in ['Current','Voltage','Vset','Status']}
+        self.reading_commands = {s.lower():self.commands[s]
+                for s in ['Current', 'Voltage', 'Vset', 'Status']}
 
         self.command_patterns = [
-                (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
-                    lambda m : self.setcommand.format(cmd=self.commands[m.group('cmd')],
-                        value=m.group('value'))),
-                (re.compile('(?P<cmd>Vstart)', lambda m : self.commands['Vstart'])
+                (re.compile("^(arm|confirm) ramp (up|down)$"), self.Ramp),
                 ]
 
     def Setup(self):
@@ -63,11 +60,52 @@ class isegNHQ(SerialSensor):
         if name == 'current':
             data = data.decode()
             return float(f'{data[:3]}E{data[4:]}')
-        elif name in ['voltage', 'vset']:
+        if name in ['voltage', 'vset']:
             return float(data)
-        elif name == 'status':  # state
+        if name == 'status':  # state
             data = data.split(b'=')[1].strip()
             return self.state.get(data.decode(), -1)
+
+    def Ramp(self, m):
+        if m.group(1) == 'arm':
+            if self.last_ramp_request is not None:
+                self.logger.error('Ramp already armed')
+                return
+            self.last_ramp_request = time.time()
+            self.logger.info('Please confirm ramp command')
+            return
+        elif m.group(1) == 'confirm':
+            if self.last_ramp_request is None:
+                self.logger.error('Ramp not armed')
+                return
+            if time.time() - self.last_ramp_request < 10:
+                self.logger.info('Acknowledged, begging ramp sequence')
+                self.last_ramp_request = None
+            else:
+                self.logger.error('Ramp request denied')
+                self.last_ramp_request = None
+                return
+        else:
+            self.logger.info('Whaa...?')
+        if m.group(2) == 'up':
+            target = int(self.setpoint)
+        elif m.group(2) == 'down':
+            target = 0
+        else:
+            self.logger.error('I don\'t know how to ramp "%s"' % m.group(1))
+            return
+        commands = [
+                ("Status", None),  # reading status word clears inhibit
+                ("Vramp", int(self.ramp_rate)),
+                ("Vset", target),
+                ("Vstart", None),
+                ]
+        for cmd, val in commands:
+            if val is not None:
+                self.AddToSchedule(command=self.setcommand(cmd=self.commands[cmd],
+                                                           value=val))
+            else:
+                self.AddToSchedule(command=self.commands[cmd])
 
     def Readout(self):
         """
@@ -100,11 +138,13 @@ class isegNHQ(SerialSensor):
         ret = {'retcode' : 0, 'data' : None}
         for c in msg:
             device.write(c.encode())
-            time.sleep(1)
-            echo = device.read(1).decode()
-            if c != echo:
-                pass
-            time.sleep(1)
+            for _ in range(10):
+                time.sleep(0.1)
+                echo = device.read(1).decode()
+                if echo is not None:
+                    response += echo
+                    break
+            time.sleep(0.5)
         if '=' in message:  # 'set' command, nothing left other than CR/LF
             device.read(device.in_waiting)
             return ret
