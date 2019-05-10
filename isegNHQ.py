@@ -2,7 +2,6 @@ from SensorBase import SerialSensor
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
-from functools import partial
 
 
 class isegNHQ(SerialSensor):
@@ -10,7 +9,8 @@ class isegNHQ(SerialSensor):
     iseg NHQ sensor
     """
     accepted_commands = [
-            "ramp <up|down>: ramp the voltage",
+            "arm ramp <up|down>: prepare to ramp the voltage",
+            "confirm ramp <up|down>: confirm the voltage ramp",
         ]
 
     def SetParameters(self):
@@ -67,6 +67,11 @@ class isegNHQ(SerialSensor):
             return self.state.get(data.decode(), -1)
 
     def Ramp(self, m):
+        """
+        Normally this would return a string that gets added to
+        the readout schedule, but we have several things to queue,
+        so we call AddToSchedule here and return None
+        """
         if m.group(1) == 'arm':
             if self.last_ramp_request is not None:
                 self.logger.error('Ramp already armed')
@@ -136,21 +141,34 @@ class isegNHQ(SerialSensor):
         msg = self._msg_start + message + self._msg_end
         response = ''
         ret = {'retcode' : 0, 'data' : None}
-        for c in msg:
-            device.write(c.encode())
-            for _ in range(10):
+        try:
+            for c in msg:
+                device.write(c.encode())
+                for _ in range(10):
+                    time.sleep(0.1)
+                    echo = device.read(1)
+                    if echo is not None:
+                        response += echo
+                        break
                 time.sleep(0.1)
-                echo = device.read(1).decode()
-                if echo is not None:
-                    response += echo
+            blank_counter = 0
+            while blank_counter < 5:
+                time.sleep(0.1)
+                byte = device.read(1)
+                if not byte:
+                    blank_counter += 1
+                    continue
+                blank_counter = 0
+                response += byte
+                if response[-2:] == b'\r\n':
                     break
-            time.sleep(0.5)
-        if '=' in message:  # 'set' command, nothing left other than CR/LF
-            device.read(device.in_waiting)
-            return ret
+        except serial.SerialException as e:
+            self.logger.error('Serial exception: %s' % e)
+            ret['retcode'] = -2
+        except Exception as e:
+            self.logger.error('Error sending message: %s' % e)
+            ret['retcode'] = -3
 
-        time.sleep(1)  # 'send' bit finished, now to receive the reply
-        ret['data'] = device.read(device.in_waiting).decode().rstrip()
-        time.sleep(0.5)
+        ret['data'] = response
+        time.sleep(0.1)
         return ret
-
