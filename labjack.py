@@ -41,7 +41,7 @@ class labjack(Sensor):
             v = self._device.eAnalogIn(channel=2, gain=0, **self.read_args)
             value = v['voltage']
         elif reading_name == 'box_temp':  # glovebox temperature
-            v = self._devide.eAnalogIn(channel=0, gain=0, **self.read_args)
+            v = self._device.eAnalogIn(channel=0, gain=0, **self.read_args)
             value = self.NTCtoTemp(v['voltage'])
         elif reading_name == 'mv_freq':  # MV frequency
             count = self._device.eCount(resetCounter=1)
