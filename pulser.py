@@ -2,7 +2,7 @@ from SensorBase import SerialSensor
 import re  # EVERYBODY STAND BACK xkcd.com/207
 
 
-class dg1022(SerialSensor):
+class pulser(SerialSensor):
     """
     Pulser for the LED calibration
     """
@@ -28,21 +28,7 @@ class dg1022(SerialSensor):
             return False
 
     def start(self, *args):
-        commands = [
-                'output off',
-                'system:rwlock',
-                'system:clksrc int',
-                'frequency %f' % self.frequency,
-                'function:square:dcycle %f' % self.duty_cycle,
-                'voltage:unit vpp',
-                'voltage:high %f' % self.amplitude,
-                'voltage:low 0',
-                'phase 0',
-                'output:polarity norm',
-                'output:sync on',
-                'output on'
-        ]
-        for command in commands:
+        for command in self.led_start_commands:
             if self.SendRecv(command)['retcode']:
                 self.logger.error('Error sending command \'%s\'' % command)
                 self.stop()
@@ -50,9 +36,3 @@ class dg1022(SerialSensor):
         return
 
     def stop(self, *args):
-        commands = [
-                'output off',
-                'system:local'
-        ]
-        for command in commands:
-            self.SendRecv(command)
