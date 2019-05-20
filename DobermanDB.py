@@ -359,6 +359,8 @@ class DobermanDB(object):
             m = re.search(pattern, command_str)
             if m:
                 self.ProcessCommandStepTwo(m, user=user)
+                if user is not None:  # for non-CLI users
+                    break
                 time.sleep(3)
                 for log in self.db.readFromDatabase('logging', 'logs',
                         cuts={'when':
