@@ -1,6 +1,5 @@
 from SensorBase import Sensor
 import u12
-from functools import partial
 
 
 class labjack(Sensor):
