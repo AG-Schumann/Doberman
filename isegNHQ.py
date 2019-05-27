@@ -97,7 +97,7 @@ class isegNHQ(SerialSensor):
         elif m.group(2) == 'down':
             target = 0
         else:
-            self.logger.error('I don\'t know how to ramp "%s"' % m.group(1))
+            self.logger.error('I don\'t know how to ramp "%s"' % m.group(2))
             return
         commands = [
                 ("Status", None),  # reading status word clears inhibit
