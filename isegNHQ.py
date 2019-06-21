@@ -9,15 +9,15 @@ class isegNHQ(SerialSensor):
     iseg NHQ sensor
     """
     accepted_commands = [
-            'Vset <value>: voltage setpoint',
-            'Ilim <value>: current limit',
-            'Vramp <value>: voltage ramp speed',
+            "arm ramp <up|down>: prepare to ramp the voltage",
+            "confirm ramp <up|down>: confirm the voltage ramp",
         ]
 
     def SetParameters(self):
         self._msg_end = '\r\n'
         self._msg_start = ''
         self.basecommand = '{cmd}'
+        self.last_ramp_request = None
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
         self.commands = {'open'     : '',
@@ -36,12 +36,11 @@ class isegNHQ(SerialSensor):
                          }
         statuses = ['ON','OFF','MAN','ERR','INH','QUA','L2H','H2L','LAS','TRP']
         self.state = dict(zip(statuses,range(len(statuses))))
-        self.reading_commands = {s.lower:self.commands[s] for s in ['Current','Voltage','Vset','Status']}
+        self.reading_commands = {s.lower():self.commands[s]
+                for s in ['Current', 'Voltage', 'Vset', 'Status']}
 
         self.command_patterns = [
-                (re.compile('(?P<cmd>Vset|Itrip|Vramp) +(?P<value>%s)' % number_regex),
-                    lambda x : self.setcommand.format(cmd=self.commands[m.group('cmd')],
-                        value=m.group('value'))),
+                (re.compile("^(arm|confirm) ramp (up|down)$"), self.Ramp),
                 ]
 
     def Setup(self):
@@ -54,24 +53,69 @@ class isegNHQ(SerialSensor):
         resp = self.SendRecv(self.commands['identify'], dev)
         if resp['retcode'] or not resp['data']:
             return False
-        if resp['data'].decode().rstrip().split(';')[0] == self.serialID:
-            return True
-        return False
+        return resp['data'].decode().rstrip().split(';')[0] == self.serialID
 
-    def ProcessOneReading(self, index, data):
-        data = data.splitlines()[1]
-        if index == 0:  # current
+    def ProcessOneReading(self, name, data):
+        data = data.splitlines()[1].rstrip()
+        if name == 'current':
             data = data.decode()
             return float(f'{data[:3]}E{data[4:]}')
-        elif index == 1:  # voltage
+        if name in ['voltage', 'vset']:
             return float(data)
-        elif index == 2:  # setpoint
-            return float(data)
-        elif index == 3:  # state
+        if name == 'status':  # state
             data = data.split(b'=')[1].strip()
             return self.state.get(data.decode(), -1)
 
+    def Ramp(self, m):
+        """
+        Normally this would return a string that gets added to
+        the readout schedule, but we have several things to queue,
+        so we call AddToSchedule here and return None
+        """
+        if m.group(1) == 'arm':
+            if self.last_ramp_request is not None:
+                self.logger.error('Ramp already armed')
+                return
+            self.last_ramp_request = time.time()
+            self.logger.info('Please confirm ramp command')
+            return
+        elif m.group(1) == 'confirm':
+            if self.last_ramp_request is None:
+                self.logger.error('Ramp not armed')
+                return
+            if time.time() - self.last_ramp_request < 10:
+                self.logger.info('Acknowledged, begging ramp sequence')
+                self.last_ramp_request = None
+            else:
+                self.logger.error('Ramp request denied')
+                self.last_ramp_request = None
+                return
+        else:
+            self.logger.info('Whaa...?')
+        if m.group(2) == 'up':
+            target = int(self.setpoint)
+        elif m.group(2) == 'down':
+            target = 0
+        else:
+            self.logger.error('I don\'t know how to ramp "%s"' % m.group(2))
+            return
+        commands = [
+                ("Status", None),  # reading status word clears inhibit
+                ("Vramp", int(self.ramp_rate)),
+                ("Vset", target),
+                ("Vstart", None),
+                ]
+        for cmd, val in commands:
+            if val is not None:
+                self.AddToSchedule(command=self.setcommand(cmd=self.commands[cmd],
+                                                           value=val))
+            else:
+                self.AddToSchedule(command=self.commands[cmd])
+
     def Readout(self):
+        """
+        Keeping this around for reference sake
+        """
         vals = []
         status = []
         coms = ['Current','Voltage','Vset','Status']
@@ -82,11 +126,9 @@ class isegNHQ(SerialSensor):
             resp = self.SendRecv(cmd)
             status.append(resp['retcode'])
             if status[-1]:
-                #print('Cmd %s, %s' % (cmd, resp))
                 vals.append(-1)
             else:
                 data = resp['data'].split(bytes(cmd, 'utf-8'))[-1]
-                #data = resp['data']
                 vals.append(func(data.decode()))
         return {'retcode' : status, 'data' : vals}
 
@@ -99,39 +141,34 @@ class isegNHQ(SerialSensor):
         msg = self._msg_start + message + self._msg_end
         response = ''
         ret = {'retcode' : 0, 'data' : None}
-        #print('\nSending command %s' % message)
-        for c in msg:
-            #print("Sending %s" % c)
-            device.write(c.encode())
-            time.sleep(1)
-            echo = device.read(1).decode()
-            #print("Recvd %s" % echo)
-            if c != echo:
-                pass
-                #self.logger.error(f'Command {message} not echoed!')
-                #print("Recieved %s instead of %s" % (echo, c))
-                #ret['retcode'] = -1
-                #return ret
-            time.sleep(1)
-        if '=' in message: # 'set' command, nothing left other than CR/LF
-            device.read(device.in_waiting)
-            return ret
+        try:
+            for c in msg:
+                device.write(c.encode())
+                for _ in range(10):
+                    time.sleep(0.1)
+                    echo = device.read(1)
+                    if echo is not None:
+                        response += echo
+                        break
+                time.sleep(0.1)
+            blank_counter = 0
+            while blank_counter < 5:
+                time.sleep(0.1)
+                byte = device.read(1)
+                if not byte:
+                    blank_counter += 1
+                    continue
+                blank_counter = 0
+                response += byte
+                if response[-2:] == b'\r\n':
+                    break
+        except serial.SerialException as e:
+            self.logger.error('Serial exception: %s' % e)
+            ret['retcode'] = -2
+        except Exception as e:
+            self.logger.error('Error sending message: %s' % e)
+            ret['retcode'] = -3
 
-        time.sleep(1) # 'send' bit finished, now to receive the reply
-        ret['data'] = device.read(device.in_waiting).decode().rstrip()
-        #print("Recvd %s" % ret['data'])
-        #blank_bytes = 0
-        #for _ in range(64):
-        #    byte = device.read(1).decode()
-        #    if not byte:
-        #        blank_bytes += 1
-        #    else:
-        #        response += byte
-        #        blank_bytes = 0
-        #    if blank_bytes >= 5 or response[-2:] == self._msg_end:
-        #        break
-        #    time.sleep(self.delay)
-        #ret['data'] = response.rstrip()
-        time.sleep(0.5)
+        ret['data'] = response
+        time.sleep(0.1)
         return ret
-
