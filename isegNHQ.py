@@ -2,6 +2,7 @@ from SensorBase import SerialSensor
 import time
 import re  # EVERYBODY STAND BACK xkcd.com/208
 from utils import number_regex
+import serial
 
 
 class isegNHQ(SerialSensor):
@@ -20,6 +21,7 @@ class isegNHQ(SerialSensor):
         self.last_ramp_request = None
         self.setcommand = self.basecommand + '={value}'
         self.getcommand = self.basecommand
+        self.channel = int(self.channel)
         self.commands = {'open'     : '',
                          'identify' : '#',
                          'Delay'    : 'W',
@@ -59,7 +61,7 @@ class isegNHQ(SerialSensor):
         data = data.splitlines()[1].rstrip()
         if name == 'current':
             data = data.decode()
-            return float(f'{data[:3]}E{data[4:]}')
+            return float(f'{data[:4]}E{data[4:]}')
         if name in ['voltage', 'vset']:
             return float(data)
         if name == 'status':  # state
@@ -139,29 +141,28 @@ class isegNHQ(SerialSensor):
         """
         device = dev if dev else self._device
         msg = self._msg_start + message + self._msg_end
-        response = ''
+        response = b''
         ret = {'retcode' : 0, 'data' : None}
         try:
             for c in msg:
                 device.write(c.encode())
                 for _ in range(10):
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     echo = device.read(1)
                     if echo is not None:
                         response += echo
                         break
-                time.sleep(0.1)
+                time.sleep(0.2)
+            time.sleep(2)
             blank_counter = 0
-            while blank_counter < 5:
-                time.sleep(0.1)
+            while blank_counter < 5 and device.in_waiting > 0:
+                time.sleep(0.2)
                 byte = device.read(1)
                 if not byte:
                     blank_counter += 1
                     continue
                 blank_counter = 0
                 response += byte
-                if response[-2:] == b'\r\n':
-                    break
         except serial.SerialException as e:
             self.logger.error('Serial exception: %s' % e)
             ret['retcode'] = -2

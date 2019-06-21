@@ -47,8 +47,8 @@ class MKS_MFC(SerialSensor):
         self.setCommand = '{cmd}!{value}'
         self._ACK = 'ACK'
         self._NAK = 'NAK'
-        self.nak_pattern = re.compile(f'{self._NAK}(?P<errcode>[^;]+);')
-        self.ack_pattern = re.compile(f'{self._ACK}(?P<value>[^;]+);')
+        self.nak_pattern = re.compile((f'{self._NAK}(?P<errcode>[^;]+);').encode())
+        self.ack_pattern = re.compile((f'{self._ACK}(?P<value>[^;]+);').encode())
         self.reading_commands = {
                 'flow' : self.getCommand.format(cmd=self.commands['FlowRate']),
                 'flow_pct' : self.getCommand.format(cmd=self.commands['FlowRatePercent']),
