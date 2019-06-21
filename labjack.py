@@ -10,8 +10,8 @@ class labjack(Sensor):
     def SetParameters(self):
         self.then = 0
         self.read_args = {'idNum' : None, 'demo' : 0}
-        self.reading_commands = dict(zip(self.reading_names,
-                                         self.reading_names))
+        self.reading_commands = dict(zip(self.readings,
+                                         self.readings))
 
     def OpenDevice(self):
         self._device = u12.U12()
@@ -35,7 +35,7 @@ class labjack(Sensor):
 
     def CounterRead(self, *args):
         count = self._device.eCount(resetCounter=1)
-        return count['counts'], count['ms']
+        return count['count'], count['ms']
 
     def NTCtoTemp(self, val):
         resistance = self.rc[0]*val/(self.rc[1] + self.rc[2]*val)
@@ -54,7 +54,7 @@ class labjack(Sensor):
             return self.NTCtoTemp(data)
         return data
 
-    def SendRecv(self, message, dev):
+    def SendRecv(self, message, dev=None):
         """
         We use "message" here to mean the reading name
         """
