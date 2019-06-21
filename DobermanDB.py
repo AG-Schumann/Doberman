@@ -362,7 +362,7 @@ class DobermanDB(object):
                 if user is not None:  # for non-CLI users
                     break
                 time.sleep(3)
-                for log in self.db.readFromDatabase('logging', 'logs',
+                for log in self.readFromDatabase('logging', 'logs',
                         cuts={'when':
                             {'$gte': dtnow()-datetime.timedelta(seconds=3)}},
                         sort=([('_id', -1)])):
