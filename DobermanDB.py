@@ -359,6 +359,14 @@ class DobermanDB(object):
             m = re.search(pattern, command_str)
             if m:
                 self.ProcessCommandStepTwo(m, user=user)
+                if user is not None:  # for non-CLI users
+                    break
+                time.sleep(3)
+                for log in self.readFromDatabase('logging', 'logs',
+                        cuts={'when':
+                            {'$gte': dtnow()-datetime.timedelta(seconds=3)}},
+                        sort=([('_id', -1)])):
+                    print('{when} | {level} | {name} | {msg}'.format(**log))
                 break
         else:
             print('Command \'%s\' not understood' % command_str)
