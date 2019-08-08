@@ -101,15 +101,15 @@ class isegNHQ(SerialSensor):
         else:
             self.logger.error('I don\'t know how to ramp "%s"' % m.group(2))
             return
-        commands = [
+        ramp_commands = [
                 ("Status", None),  # reading status word clears inhibit
                 ("Vramp", int(self.ramp_rate)),
                 ("Vset", target),
                 ("Vstart", None),
                 ]
-        for cmd, val in commands:
+        for cmd, val in ramp_commands:
             if val is not None:
-                self.AddToSchedule(command=self.setcommand(cmd=self.commands[cmd],
+                self.AddToSchedule(command=self.setcommand.format(cmd=self.commands[cmd],
                                                            value=val))
             else:
                 self.AddToSchedule(command=self.commands[cmd])
