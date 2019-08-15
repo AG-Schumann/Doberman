@@ -1,28 +1,15 @@
-import logging
 import datetime
 import smtplib
+import Doberman
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+dtnow = datetime.datetime.utcnow
 
 
-class alarmDistribution(object):
+class AlarmMonitor(Doberman.Monitor):
     """
-    Class that sends an email or sms to a given address
+    Class that sends monitors for alarms and sends messages
     """
-
-    def __init__(self, db):
-        """
-        Loading connections to Mail and SMS.
-        """
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.db = db
-    def close(self):
-        self.db = None
-        return
-
-    def __del__(self):
-        self.close()
-        return
 
     def getConnectionDetails(self, which):
         detail_doc = self.db.readFromDatabase('settings','alarm_config',
@@ -43,8 +30,8 @@ class alarmDistribution(object):
             return -1
         try:
             # Compose connection details and addresses
-            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            server = connection_details['server']
+            now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            server_addr = connection_details['server']
             port = int(connection_details['port'])
             fromaddr = connection_details['fromaddr']
             password = connection_details['password']
@@ -76,17 +63,18 @@ class alarmDistribution(object):
             if add_signature:
                 signature = ("\n\n----------\n"
                              "Message created on %s by slowcontrol. "
-                             "This is a automatic message. " % now)
+                             "This is a automatic message. "
+                             % now.isoformat(timespec='minutes'))
                 body = str(message) + signature
             else:
                 body = str(message)
             msg.attach(MIMEText(body, 'plain'))
             # Connect and send
-            if server == 'localhost':  # From localhost
-                smtp = smtplib.SMTP(server)
+            if server_addr == 'localhost':  # From localhost
+                smtp = smtplib.SMTP(server_addr)
                 smtp.sendmail(fromaddr, toaddr, msg.as_string())
             else:  # with e.g. gmail
-                server = smtplib.SMTP(server, port)
+                server = smtplib.SMTP(server_addr, port)
                 server.starttls()
                 server.login(fromaddr, password)
                 server.sendmail(fromaddr, recipients, msg.as_string())
@@ -152,3 +140,90 @@ class alarmDistribution(object):
             return -1
         return 0
 
+    def CheckForAlarms(self):
+        doc_filter = {'acknowledged' : {'$exists' : 0}}
+        messages = {}
+        msg_format = '{name} : {when} : {msg}'
+        updates = {'$set' : {'acknowledged' : dtnow()}}
+        db_col = ('logging', 'alarm_history')
+        if self.db.Count(*db_col, doc_filter) == 0:
+            return
+        for doc in self.db.readFromDatabase(*db_col, doc_filter, sort=[('howbad',-1)]):
+            howbad = int(doc['howbad'])
+            if (howbad,) not in messages:
+                messages[(howbad,)] = []
+            self.db.updateDatabase(*db_col, {'_id' : doc['_id']}, updates)
+            messages[(howbad,)].append(doc)
+        if messages:
+            self.logger.warning(f'Found alarms!')
+            for (lvl,), msg_docs in messages.items():
+                message = '\n'.join(map(lambda d : msg_format.format(**d), msg_docs))
+                self.sendMessage(lvl, message)
+        return
+
+    def sendMessage(self, level, message):
+        """
+        Sends 'message' to the contacts specified by 'level'
+        """
+        now = dtnow()
+        message_time = self.db.GetRunmodeDetail(runmode='default',
+                fieldname='message_time')
+        if hasattr(self, 'last_message_time') and self.last_message_time is not None:
+            dt = (now - self.last_message_time).total_seconds()/60
+            if dt < message_time:
+                self.logger.warning('Sent a message too recently (%i minutes), '
+                    'message timer at %i' % (dt, message_time))
+                return -3
+
+        for prot, recipients in self.db.getContactAddresses(level).items():
+            if prot == 'sms':
+                if self.sendSMS(recipients, message) == -1:
+                    self.logger.error('Could not send SMS')
+                    return -4
+            elif prot == 'email':
+                subject = 'Doberman alarm level %i' % level
+                if self.sendEmail(toaddr=recipients, subject=subject,
+                                         message=message) == -1:
+                    self.logger.error('Could not send email!')
+                    return -5
+            self.last_message_time = now
+        return 0
+
+    def CheckHeartbeats(self):
+        hosts = self.db.readFromDatabase('settings', 'hosts',
+                cuts={'status' : {'$ne' : 'offline'}})
+        now = dtnow()
+        for host in hosts:
+            if (now - host['heartbeat']).total_seconds() > 3*utils.heartbeat_timer:
+                alarm_doc = {'name' : 'alarm_monitor', 'when' : now, 'howbad' : 0,
+                    'msg' : 'Host "%s" hasn\'t heartbeated recently' % host['hostname']}
+                self.db.logAlarm(alarm_doc)
+
+def main(db):
+    logger = Doberman.utils.getLogger(name='alarm_monitor', db=db)
+    doc = db.GetHostSetting()
+    if doc['status'] != 'offline':
+        if (dtnow() - doc['heartbeat']).total_seconds < 3*utils.heartbeat_timer:
+            logger.error('Is the alarm monitor already running?')
+            return
+    monitor = AlarmMonitor(db)
+    try:
+        db.SetHostSetting('status', 'online')
+        monitor.Start()
+        monitor.Loop()
+    except Exception as e:
+        logger.error(str(type(e)))
+        logger.error(str(e))
+    finally:
+        db.SetHostSetting('status', 'offline')
+        monitor.close()
+    return
+
+if __name__ == '__main__':
+    db = Doberman.DobermanDB()
+    db.hostname = 'alarm_monitor'
+    try:
+        main(db)
+    except Exception as e:
+        print('Caught a %s: %s' % (type(e), e))
+    db.close()
