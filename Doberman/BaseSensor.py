@@ -1,11 +1,10 @@
 import serial
 import socket
 import time
-import logging
-import queue
 import threading
 from functools import partial
 
+__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor'.split()
 
 class Sensor(object):
     """
@@ -14,19 +13,23 @@ class Sensor(object):
     _msg_start = ''
     _msg_end = ''
 
-    def __init__(self, opts):
+    def __init__(self, opts, logger):
         """
-        opts is a dict with all the options needed for initialization
-        (addresses, configuration options, etc)
+        opts is the document from the database
         """
-        for key, value in opts.items():
-            setattr(self, key, value)
-        self.logger = logging.getLogger(self.name)
+        for k, v in opts['address']:
+            setattr(self, k, v)
+        if 'additional_params' in opts:
+            for k, v in opts['additional_params']:
+                setattr(self, k, v)
+        self.readings = opts['readings']
+        self.logger = logger
         self._connected = False
+        self.q_lock = threading.RLock()
         self.SetParameters()
 
     def _Setup(self):
-        self.cmd_queue = queue.Queue(30)
+        self.cmd_queue = []
         if self.OpenDevice():
             self.Setup()
             time.sleep(0.2)
@@ -68,15 +71,14 @@ class Sensor(object):
         """
         self.logger.debug('Readout scheduler starting')
         while self.running:
-            try:
-                packet = self.cmd_queue.get_nowait()
-            except queue.Empty:
-                time.sleep(0.01)
-                continue
-            else:
-                command, callback = packet
-                ret = self.SendRecv(command)
-                callback(ret)
+            if self.q_lock.acquire(blocking=False):
+                if len(self.cmd_queue) > 0:
+                    command, callback = self.cmd_queue.pop(0)
+                    ret = self.SendRecv(command)
+                    callback(ret)
+                self.q_lock.release()
+            time.sleep(0.01)
+        self.logger.debug('Readout scheduler returning')
 
     def AddToSchedule(self, reading_name=None, command=None, callback=None):
         """
@@ -93,10 +95,13 @@ class Sensor(object):
         if reading_name is not None:
             if callback is None:
                 return
-            self.cmd_queue.put((self.reading_commands[reading_name],
-                partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
+            with self.q_lock:
+                self.cmd_queue.append((self.reading_commands[reading_name],
+                    partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
         elif command is not None:
-            self.cmd_queue.put((command, lambda x : None))
+            with self.q_lock:
+                self.cmd_queue.put((command, lambda x : None))
+        return
 
     def _ProcessReading(self, pkg, reading_name=None, cb=None):
         """
