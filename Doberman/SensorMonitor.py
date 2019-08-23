@@ -15,14 +15,13 @@ class SensorMonitor(Doberman.Monitor):
         self.sensor = None
         self.buffer_lock = threading.RLock()
         self.processing_lock = threading.RLock()
-        self.readings = None
+        self.readings = [Doberman.Reading(self.name, reading_name)
+            for reading_name in self.db.GetSensorSetting(self.name, field='readings')]
         self.buffer = []
-        self.missed_readings = 0
-        self.last_reading_time = {}
         self.OpenSensor()
         self.Register(func=self.ClearBuffer, period=Doberman.buffer_timer)
         for r in self.readings:
-            self.Register(func=self.ScheduleReading, period=None, reading_name=r)
+            self.Register(func=self.ScheduleReading, period=None, reading=r)
         self.Register(self.Heartbeat, period=Doberman.heartbeat_timer)
 
     def Shutdown(self):
@@ -58,39 +57,22 @@ class SensorMonitor(Doberman.Monitor):
                 self.logger.debug('No data in buffer')
         return self.db.GetSensorSetting(name=self.name, field='buffer_timer')
 
-    def ScheduleReading(self, reading_name):
-        reading_doc = self.db.GetReadingSetting(sensor=self.name, reading=reading_name)
-        if reading_doc['status'] == 'online' and reading_doc['readout_interval'] > 0:
-            self.sensor.AddToSchedule(reading_name=reading_name,
-                    callback=partial(self.ProcessReading, reading_name=reading_name,
-                                     readout_interval=reading_doc['readout_interval']
-                                     check=reading_doc['runmode'] != 'testing'))
-        return reading_doc['readout_interval']
+    def ScheduleReading(self, reading):
+        reading.UpdateConfig()
+        if reading.status == 'online' and reading.readout_interval > 0:
+            self.sensor.AddToSchedule(reading_name=reading.name,
+                    callback=partial(self.ProcessReading, reading=reading))
+        return reading.readout_interval
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(sensor=self.name)
         return self.db.GetHostSetting(field='heartbeat_timer')
 
-    def ProcessReading(self, value, reading_name=None, readout_interval=None, check=None):
+    def ProcessReading(self, value, reading):
+        value = reading.Process(value)
         if value is not None:
             with self.buffer_lock:
                 self.buffer.append((reading_name, value))
-        if not check:
-            return
-        with self.processing_lock:
-            if reading_name not in self.last_reading_time:
-                self.last_reading_time[reading_name] = time.time()
-            if (time.time() - self.last_reading_time[reading_name] > 1.5*readout_interval
-                    or value is None):
-                self.missed_readings += 1
-            else:
-                self.missed_readings = 0
-            if self.missed_readings >= 2:
-                alarm_doc = {}  # TODO
-                self.db.LogAlarm(alarm_doc)
-                self.missed_readings = 0
-            self.last_reading_time[reading_name] = time.time()
-        return
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)

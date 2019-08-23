@@ -12,7 +12,7 @@ import logging
 import logging.handlers
 dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin SensorOpts Logger'.split()
+__all__ = 'FindPlugin SensorOpts Logger number_regex buffer_timer'.split()
 
 heartbeat_timer = 30
 buffer_timer = 5

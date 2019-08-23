@@ -1,11 +1,76 @@
-import socket
+import socketserver
 import time
 import random
 import argparse
 import re
+import numpy as np
+import signal
+import threading
+
+pattern = (r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?').encode()
 
 
-class TestSensorLAN(object):
+class FeedbackTester(object):
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.interrupt)
+        signal.signal(signal.SIGTERM, self.interrupt)
+        self.run = True
+        self.amb_base = 295
+        self.amb_amp = 5
+        self.amb_period = 7200
+        self.amb_noise = 0.3
+        self.ro_noise = 0.005
+        self.t_bulk = 175
+        self.q_out = 100
+
+    def interrupt(self, *args):
+        print('Interrupted with signal', args[0])
+        self.run = False
+
+    def Simulate(self):
+        heat_cap = 5000 # J/K
+        epsilon = 2e-8 # J/K^4
+        k = 0.005  # W/K
+        whoops = 0
+        period = 0.01
+        q_other = 0
+        while self.run:
+            t = time.time()
+            if np.abs(whoops) < 0.5:
+                whoops = 0.5-random.random()
+            if np.abs(whoops) < 0.001*period:
+                shit_start = t
+                if whoops > 0:
+                    whoops = 1
+                else:
+                    whoops = -1
+            if whoops in [-1,1]:
+                if t - shit_start < 15*60:
+                    q_other = whoops*self.shit_happens(t-shit_start)
+                else:
+                    whoops = q_other = 0
+            t_amb = T_amb(t)
+            q_rad = epsilon * (t_amb**4 - self.t_bulk**4)
+            q_cond = k*(t_amb - self.t_bulk)
+            q_in = q_rad + q_cond + q_other
+            dq = q_in - self.q_out
+            dt = dq/heat_cap*period
+            self.t_bulk += dt
+            time.sleep(period)
+
+    def T_amb(self, t):
+        return (self.amb_base + self.amb_amp*np.sin(2*np.pi/self.amb_period*t) +
+                self.amb_noise * np.sin(2*np.pi/5*t))
+
+    def T_bulk(self):
+        return self.t_bulk + self.ro_noise*(0.5*random.random())
+
+    def shit_happens(self, t):
+        amp, mu, sig = 15, 15*60/2, 120
+        return amp*np.exp(-(t-mu)**2/(2*sig**2))
+
+
+class TestSensorHandler(socketserver.BaseRequestHandler):
     """
     Software-only sensor for testing purposes
     Message start token: *
@@ -15,65 +80,79 @@ class TestSensorLAN(object):
     Read return format: OK;<value>
     Command format: SET:<param>=<value>
     """
-    def __init__(self):
-        self.dev = socket.socket()
-        self.dev.bind(('localhost',5000))
-        self.dev.listen(1)
-        self.sides = 6
+    read_pattern = re.compile(b'^\\*READ:(?P<ch>one|two)\r\n$')
+    set_pattern = re.compile(b'^\\*SET:(?P<param>[a-z]+)=(?P<value>' + pattern + b')\r\n$')
 
-    def sandwich(self):
-        print('Ready')
-        client, _ = self.dev.accept()
-        with client:
-            while True:
-                try:
-                    msg = client.recv(1024)
-                    print('Received %s' % msg)
-                    if not msg:
-                        break
-                    sleep_for = 0.006*random.random()
-                    print('Processing time: %.3g' % sleep_for)
-                    time.sleep(sleep_for)
-                    payload = b''
-                    if b'READ:' in msg:
-                        req = msg.rstrip().split(b'READ:')[1]
-                        if req == b'one':
-                            payload = b'OK;' + 5*random.random()
-                        elif req == b'two':
-                            payload = self.dice()
-                        else:
-                            payload = b'ERR;01'
-                    elif b'SET' in msg:
-                        m = re.search(b'SET:(?P<param>[^=]+)=(?P<value>.+)\r\n', msg)
-                        if not m:
-                            payload = b'ERR;10'
-                        else:
-                            if m.group('param') == b'sides':
-                                try:
-                                    self.sides = int(m.group('value'))
-                                except:
-                                    payload = b'ERR;11'
-                                else:
-                                    payload = b'OK;'
-                            else:
-                                payload = b'ERR;12'
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fbt = FeedbackTester()
+        self._fbthread = threading.Thread(target=self.fbt.Simulate)
+        self._fbthread.start()
+
+    def handle(self):
+        try:
+            msg = self.request.recv(1024)
+            print('Received %s' % msg)
+            if not msg:
+                return
+            sleep_for = 0.006*random.random()
+            print('Processing time: %.3g' % sleep_for)
+            time.sleep(sleep_for)
+            payload = b''
+            m = self.read_pattern.search(msg)
+            if m:
+                if m.group('ch') == b'one':
+                    payload = b'OK;%.3g' % (5*random.random())
+                elif m.group('ch') == b'two':
+                    payload = b'OK;%.3g' % self.dice()
+                elif m.group('ch') == b'three':
+                    payload = b'OK;%.3f' % self.fbt.T_bulk()
+                else:
+                    payload = b'ERR;01'
+            else:
+                m = self.set_pattern.search(msg)
+                if not m:
+                    payload = b'ERR;00'
+                else:
+                    try:
+                        float(m.group('value'))
+                    except ValueError:
+                        payload = b'ERR;11'
                     else:
-                        payload = b'ERR;00'
-                    client.sendall(
-                    #client.close()
-                    sleep_for = 0.05*random.random()
-                    print('Cleanup time: %.3g' % sleep_for)
-                    time.sleep(sleep_for)
-                    print()
-                except:
-                    break
+                        payload = b'OK;'
+                    if m.group('param') == b'sides':
+                        try:
+                            self.sides = int(m.group('value'))
+                        except ValueError:
+                            pass
+                    elif m.group('param') == 'noise':
+                        self.fbt.ro_noise = float(m.group('value'))
+                    elif m.group('param') == 'qout':
+                        self.fbt.q_out = float(m.group('value'))
+                    elif m.group('param') == 'ambbase':
+                        self.fbt.amb_base = float(m.group('value'))
+                    elif m.group('param') == 'ambamp':
+                        self.fbt.amb_amp = float(m.group('value'))
+                    elif m.group('param') == 'ambperiod':
+                        self.fbt.amb_period = float(m.group('value'))
+                    elif m.group('param') == 'ambnoise':
+                        self.fbt.amb_noise = float(m.group('value'))
+                    else:
+                        payload = b'ERR;12'
+            self.request.sendall(payload + b'\r\n')
+            sleep_for = 0.05*random.random()
+            print('Cleanup time: %.3g' % sleep_for)
+            time.sleep(sleep_for)
+            print()
+        except:
+            pass
 
     def dice(self):
-        return random.randint(1,self.sides)
+        return random.randint(1, self.sides)
 
 def main():
-    dev = TestSensorLAN()
-    dev.sandwich()
+    with socketserver.TCPServer(('localhost', 5000), TestSensorHandler) as server:
+        server.serve_forever()
 
 if __name__ == '__main__':
     main()

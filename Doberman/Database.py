@@ -1,15 +1,8 @@
-#!/usr/bin/env python3
+import Doberman
 import datetime
-import pymongo
-import utils
-import json
-import argparse
-import os
-import time
-import re  # EVERYBODY STAND BACK xkcd.com/208
-dtnow = datetime.datetime.now
+dtnow = datetime.datetime.utcnow
 
-__all__ = 'Database'
+__all__ = 'Database'.split()
 
 
 class Database(object):
@@ -18,12 +11,12 @@ class Database(object):
     """
 
     def __init__(self, client, appname):
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.client = client
+        self.logger = Doberman.utils.Logger(name='Database', db=self)
         self.appname = appname
 
     def close(self):
-        if self.client is not None:
-            self.client.close()
+        return
 
     def __del__(self):
         self.close()
@@ -47,13 +40,6 @@ class Database(object):
         if not hasattr(self, 'experiment_name'):
             raise ValueError('I don\'t know what experiment to look for')
         db_name = self.experiment_name + '_' + db_name
-        #if db_name not in self.client.list_database_names():
-        #    self.logger.debug('Database %s doesn\'t exist yet, creating it...' % db_name)
-        if collection_name not in self.client[db_name].list_collection_names(False):
-            self.logger.debug('Collection %s not in database %s, creating it...' % (collection_name, db_name))
-            self.client[db_name].create_collection(collection_name)
-            if 'data' in db_name:
-                self.client[db_name][collection_name].create_index([('when',-1)])
         return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document, **kwargs):
@@ -97,7 +83,7 @@ class Database(object):
         is handled separately because otherwise it doesn't do anything
         :returns document if onlyone=True else cursor
         """
-        collection = self._check(db_name,collection_name)
+        collection = self._check(db_name, collection_name)
         cursor = collection.find(cuts, **kwargs)
         if 'sort' in kwargs:
             cursor.sort(kwargs['sort'])
@@ -180,10 +166,17 @@ class Database(object):
                       'acknowledged' : {'$exists' : 0},
                       'logged' : {'$lte' : now}},
                 updates={'$set' : {'acknowledged' : now}},
-                sort=[('logged',1)])
+                sort=[('logged', 1)])
         if doc and 'by' in doc and doc['by'] == 'feedback':
             self.DeleteDocuments('logging', 'commands', {'_id' : doc['_id']})
         return doc
+
+    def LogCommand(self, doc):
+        """
+        """
+        if 'logged' not in doc:
+            doc['logged'] = dtnow()
+        self.insertIntoDatabase('logging', 'commands', doc)
 
     def getMessageProtocols(self, level):
         """
@@ -193,25 +186,32 @@ class Database(object):
         :param level: which alarm level is in question (0, 1, etc)
         :returns: list of message protocols to use
         """
-        doc = self.readFromDatabase('settings','alarm_config', {'level' : level}, onlyone=True)
+        doc = self.readFromDatabase('settings', 'alarm_config',
+                {'level' : level}, onlyone=True)
         if doc is None:
-            self.logger.error('No message protocols for alarm level %i! Defaulting to next lowest level' % level)
-            doc = self.readFromDatabase('settings','alarm_config',
+            self.logger.error(('No message protocols for alarm level %i! '
+                'Defaulting to next lowest level' % level))
+            doc = self.readFromDatabase('settings', 'alarm_config',
                     {'level' : {'$lte' : level}}, onlyone=True,
                     sort=[('level', -1)])
         return doc['protocols']
 
     def getContactAddresses(self, level):
         """
-        Returns a list of addresses to contact at 'level'
+        Returns a list of addresses to contact at 'level' who are currently on shift,
+            defined as when the function is called
 
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
         protocols = self.getMessageProtocols(level)
         ret = {k : [] for k in protocols}
-        for doc in self.readFromDatabase('settings','contacts',
-                {'status' : {'$gte' : 0, '$lte' : level}}):
+        now = datetime.datetime.now()  # no UTC here, we want local time
+        shifters = self.readFromDatabase('settings', 'shifts',
+                {'start' : {'$lte' : now}, 'end' : {'$gte' : now}},
+                onlyone=True)['shifters']
+        for doc in self.readFromDatabase('settings', 'contacts',
+                    {'name' : {'$in' : shifters}}):
             for p in protocols:
                 ret[p].append(doc[p])
         return ret
@@ -230,22 +230,11 @@ class Database(object):
                     updates={'$set' : {'heartbeat' : dtnow()}})
         return
 
-    def CheckHeartbeat(self, name):
-        """
-        Checks the heartbeat of the specified sensor.
-
-        :param name: the name of the sensor to check
-        :returns: number of seconds since the last heartbeat
-        """
-        doc = self.GetSensorSettings(name=name)
-        last_heartbeat = doc['heartbeat']
-        return (dtnow() - last_heartbeat).total_seconds()
-
     def logAlarm(self, document):
         """
         Adds the alarm to the history.
         """
-        if self.insertIntoDatabase('logging','alarm_history',document):
+        if self.insertIntoDatabase('logging', 'alarm_history', document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
@@ -315,34 +304,38 @@ class Database(object):
         :returns: the setting dictionary if name=None, otherwise the specific field
         """
         if runmode:
-            doc = self.readFromDatabase('settings','runmodes',
+            doc = self.readFromDatabase('settings', 'runmodes',
                     {'mode' : runmode}, onlyone=True)
             if name:
                 return doc[name]
             return doc
-        doc = self.readFromDatabase('settings','current_status', onlyone=True)
+        doc = self.readFromDatabase('settings', 'current_status', onlyone=True)
         if name:
             return doc[name]
         return doc
 
-    def GetHostSetting(self, host=self.hostname, field=None):
+    def GetHostSetting(self, host=None, field=None):
         """
         Gets the setting document of the specified host
         """
+        if host is None:
+            host = self.hostname
         doc = self.readFromDatabase('settings', 'hosts', {'hostname' : host},
                 onlyOne=True)
         if field is not None and field in doc:
             return doc[field]
         return doc
 
-    def SetHostSetting(self, host=self.hostname, **kwargs):
+    def SetHostSetting(self, host=None, **kwargs):
         """
         Updates the setting document of the specified host. Kwargs should be one
         of the Mongo commands (set, unset, push, pull) without the $ char.
         Ex: set={field:value}
         """
+        if host is None:
+            host = self.hostname
         self.updateDatabase('settings', 'hosts', {'host' : host},
-                updates=dict(f'${k}' : v for k,v in kwargs.items()))
+                updates={f'${k}' : v for k, v in kwargs.items()})
 
     def ManagePlugins(self, name, action):
         """
@@ -357,13 +350,13 @@ class Database(object):
             if name in managed_plugins:
                 self.logger.info('%s already managed' % name)
             else:
-                self.updateDatabase('settings','current_status',cuts={},
+                self.updateDatabase('settings', 'current_status', cuts={},
                         updates={'$push' : {'managed_plugins' : name}})
         elif action=='remove':
             if name not in managed_plugins:
                 self.logger.debug('%s isn\'t managed' % name)
             else:
-                self.updateDatabase('settings','current_status',cuts={},
+                self.updateDatabase('settings', 'current_status', cuts={},
                         updates={'$pull' : {'managed_plugins' : name}})
         return
 
@@ -388,7 +381,7 @@ class Database(object):
         """
         status = {}
         now = dtnow()
-        for sensor_doc in self.readFromDatabase('settings','sensors'):
+        for sensor_doc in self.readFromDatabase('settings', 'sensors'):
             sensor_name = sensor_doc['name']
             #if 'Test' in sensor_name:
             #    continue
