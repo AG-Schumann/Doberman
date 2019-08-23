@@ -4,6 +4,8 @@ import Doberman
 import os
 
 
+__all__ = 'PrintHelp ProcessCommandStepOne'.split()
+
 def PrintHelp(db, name):
     print('Accepted commands:')
     print('help [<plugin_name>]: help [for specific plugin]')

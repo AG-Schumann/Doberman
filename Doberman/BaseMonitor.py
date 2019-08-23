@@ -1,7 +1,7 @@
 import Doberman
 import threading
 
-__all__ = 'BaseMonitor '.split()
+__all__ = 'Monitor'.split()
 
 
 class Monitor(object):
