@@ -1,5 +1,6 @@
 import Doberman
 import threading
+from functools import partial
 
 __all__ = 'SensorMonitor'.split()
 
@@ -10,19 +11,20 @@ class SensorMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
-        plugin_dir = self.GetHostSetting(field='plugin_dir')
+        self.db.experiment_name = 'testing'
+        plugin_dir = self.db.GetHostSetting(field='plugin_dir')
         self.sensor_ctor = Doberman.utils.FindPlugin(self.name, plugin_dir)
         self.sensor = None
         self.buffer_lock = threading.RLock()
         self.processing_lock = threading.RLock()
-        self.readings = [Doberman.Reading(self.name, reading_name)
+        self.readings = [Doberman.Reading(self.name, reading_name, self.db)
             for reading_name in self.db.GetSensorSetting(self.name, field='readings')]
         self.buffer = []
         self.OpenSensor()
-        self.Register(func=self.ClearBuffer, period=Doberman.buffer_timer)
+        self.Register(func=self.ClearBuffer, period=Doberman.utils.buffer_timer)
         for r in self.readings:
-            self.Register(func=self.ScheduleReading, period=None, reading=r)
-        self.Register(self.Heartbeat, period=Doberman.heartbeat_timer)
+            self.Register(func=self.ScheduleReading, period=r.readout_interval, reading=r)
+        self.Register(self.Heartbeat, period=self.db.GetHostSetting(field='heartbeat_timer'))
 
     def Shutdown(self):
         self.logger.info('Stopping sensor')
@@ -39,7 +41,7 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.running = False
             self.sensor.close()
         try:
-            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name))
+            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name), self.logger)
             self.sensor._Setup()
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
@@ -51,7 +53,7 @@ class SensorMonitor(Doberman.Monitor):
             if len(self.buffer):
                 doc = dict(self.buffer)
                 self.logger.debug('%i readings, %i values' % (len(doc), len(self.buffer)))
-                self.db.WriteDataToDatabase(self.name, doc)
+                self.db.PushDataUpstream(self.name, doc)
                 self.buffer = []
             else:
                 self.logger.debug('No data in buffer')
@@ -59,6 +61,7 @@ class SensorMonitor(Doberman.Monitor):
 
     def ScheduleReading(self, reading):
         reading.UpdateConfig()
+        self.logger.debug('Scheduling %s' % reading.name)
         if reading.status == 'online' and reading.readout_interval > 0:
             self.sensor.AddToSchedule(reading_name=reading.name,
                     callback=partial(self.ProcessReading, reading=reading))
@@ -72,7 +75,7 @@ class SensorMonitor(Doberman.Monitor):
         value = reading.Process(value)
         if value is not None:
             with self.buffer_lock:
-                self.buffer.append((reading_name, value))
+                self.buffer.append((reading.name, value))
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)
