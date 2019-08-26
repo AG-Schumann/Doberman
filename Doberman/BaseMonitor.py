@@ -1,5 +1,7 @@
 import Doberman
 import threading
+from functools import partial
+import time
 
 __all__ = 'Monitor'.split()
 
@@ -16,6 +18,7 @@ class Monitor(object):
         self.logger = Doberman.utils.Logger(name=self.name, db=self.db)
         self.sh = Doberman.utils.SignalHandler(self.logger)
         self.threads = []
+        self.funcs = []
         self.Setup()
         if autostart:
             self.StartThreads()
@@ -38,10 +41,11 @@ class Monitor(object):
 
         :param func: the function to call. If it requires args, they should be kwargs.
                     Should return None (constant period) or a float (variable period)
-        :param period: how many seconds between calls.
+        :param period: how many seconds between calls (initially, can be None if the
+                    function returns floats).
         :param kwargs: any keyword arguments required for func
         """
-        self.funcs.append((func, period, **kwargs))
+        self.funcs.append((func, period, kwargs))
 
     def Setup(self, *args, **kwargs):
         """
@@ -64,29 +68,27 @@ class Monitor(object):
         """
         self.Register(func=self.HandleCommands, period=1)
         self.Register(func=self.CheckThreads, period=30)
-        for func, period, kwargs in self.funcs:
-            t = threading.Thread(target=self.LoopHandler,
-                    func=partial(func, **kwargs), period=period)
+        for fcn, period, kwargs in self.funcs:
+            part = partial(self.LoopHandler, func=partial(fcn, **kwargs), period=period)
+            t = threading.Thread(target=part)
             t.start()
-            self.threads.append((t, func, period, kwargs))
+            self.threads.append((t, part))
 
     def CheckThreads(self):
         """
         Checks to make sure all threads are running. Attempts to restart any
         that aren't
         """
-        for i in range(len(self.threads)):
-            t, f, p, kw = self.threads[i]
+        for i, (t,f) in enumerate(self.threads):
             if not t.is_alive():
                 try:
-                    self.info('%s-thread died, let\'s try restarting it' % str(f).split(' ')[1])
+                    self.logger.info('%s-thread died, let\'s try restarting it' % f.split(' ')[2])
                     t.join()
-                    t = threading.Thread(target=self.LoopHandler,
-                            func=partial(f, **kw), period=p)
+                    t = threading.Thread(target=f)
                     t.start()
-                    self.threads[i] = (t, f, p, kw)
+                    self.threads[i] = (t, f)
                 except Exception as e:
-                    self.logger.error('%s-thread died and won\'t restart' % str(f).split(' ')[1])
+                    self.logger.error('%s-thread died and won\'t restart' % f.split(' ')[2])
                     self.db.LogAlarm()  # TODO finish
                     _ = self.threads.pop(i)
 
@@ -97,10 +99,11 @@ class Monitor(object):
         """
         pass
 
-    def LoopHandler(self, func, period):
+    def LoopHandler(self, func=None, period=None):
         """
         Spawns a thread to do a function
         """
+        self.logger.debug('%s starting' % str(func).split(' ')[2])
         while self.sh.run:
             loop_top = time.time()
             ret = func()
@@ -108,5 +111,6 @@ class Monitor(object):
                 period = ret
             now = time.time()
             while (now - loop_top) < period and self.sh.run:
-                time.sleep(max(1, now - loop_top))
+                time.sleep(min(1, now - loop_top))
                 now = time.time()
+        self.logger.debug('%s returning' % str(func).split(' ')[2])

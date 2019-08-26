@@ -12,7 +12,7 @@ import logging
 import logging.handlers
 dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin SensorOpts Logger number_regex buffer_timer'.split()
+__all__ = 'FindPlugin SensorOpts Logger number_regex buffer_timer doberman_dir'.split()
 
 heartbeat_timer = 30
 buffer_timer = 5
@@ -120,12 +120,12 @@ def FindPlugin(name, path):
     :returns constructor: the constructor of the requested sensor
     """
     strip = False
-    spec = importlib.machinery.PathFinder.find_spec(name, path)
+    spec = importlib.machinery.PathFinder.find_spec(name, [path])
     if spec is None:
         strip = True
-        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
+        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), [path])
     if spec is None:
-        raise FileNotFoundError('Could not find a sensor named %s' % name)
+        raise FileNotFoundError('Could not find a sensor named %s in %s' % (name, path))
     try:
         if strip:
             sensor_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
@@ -196,11 +196,12 @@ class DobermanLogger(logging.Handler):
         if self.db.insertIntoDatabase(self.db_name, self.collection_name, rec):
             self.backup_logger.emit(record)
 
-def Logger(name, db, loglevel='INFO'):
+def Logger(name, db, loglevel='DEBUG'):
     logger = logging.getLogger(name)
     try:
-        logger.setLevel(getattr(logging, loglevel))
-    except:
-        logger.setLevel(logging.INFO)
-    logger.addHandler(DobermanLogger(db))
+        lvl = getattr(logging, loglevel)
+    except AttributeError:
+        lvl = logging.INFO
+    logger.setLevel(lvl)
+    logger.addHandler(DobermanLogger(db, level=lvl))
     return logger

@@ -12,7 +12,7 @@ class FeedbackController(Doberman.Reading):
         self.buffer = np.zeros(0, dtype=self.dtype)
 
     def UpdateConfig(self):
-        doc = self.db.GetReading(self.sensor_name, self.name)
+        doc = self.db.GetReadingSetting(self.sensor_name, self.name)
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         gains = doc['pid_settings']
@@ -31,7 +31,7 @@ class FeedbackController(Doberman.Reading):
     def ResetIntegral(self):
         self.buffer = np.zeros(0, dtype=self.dtype)
 
-    def Process(self, value):
+    def Process(self, value):  # TODO finish
         value = super().Process(value)
         if self.pid_status == 'offline':
             return value

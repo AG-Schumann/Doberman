@@ -6,6 +6,7 @@ import re
 import numpy as np
 import signal
 import threading
+import datetime
 
 pattern = (r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?').encode()
 
@@ -49,7 +50,7 @@ class FeedbackTester(object):
                     q_other = whoops*self.shit_happens(t-shit_start)
                 else:
                     whoops = q_other = 0
-            t_amb = T_amb(t)
+            t_amb = self.T_amb(t)
             q_rad = epsilon * (t_amb**4 - self.t_bulk**4)
             q_cond = k*(t_amb - self.t_bulk)
             q_in = q_rad + q_cond + q_other
@@ -83,16 +84,10 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
     read_pattern = re.compile(b'^\\*READ:(?P<ch>one|two)\r\n$')
     set_pattern = re.compile(b'^\\*SET:(?P<param>[a-z]+)=(?P<value>' + pattern + b')\r\n$')
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fbt = FeedbackTester()
-        self._fbthread = threading.Thread(target=self.fbt.Simulate)
-        self._fbthread.start()
-
     def handle(self):
         try:
             msg = self.request.recv(1024)
-            print('Received %s' % msg)
+            print('Received %s at %s' % (msg, datetime.datetime.now().isoformat(sep=' ')))
             if not msg:
                 return
             sleep_for = 0.006*random.random()
@@ -104,7 +99,7 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
                 if m.group('ch') == b'one':
                     payload = b'OK;%.3g' % (5*random.random())
                 elif m.group('ch') == b'two':
-                    payload = b'OK;%.3g' % self.dice()
+                    payload = b'OK;%.3g' % random.randint(1, 6)
                 elif m.group('ch') == b'three':
                     payload = b'OK;%.3f' % self.fbt.T_bulk()
                 else:
@@ -120,25 +115,21 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
                         payload = b'ERR;11'
                     else:
                         payload = b'OK;'
-                    if m.group('param') == b'sides':
-                        try:
-                            self.sides = int(m.group('value'))
-                        except ValueError:
-                            pass
-                    elif m.group('param') == 'noise':
-                        self.fbt.ro_noise = float(m.group('value'))
-                    elif m.group('param') == 'qout':
-                        self.fbt.q_out = float(m.group('value'))
-                    elif m.group('param') == 'ambbase':
-                        self.fbt.amb_base = float(m.group('value'))
-                    elif m.group('param') == 'ambamp':
-                        self.fbt.amb_amp = float(m.group('value'))
-                    elif m.group('param') == 'ambperiod':
-                        self.fbt.amb_period = float(m.group('value'))
-                    elif m.group('param') == 'ambnoise':
-                        self.fbt.amb_noise = float(m.group('value'))
-                    else:
-                        payload = b'ERR;12'
+                        if m.group('param') == 'noise':
+                            self.fbt.ro_noise = float(m.group('value'))
+                        elif m.group('param') == 'qout':
+                            self.fbt.q_out = float(m.group('value'))
+                        elif m.group('param') == 'ambbase':
+                            self.fbt.amb_base = float(m.group('value'))
+                        elif m.group('param') == 'ambamp':
+                            self.fbt.amb_amp = float(m.group('value'))
+                        elif m.group('param') == 'ambperiod':
+                            self.fbt.amb_period = float(m.group('value'))
+                        elif m.group('param') == 'ambnoise':
+                            self.fbt.amb_noise = float(m.group('value'))
+                        else:
+                            payload = b'ERR;12'
+            print('Sending %s' % payload.decode())
             self.request.sendall(payload + b'\r\n')
             sleep_for = 0.05*random.random()
             print('Cleanup time: %.3g' % sleep_for)
@@ -151,8 +142,13 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
         return random.randint(1, self.sides)
 
 def main():
+    #fbt = FeedbackTester()
+    #t = threading.Thread(target=fbt.Simulate)
     with socketserver.TCPServer(('localhost', 5000), TestSensorHandler) as server:
+        #server.fbt = fbt
+        #t.start()
         server.serve_forever()
+    #fbt.run = False
 
 if __name__ == '__main__':
     main()

@@ -17,16 +17,16 @@ class Sensor(object):
         """
         opts is the document from the database
         """
-        for k, v in opts['address']:
+        for k, v in opts['address'].items():
             setattr(self, k, v)
         if 'additional_params' in opts:
-            for k, v in opts['additional_params']:
+            for k, v in opts['additional_params'].items():
                 setattr(self, k, v)
         self.readings = opts['readings']
         self.logger = logger
-        self._connected = False
         self.q_lock = threading.RLock()
         self.SetParameters()
+        self._Setup()
 
     def _Setup(self):
         self.cmd_queue = []
@@ -123,11 +123,11 @@ class Sensor(object):
             self.logger.debug('Caught a %s: %s' % (type(e),e))
             value = None
         self.logger.debug('Name %s values %s' % (reading_name, value))
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, (list, tuple)):  # TODO won't work in 5.0
             for n,v in zip(self.reading_commands.keys(), value):
-                cb(n, v, pkg['retcode'])
+                cb(v)
         else:
-            cb(reading_name, value, pkg['retcode'])
+            cb(value)
         return
 
     def ProcessOneReading(self, name, data):
@@ -297,13 +297,18 @@ class LANSensor(Sensor):
         """
         Connects to the sensor
         """
-        self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            self._device.settimeout(1)
-            self._device.connect((self.ip, int(self.port)))
-        except socket.error as e:
-            self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
-            return False
+        # We create a socket when we need it, so no need for a "static" connection
+        class DummyObject(object):
+            def close(self):
+                return
+        #self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._device = DummyObject()
+        #try:
+        #    self._device.settimeout(1)
+        #    self._device.connect((self.ip, int(self.port)))
+        #except socket.error as e:
+        #    self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
+        #    return False
         self._connected = True
         return True
 
@@ -317,17 +322,13 @@ class LANSensor(Sensor):
         message = str(message).rstrip()
         message = self._msg_start + message + self._msg_end
         try:
-            self._device.sendall(message.encode())
+            with socket.create_connection((self.ip, self.port), timeout=1) as s:
+                s.sendall(message.encode())
+                time.sleep(0.01)
+                ret['data'] = s.recv(1024)
+                self.logger.debug('Sent %s got %s' % (message, ret['data']))
         except socket.error as e:
-            self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
-            ret['retcode'] = -2
-            return ret
-        time.sleep(0.01)
-
-        try:
-            ret['data'] = self._device.recv(1024)
-        except socket.error as e:
-            self.logger.fatal('Could not receive data from sensor. Error: %s' % e)
+            self.logger.error("Error with  message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -2
         return ret
 

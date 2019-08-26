@@ -1,5 +1,8 @@
 import Doberman
 import datetime
+from socket import getfqdn
+
+
 dtnow = datetime.datetime.utcnow
 
 __all__ = 'Database'.split()
@@ -10,10 +13,12 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, client, appname):
-        self.client = client
+    def __init__(self, mongo_client, influx_client=None, kafka_producer=None):
+        self.client = mongo_client
         self.logger = Doberman.utils.Logger(name='Database', db=self)
-        self.appname = appname
+        self.influx_client=influx_client
+        self.kafka_producer=kafka_producer
+        self.hostname = getfqdn()
 
     def close(self):
         return
@@ -246,7 +251,7 @@ class Database(object):
         self.insertIntoDatabase('logging', 'updates', kwargs)
         return
 
-    def GetSensorSetting(self, sensor_name, field=None):
+    def GetSensorSetting(self, name, field=None):
         """
         Gets a specific setting from one sensor
 
@@ -257,32 +262,8 @@ class Database(object):
         doc = self.readFromDatabase('settings', 'sensors', cuts={'name' : name},
                 onlyone=True)
         if field is not None:
-            return doc
-        return doc[field]
-
-    def GetReading(self, sensor=None, name=None):
-        """
-        Gets the document from one reading
-
-        :param sensor: the name of the sensor
-        :param name: the name of the reading
-        :returns: reading document
-        """
-        return self.readFromDatabase('settings', 'readings',
-                cuts={'sensor' : sensor, 'name' : name}, onlyone=True)
-
-    def UpdateReading(self, sensor=None, name=None, field=None, value=None):
-        """
-        Updates a parameter for a reading
-
-        :param sensor: the name of the sensor
-        :param name: the name of the reading
-        :param field: the specific field to update
-        :param value: the new value
-        """
-        self.updateDatabase('settings', 'readings',
-                cuts={'sensor' : sensor, 'name' : name},
-                updates={'$set' : {field : value}})
+            return doc[field]
+        return doc
 
     def SetSensorSetting(self, name, field, value):
         """
@@ -294,8 +275,37 @@ class Database(object):
         """
         self.updateDatabase('settings', 'sensors', cuts={'name' : name},
                 updates = {'$set' : {field : value}})
+        return
 
-    def getDefaultSettings(self, runmode=None, name=None):
+    def GetReadingSetting(self, sensor=None, name=None, field=None):
+        """
+        Gets the document from one reading
+
+        :param sensor: the name of the sensor
+        :param name: the name of the reading
+        :returns: reading document
+        """
+        doc = self.readFromDatabase('settings', 'readings',
+                cuts={'sensor' : sensor, 'name' : name}, onlyone=True)
+        if field is not None:
+            return doc[field]
+        return doc
+
+    def SetReadingSetting(self, sensor=None, name=None, field=None, value=None):
+        """
+        Updates a parameter for a reading, used only by the web interface
+
+        :param sensor: the name of the sensor
+        :param name: the name of the reading
+        :param field: the specific field to update
+        :param value: the new value
+        """
+        self.updateDatabase('settings', 'readings',
+                cuts={'sensor' : sensor, 'name' : name},
+                updates={'$set' : {field : value}})
+        return
+
+    def GetRunmodeSetting(self, runmode=None, field=None):
         """
         Reads default Doberman settings from database.
 
@@ -303,15 +313,10 @@ class Database(object):
         :param name: the name of the setting
         :returns: the setting dictionary if name=None, otherwise the specific field
         """
-        if runmode:
-            doc = self.readFromDatabase('settings', 'runmodes',
+        doc = self.readFromDatabase('settings', 'runmodes',
                     {'mode' : runmode}, onlyone=True)
-            if name:
-                return doc[name]
-            return doc
-        doc = self.readFromDatabase('settings', 'current_status', onlyone=True)
-        if name:
-            return doc[name]
+        if field is not None:
+            return doc[field]
         return doc
 
     def GetHostSetting(self, host=None, field=None):
@@ -321,8 +326,8 @@ class Database(object):
         if host is None:
             host = self.hostname
         doc = self.readFromDatabase('settings', 'hosts', {'hostname' : host},
-                onlyOne=True)
-        if field is not None and field in doc:
+                onlyone=True)
+        if field is not None:
             return doc[field]
         return doc
 
@@ -337,42 +342,30 @@ class Database(object):
         self.updateDatabase('settings', 'hosts', {'host' : host},
                 updates={f'${k}' : v for k, v in kwargs.items()})
 
-    def ManagePlugins(self, name, action):
+    def PushDataUpstream(self, sensor_name, data_doc):
         """
-        Adds or removes a plugin from the managed list. Doberman adds, plugins remove
-
-        :param name: the name of the plugin
-        :param action: 'add' or 'remove'
-        :returns: None
-        """
-        managed_plugins = self.getDefaultSettings(name='managed_plugins')
-        if action=='add':
-            if name in managed_plugins:
-                self.logger.info('%s already managed' % name)
-            else:
-                self.updateDatabase('settings', 'current_status', cuts={},
-                        updates={'$push' : {'managed_plugins' : name}})
-        elif action=='remove':
-            if name not in managed_plugins:
-                self.logger.debug('%s isn\'t managed' % name)
-            else:
-                self.updateDatabase('settings', 'current_status', cuts={},
-                        updates={'$pull' : {'managed_plugins' : name}})
-        return
-
-    def WriteDataToDatabase(self, sensor_name, data_doc):
-        """
-        Writes data to the database
+        Writes data to the database specified by the sensor's config
 
         :param sensor_name: the name of the sensor
         :param data_doc: the document with data
         :returns 0 on success, -1 otherwise
         """
-        ret = self.insertIntoDatabase('data', sensor_name, data_doc)
-        if ret:
-            self.logger.warning("Can not write data from %s to Database. "
-                                "Database interaction error." % sensor_name)
-            return -1
+        return
+        sdt = self.GetSensorSetting(sensor_name, field='send_data_to')
+        if sdt == 'influx':
+            if self.influx_client is None:
+                self.logger.error('I don\'t have an InfluxDB client, '
+                        'I can\'t send data')
+                return -1
+            self.influx_client.write_points(json_body)
+        elif sdt == 'kafka':
+            if self.kafka_producer is None:
+                self.logger.error('I don\'t have a Kafka producer, '
+                        'I can\'t send data')
+                return -2
+            self.kafka_producer.send(topic_name, data_dump)
+        else:
+            self.logger.error('What does "%s" mean?' % sdt)
         return 0
 
     def GetCurrentStatus(self):
@@ -391,7 +384,7 @@ class Database(object):
                     'readings' : {}
                 }
             for reading_name in sensor_doc['readings']:
-                reading_doc = self.GetReading(sensor_name, reading_name)
+                reading_doc = self.GetReadingSetting(sensor_name, reading_name)
                 status[sensor_name]['readings'][reading_name] = {
                         'description' : reading_doc['description'],
                         'status' : reading_doc['status'],
