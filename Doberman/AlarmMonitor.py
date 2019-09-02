@@ -12,6 +12,10 @@ class AlarmMonitor(Doberman.Monitor):
     Class that sends monitors for alarms and sends messages
     """
 
+    def Setup(self):
+        self.Register(func=self.CheckHeartbeats, period=30, name='heartbeat')
+        self.Register(func=self.CheckForAlarms, period=5, name='alarmcheck')
+
     def getConnectionDetails(self, which):
         detail_doc = self.db.readFromDatabase('settings', 'alarm_config',
                 {'connection_details' : {'$exists' : 1}}, onlyone=True)

@@ -11,20 +11,22 @@ class SensorMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
-        self.db.experiment_name = 'testing'
         plugin_dir = self.db.GetHostSetting(field='plugin_dir')
         self.sensor_ctor = Doberman.utils.FindPlugin(self.name, plugin_dir)
         self.sensor = None
         self.buffer_lock = threading.RLock()
-        self.processing_lock = threading.RLock()
-        self.readings = [Doberman.Reading(self.name, reading_name, self.db)
-            for reading_name in self.db.GetSensorSetting(self.name, field='readings')]
+        cfg_doc = self.db.GetSensorSetting(self.name)
+        self.readings = {reading_name : Doberman.Reading(self.name, reading_name, self.db)
+            for reading_name in cfg_doc['readings'].keys()}
         self.buffer = []
         self.OpenSensor()
-        self.Register(func=self.ClearBuffer, period=Doberman.utils.buffer_timer)
+        self.Register(func=self.ClearBuffer, period=cfg_doc['buffer_timer'],
+                name='bufferer')
         for r in self.readings:
-            self.Register(func=self.ScheduleReading, period=r.readout_interval, reading=r)
-        self.Register(self.Heartbeat, period=self.db.GetHostSetting(field='heartbeat_timer'))
+            self.Register(func=self.ScheduleReading, period=r.readout_interval,
+                    reading=r, name=r.name)
+        self.Register(self.Heartbeat, name='heartbeat',
+                period=self.db.GetHostSetting(field='heartbeat_timer'))
 
     def Shutdown(self):
         self.logger.info('Stopping sensor')
@@ -95,11 +97,25 @@ class SensorMonitor(Doberman.Monitor):
                     else:
                         self.db.SetReadingSetting(sensor=self.name, reading=reading,
                                 set={'runmode' : runmode})
+            elif command == 'reload readings':
+                self.sensor.setattr('readings',
+                        self.db.GetSensorSetting(self.name, field='readings'))
+                self.ReloadReadings()
             elif command == 'stop':
                 self.sh.run = False
-                self.sh.restart_me = False
+                self.sh.restart_me = False  # TODO handle
             elif self.sensor is not None:
                 self.sensor.AddToSchedule(command=command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
             doc = self.db.FindCommand(self.name)
+
+    def ReloadReadings(self):
+        readings_dict = self.db.GetSensorSetting(self.name, 'readings')
+        for reading_name in readings_dict.values():
+            if reading_name in self.threads.keys():
+                self.StopThread(reading_name)
+            self.readings[reading_name] = Doberman.Reading(self.name, reading_name,
+                    self.db)
+            self.Register(func=self.ScheduleReading, period=r.readout_interval,
+                    reading=r, name=r.name)

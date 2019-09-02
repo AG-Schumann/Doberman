@@ -15,7 +15,6 @@ import argparse
 import time
 import os
 from functools import partial
-import socket
 
 
 def main(mongo_client, influx_client=None, kafka_producer=None):
@@ -25,24 +24,27 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
+    parser.add_argument('--log', choices=['DEBUG','INFO','WARNING','ERROR','FATAL'],
+                                help='Logging level', default='INFO')
     args = parser.parse_args()
 
     db = Doberman.Database(mongo_client,
                            influx_client=influx_client,
                            kafka_producer=kafka_producer)
+    kwargs = {'db' : db, 'loglevel' : args.loglevel}
 
     # TODO add checks for running systems
     if args.alarm:
-        ctor = partial(Doberman.AlarmMonitor, 'AlarmMonitor', db)
+        ctor = partial(Doberman.AlarmMonitor, **kwargs)
     elif args.host:
-        hostname = socket.getfqdn()
-        ctor = partial(Doberman.HostMonitor, hostname, db)
+        ctor = partial(Doberman.HostMonitor, **kwargs)
     elif args.sensor:
         if influx_client is None and kafka_producer is None:
             print('This host has neither Kafka nor Influx?? '
                     'What am I supposed to do with the data??')
             #return
-        ctor = partial(Doberman.SensorMonitor, args.sensor, db)
+        kwargs['_name'] = args.sensor
+        ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.status:
         pass
     else:
@@ -63,25 +65,21 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
 
 if __name__ == '__main__':
     try:
-        mongo_client = MongoClient(os.environ['DOBERMAN_MONGO_URI'])
+        mongo_uri = os.environ['MONGO_DOBERMAN_URI']
     except KeyError:
         with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
-            mongo_client = MongoClient(f.read().strip())
-    if has_influx:
-        influx_client = InfluxDBClient()
-    else:
-        influx_client = None
-    if has_kafka:
-        kafka_producer = KafkaProducer()
-    else:
-        kafka_producer = None
-    #try:
-    main(mongo_client, influx_client, kafka_producer)
-    #except Exception as e:
-    #    print('Caught a %s: %s' % (type(e), e))
-    #finally:
-    mongo_client.close()
-    #    if has_influx:
-    #        influx_client.close()
-    #    if has_kafka:
-    #        kafka_producer.close()
+            mongo_uri = f.read().strip()
+    with MongoClient(mongo_uri) as mongo_client:
+        if has_influx:
+            with InfluxDBClient() as influx_client:
+                if has_kafka:
+                    with KafkaProducer() as kafka_producer:
+                        main(mongo_client, influx_client, kafka_producer)
+                else:
+                    main(mongo_client, influx_client, None)
+        else:
+            if has_kafka:
+                with KafkaProducer() as kafka_producer:
+                    main(mongo_client, None, kafka_producer)
+            else:
+                main(mongo_client, None, None)

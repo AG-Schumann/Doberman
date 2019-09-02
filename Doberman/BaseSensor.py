@@ -1,5 +1,10 @@
-import serial
+try:
+    import serial
+    has_serial=True
+except ImportError:
+    has_serial=False
 import socket
+import Queue
 import time
 import threading
 from functools import partial
@@ -24,21 +29,30 @@ class Sensor(object):
                 setattr(self, k, v)
         self.readings = opts['readings']
         self.logger = logger
-        self.q_lock = threading.RLock()
         self.SetParameters()
-        self._Setup()
+        self.BaseSetup()
 
-    def _Setup(self):
-        self.cmd_queue = []
-        if self.OpenDevice():
+    def BaseSetup(self):
+        self.cmd_queue = Queue()
+        try:
+            self.SetupChild()
             self.Setup()
             time.sleep(0.2)
             self.running = True
             self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
             self.readout_thread.start()
-        else:
+        except Exception as e:
             self.logger.error('Something went wrong during initialization...')
+            self.logger.error(type(e))
+            self.logger.error(e)
             raise ValueError('Initialization failed')
+
+    def Shutdown(self):
+        """
+        A function for a child class to implement with anything that should happen
+        before shutdown, such as closing an active hardware connection
+        """
+        pass
 
     def SetParameters(self):
         """
@@ -54,12 +68,13 @@ class Sensor(object):
         """
         pass
 
-    def OpenDevice(self):
+    def SetupChild(self):
         """
-        Opens the connection to the device. The instance MUST have a _device object
-        after this function returns successfully. Should return True on success
+        A function for a child class to implement with any setup that needs
+        to be done before handing off to the user's code (such as opening a
+        hardware connection)
         """
-        raise NotImplementedError()
+        pass
 
     def ReadoutScheduler(self):
         """
@@ -71,13 +86,13 @@ class Sensor(object):
         """
         self.logger.debug('Readout scheduler starting')
         while self.running:
-            if self.q_lock.acquire(blocking=False):
-                if len(self.cmd_queue) > 0:
-                    command, callback = self.cmd_queue.pop(0)
-                    ret = self.SendRecv(command)
-                    callback(ret)
-                self.q_lock.release()
-            time.sleep(0.01)
+            try:
+                command, callback = self.cmd_queue.get(timeout=0.001)
+                ret = self.SendRecv(command)
+                self.cmd_queue.task_done()
+                callback(ret)
+            except Queue.Empty:
+                pass
         self.logger.debug('Readout scheduler returning')
 
     def AddToSchedule(self, reading_name=None, command=None, callback=None):
@@ -95,12 +110,10 @@ class Sensor(object):
         if reading_name is not None:
             if callback is None:
                 return
-            with self.q_lock:
-                self.cmd_queue.append((self.reading_commands[reading_name],
-                    partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
+            self.cmd_queue.put((self.readings[reading_name],
+                partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
         elif command is not None:
-            with self.q_lock:
-                self.cmd_queue.put((command, lambda x : None))
+            self.cmd_queue.put((command, lambda x : None))
         return
 
     def _ProcessReading(self, pkg, reading_name=None, cb=None):
@@ -124,7 +137,7 @@ class Sensor(object):
             value = None
         self.logger.debug('Name %s values %s' % (reading_name, value))
         if isinstance(value, (list, tuple)):  # TODO won't work in 5.0
-            for n,v in zip(self.reading_commands.keys(), value):
+            for n,v in zip(self.readings.keys(), value):
                 cb(v)
         else:
             cb(value)
@@ -144,14 +157,6 @@ class Sensor(object):
         """
         if hasattr(self, 'reading_pattern'):
             return float(self.reading_pattern.search(data).group('value'))
-        raise NotImplementedError()
-
-    def FeedbackReadout(self):
-        """
-        TODO update for >= 4.x
-        Reads the variable used during feedback. Just a single call to SendRecv.
-        Must return [timestamp (since epoch), value, retcode]
-        """
         raise NotImplementedError()
 
     def SendRecv(self, message):
@@ -182,11 +187,7 @@ class Sensor(object):
         self.running = False
         if hasattr(self, 'readout_thread'):
             self.readout_thread.join()
-        self._connected = False
-        try:
-            self._device.close()
-        except:
-            pass
+        self.Shutdown()
         return
 
     def __del__(self):
@@ -202,14 +203,6 @@ class SoftwareSensor(Sensor):
     """
     Class for software-only sensors (heartbeats, system monitors, etc)
     """
-    class DummyObject(object):
-        def close():
-            return
-
-    def OpenDevice(self):
-        self._device = self.DummyObject()
-        return True
-
     def SendRecv(self, command, timeout=1, **kwargs):
         for k,v in zip(['shell','stdout','stderr'],[True,PIPE,PIPE]):
             if k not in kwargs:
@@ -232,7 +225,7 @@ class SerialSensor(Sensor):
     Serial sensor class. Implements more direct serial connection specifics
     """
 
-    def OpenDevice(self):
+    def SetupChild(self):
         self._device = serial.Serial()
         self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
@@ -241,20 +234,18 @@ class SerialSensor(Sensor):
         self._device.write_timeout = 5
 
         if self.tty == '0':
-            self.logger.error('No tty port specified!')
-            return False
+            raise ValueError('No tty port specified!')
         self._device.port = '/dev/tty%s' % (self.tty)
         try:
             self._device.open()
         except serial.SerialException as e:
-            self.logger.error('Problem opening %s: %s' % (self._device.port, e))
-            return False
+            raise ValueError('Problem opening %s: %s' % (self._device.port, e))
         if not self._device.is_open:
-            self.logger.error('Error while connecting to device')
-            return False
-        else:
-            self._connected = True
-            return True
+            raise ValueError('Error while connecting to device')
+        return
+
+    def Shutdown(self):
+        self._device.close()
 
     def isThisMe(self, dev):
         """
@@ -293,32 +284,9 @@ class LANSensor(Sensor):
     Class for LAN-connected sensors
     """
 
-    def OpenDevice(self):
-        """
-        Connects to the sensor
-        """
-        # We create a socket when we need it, so no need for a "static" connection
-        class DummyObject(object):
-            def close(self):
-                return
-        #self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._device = DummyObject()
-        #try:
-        #    self._device.settimeout(1)
-        #    self._device.connect((self.ip, int(self.port)))
-        #except socket.error as e:
-        #    self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
-        #    return False
-        self._connected = True
-        return True
-
     def SendRecv(self, message):
         ret = {'retcode' : 0, 'data' : None}
 
-        if not self._connected:
-            self.logger.error('No sensor connected, can\'t send message %s' % message)
-            ret['retcode'] = -1
-            return ret
         message = str(message).rstrip()
         message = self._msg_start + message + self._msg_end
         try:
@@ -326,9 +294,8 @@ class LANSensor(Sensor):
                 s.sendall(message.encode())
                 time.sleep(0.01)
                 ret['data'] = s.recv(1024)
-                self.logger.debug('Sent %s got %s' % (message, ret['data']))
         except socket.error as e:
-            self.logger.error("Error with  message %s. Error: %s" % (message.strip(), e))
+            self.logger.error("Error with message %s: %s" % (message.strip(), e))
             ret['retcode'] = -2
         return ret
 
