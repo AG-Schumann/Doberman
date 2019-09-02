@@ -12,8 +12,9 @@ class HostMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
-        self.Register(func=self.SystemStatus, period=60)
-        self.Register(func=self.Hearbeat, period=Doberman.heartbeat_timer)
+        host_cfg = self.db.GetHostSetting()
+        self.Register(func=self.SystemStatus, period=cfg['sysmon_timer'], name='sysmon')
+        self.Register(func=self.Hearbeat, period=cfg['heartbeat_timer'], name='heartbeat')
         self.last_restart_time = {}
 
     def SystemStatus(self):
@@ -21,16 +22,17 @@ class HostMonitor(Doberman.Monitor):
         ret['load_1'], ret['load_5'], ret['load_15'] = psutil.getloadavg()
         ret['mem_avail'] = psutil.virtual_memory().available >> 20
         ret['swap_used'] = psutil.swap_memory().used >> 20
+        socket = '0'
         for row in psutil.sensors_temperatures()['coretemp']:
             if 'Package' in row.label:
                 socket = row.label[-1]  # max 10 sockets per machine
-                ret['cpu_0'] = row.current
+                ret[f'cpu_{socket}_temp'] = row.current
             else:
-                core = row.label.split(' ')[-1]
-                ret[f'cpu_{socket}_{core}'] = row.current
+                core = int(row.label.split(' ')[-1])
+                ret[f'cpu_{socket}_{core:02d}_temp'] = row.current
         for i,row in enumerate(psutil.cpu_freq(True)):
-            ret[f'cpu_{i}_freq'] = row.current
-        # TODO something with ret
+            ret[f'cpu_{i:02d}_freq'] = row.current
+        self.db.PushDataUpstream('sysmon', ret)
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(host=self.hostname)
@@ -45,6 +47,7 @@ class HostMonitor(Doberman.Monitor):
                 # sensor is isn't online
                 if sensor in in_error:
                     # it has some already-acknowledged issue
+                    self.logger.debug('%s has an acknowledged error' % sensor)
                     continue
                 # isn't running? Start it
                 self.StartSensor(sensor)
@@ -61,11 +64,11 @@ class HostMonitor(Doberman.Monitor):
                         self.last_restart_times[sensor] = now
                     else:
                         dt = (self.last_restart_times[sensor] - now).total_seconds()
-                        if dt > 3*host_cfg['heartbeat_timer']:
-                            doc = dict(host=self.hostname, howbad=0,
+                        if dt < 3*host_cfg['heartbeat_timer']:
+                            doc = dict(name=self.hostname, howbad=0,
                                     msg=('%s has needed restarting twice within the last '
                                          '%d seconds, is it working properly?' %
-                                         (sensor, dt))
+                                         (sensor, dt)))
                             self.db.LogAlarm(doc)
                             self.db.SetHostSetting(pull={'active' : sensor},
                                                    push={'in_error' : sensor})
@@ -74,6 +77,8 @@ class HostMonitor(Doberman.Monitor):
                     if sensor in in_error:
                         # clear a previous error
                         self.db.SetHostInfo(pull={'in_error': sensor})
+                    if sensor not in active:
+                        self.db.SetHostInfo(push={'active' : sensor})
         # TODO add checks for LAN sensors running on other hosts
         return host_cfg['hearbeat_timer']
 

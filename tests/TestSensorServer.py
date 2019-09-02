@@ -100,7 +100,7 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
                     payload = b'OK;%.3g' % (5*random.random())
                 elif m.group('ch') == b'two':
                     payload = b'OK;%.3g' % random.randint(1, 6)
-                elif m.group('ch') == b'three':
+                elif m.group('ch') == b't_pid':
                     payload = b'OK;%.3f' % self.fbt.T_bulk()
                 else:
                     payload = b'ERR;01'

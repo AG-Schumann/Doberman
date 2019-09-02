@@ -13,9 +13,10 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, mongo_client, influx_client=None, kafka_producer=None):
+    def __init__(self, mongo_client, influx_client=None,
+                kafka_producer=None, loglevel='INFO'):
         self.client = mongo_client
-        self.logger = Doberman.utils.Logger(name='Database', db=self)
+        self.logger = Doberman.utils.Logger(name='Database', db=self, loglevel=loglevel)
         self.influx_client=influx_client
         self.kafka_producer=kafka_producer
         self.hostname = getfqdn()
