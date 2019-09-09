@@ -37,7 +37,7 @@ def PrintHelp(db, name):
     print()
     return
 
-def ProcessCommandStepOne(db, command_str, user=None):
+def ProcessCommand(db, command_str, user=None):
     """
     Does the regex matching for command input
 
@@ -65,7 +65,7 @@ def ProcessCommandStepOne(db, command_str, user=None):
     for pattern in patterns:
         m = re.search(pattern, command_str)
         if m:
-            db.ProcessCommandStepTwo(m, user=user)
+            StepTwo(m, user=user)
             if user is not None:  # for non-CLI users
                 break
             time.sleep(3)
@@ -78,7 +78,7 @@ def ProcessCommandStepOne(db, command_str, user=None):
     else:
         print('Command \'%s\' not understood' % command_str)
 
-    def ProcessCommandStepTwo(db, m, user=None):
+    def StepTwo(db, m, user=None):
     """
     Takes the match object (m) from StepOne and figures out what it actually means
     """
@@ -108,22 +108,22 @@ def ProcessCommandStepOne(db, command_str, user=None):
             'runmode' : online}[command]})
     if command == 'start':
         for n in names[name]:
-            db.ProcessCommandStepThree('doberman', 'start %s %s' % (n, m['runmode']), user=user)
+            db.StepThree('doberman', 'start %s %s' % (n, m['runmode']), user=user)
     elif command == 'stop':
         for n in names[name]:
-            db.ProcessCommandStepThree(n, 'stop', user=user)
+            db.StepThree(n, 'stop', user=user)
     elif command == 'restart':
         td = datetime.timedelta(seconds=1.1*utils.heartbeat_timer)
         for n in names[name]:
-            db.ProcessCommandStepThree(n, 'stop', user=user)
-            db.ProcessCommandStepThree('doberman', 'start %s None' % n, td, user=user)
+            db.StepThree(n, 'stop', user=user)
+            db.StepThree('doberman', 'start %s None' % n, td, user=user)
     elif command == 'runmode':
         for n in names[name]:
-            db.ProcessCommandStepThree(n, 'runmode %s' % m['runmode'], user=user)
+            db.StepThree(n, 'runmode %s' % m['runmode'], user=user)
     else:
-        db.ProcessCommandStepThree(name, command, user=user)
+        db.StepThree(name, command, user=user)
 
-def ProcessCommandStepThree(db, name, command, future=None, user=None):
+def StepThree(db, name, command, future=None, user=None):
     """
     Puts a command into the database
 
@@ -144,7 +144,6 @@ def ProcessCommandStepThree(db, name, command, future=None, user=None):
     if future is not None:
         command_doc['logged'] += future
     db.insertIntoDatabase('logging','commands', command_doc)
-    print(f'Stored "{command}" for {name}')
     return
 
 def main(client):

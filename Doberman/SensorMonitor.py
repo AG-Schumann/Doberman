@@ -11,18 +11,21 @@ class SensorMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
+        self.logger.debug('Setup starting')
         plugin_dir = self.db.GetHostSetting(field='plugin_dir')
+        self.logger.debug('Got dir, finding ctor')
         self.sensor_ctor = Doberman.utils.FindPlugin(self.name, plugin_dir)
         self.sensor = None
         self.buffer_lock = threading.RLock()
         cfg_doc = self.db.GetSensorSetting(self.name)
+        self.logger.debug('Got cfg doc, setting readings')
         self.readings = {reading_name : Doberman.Reading(self.name, reading_name, self.db)
             for reading_name in cfg_doc['readings'].keys()}
         self.buffer = []
         self.OpenSensor()
         self.Register(func=self.ClearBuffer, period=cfg_doc['buffer_timer'],
                 name='bufferer')
-        for r in self.readings:
+        for r in self.readings.values():
             self.Register(func=self.ScheduleReading, period=r.readout_interval,
                     reading=r, name=r.name)
         self.Register(self.Heartbeat, name='heartbeat',
@@ -44,7 +47,7 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.close()
         try:
             self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name), self.logger)
-            self.sensor._Setup()
+            self.sensor.BaseSetup()
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
@@ -66,18 +69,21 @@ class SensorMonitor(Doberman.Monitor):
         self.logger.debug('Scheduling %s' % reading.name)
         if reading.status == 'online' and reading.readout_interval > 0:
             self.sensor.AddToSchedule(reading_name=reading.name,
-                    callback=partial(self.ProcessReading, reading=reading))
+                    callback=partial(self.ProcessReading, reading_name=reading.name))
         return reading.readout_interval
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(sensor=self.name)
         return self.db.GetHostSetting(field='heartbeat_timer')
 
-    def ProcessReading(self, value, reading):
-        value = reading.Process(value)
+    def ProcessReading(self, value, reading_name):
+        value = self.readings[reading_name].Process(value)
         if value is not None:
             with self.buffer_lock:
-                self.buffer.append((reading.name, value))
+                if isinstance(value, (list, tuple)):
+                    pass
+                else:
+                    self.buffer.append((reading_name, value))
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)

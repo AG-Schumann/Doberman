@@ -8,6 +8,6 @@ from .BaseMonitor import *
 from .BaseSensor import *
 from .Database import *
 #from .Dispatcher import *
-#from .HostMonitor import *
+from .HostMonitor import *
 from .SensorMonitor import *
 from .Reading import *

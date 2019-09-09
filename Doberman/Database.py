@@ -365,6 +365,8 @@ class Database(object):
                         'I can\'t send data')
                 return -2
             self.kafka_producer.send(topic_name, data_dump)
+        elif sdt == 'dump':
+            pass
         else:
             self.logger.error('What does "%s" mean?' % sdt)
         return 0
@@ -377,8 +379,8 @@ class Database(object):
         now = dtnow()
         for sensor_doc in self.readFromDatabase('settings', 'sensors'):
             sensor_name = sensor_doc['name']
-            #if 'Test' in sensor_name:
-            #    continue
+            if 'Test' in sensor_name:
+                continue
             status[sensor_name] = {
                     'status' : sensor_doc['status'],
                     'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
@@ -395,6 +397,8 @@ class Database(object):
                     data_doc = self.readFromDatabase('data', sensor_name,
                                 cuts={reading_name : {'$exists' : 1}},
                                 sort=[('_id', -1)], onlyone=True)
+                    if data_doc is None:
+                        continue
                     status[sensor_name]['readings'][reading_name]['last_value'] = data_doc[reading_name]
                     doc_time = int(str(data_doc['_id'])[:8], 16)
                     status[sensor_name]['readings'][reading_name]['last_time'] = time.time() - doc_time

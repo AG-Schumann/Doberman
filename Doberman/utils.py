@@ -120,10 +120,12 @@ def FindPlugin(name, path):
     :returns constructor: the constructor of the requested sensor
     """
     strip = False
-    spec = importlib.machinery.PathFinder.find_spec(name, [path])
+    if not isinstance(path, (list, tuple)):
+        path = [path]
+    spec = importlib.machinery.PathFinder.find_spec(name, path)
     if spec is None:
         strip = True
-        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), [path])
+        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
     if spec is None:
         raise FileNotFoundError('Could not find a sensor named %s in %s' % (name, path))
     try:

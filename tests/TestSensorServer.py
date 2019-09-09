@@ -90,7 +90,7 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
             print('Received %s at %s' % (msg, datetime.datetime.now().isoformat(sep=' ')))
             if not msg:
                 return
-            sleep_for = 0.006*random.random()
+            sleep_for = 0.001*random.random()
             print('Processing time: %.3g' % sleep_for)
             time.sleep(sleep_for)
             payload = b''
@@ -131,7 +131,7 @@ class TestSensorHandler(socketserver.BaseRequestHandler):
                             payload = b'ERR;12'
             print('Sending %s' % payload.decode())
             self.request.sendall(payload + b'\r\n')
-            sleep_for = 0.05*random.random()
+            sleep_for = 0.01*random.random()
             print('Cleanup time: %.3g' % sleep_for)
             time.sleep(sleep_for)
             print()
