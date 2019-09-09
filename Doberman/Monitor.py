@@ -31,7 +31,12 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
     db = Doberman.Database(mongo_client,
                            influx_client=influx_client,
                            kafka_producer=kafka_producer)
-    kwargs = {'db' : db, 'loglevel' : args.loglevel}
+    kwargs = {'db' : db, 'loglevel' : args.log}
+
+    try:
+        db.experiment_name = os.environ['DOBERMAN_EXPERIMENT_NAME']
+    except KeyError:
+        print('You haven\'t specified an experiment, this might go badly')
 
     # TODO add checks for running systems
     if args.alarm:
@@ -44,21 +49,25 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
                     'What am I supposed to do with the data??')
             #return
         kwargs['_name'] = args.sensor
+        if 'Test' in args.sensor:
+            db.experiment_name = 'testing'
         ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.status:
         pass
     else:
         return
+    print('60')
     sh = Doberman.utils.SignalHandler()
     monitor = None
     while sh.run:
-        #try:
-        monitor = ctor()
-        monitor.StartThreads()
-        while monitor.sh.run:
-            time.sleep(1)
-        #except Exception as e:
-        #print('Caught a %s: %s' % (type(e), e))
+        try:
+            print(64)
+            monitor = ctor()
+            print(66)
+            while monitor.sh.run:
+                time.sleep(1)
+        except Exception as e:
+            print('Caught a %s: %s' % (type(e), e))
         break
     monitor.Shutdown()
     print('Main returning')

@@ -4,7 +4,7 @@ try:
 except ImportError:
     has_serial=False
 import socket
-import Queue
+import queue
 import time
 import threading
 from functools import partial
@@ -33,7 +33,7 @@ class Sensor(object):
         self.BaseSetup()
 
     def BaseSetup(self):
-        self.cmd_queue = Queue()
+        self.cmd_queue = queue.Queue()
         try:
             self.SetupChild()
             self.Setup()
@@ -91,7 +91,7 @@ class Sensor(object):
                 ret = self.SendRecv(command)
                 self.cmd_queue.task_done()
                 callback(ret)
-            except Queue.Empty:
+            except queue.Empty:
                 pass
         self.logger.debug('Readout scheduler returning')
 
@@ -125,8 +125,8 @@ class Sensor(object):
         :param pkg: the dict returned by SendRecv
         :param reading_name: the name of the reading
         :param cb: a function to call with the results. Must accept
-            as argument a tuple containing (name, value, retcode). Will
-            most often be the 'put' method on the owning Plugin's process_queue.
+            the read out value as argument. Will probably be the Process
+            routine of the owning SensorMonitor.
             If ProcessOneReading throws an exception, value will be None
         :returns None
         """
@@ -135,7 +135,6 @@ class Sensor(object):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug('Caught a %s: %s' % (type(e),e))
             value = None
-        self.logger.debug('Name %s values %s' % (reading_name, value))
         if isinstance(value, (list, tuple)):  # TODO won't work in 5.0
             for n,v in zip(self.readings.keys(), value):
                 cb(v)
@@ -292,7 +291,7 @@ class LANSensor(Sensor):
         try:
             with socket.create_connection((self.ip, self.port), timeout=1) as s:
                 s.sendall(message.encode())
-                time.sleep(0.01)
+                time.sleep(0.001)
                 ret['data'] = s.recv(1024)
         except socket.error as e:
             self.logger.error("Error with message %s: %s" % (message.strip(), e))

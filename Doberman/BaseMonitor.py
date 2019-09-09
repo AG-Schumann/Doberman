@@ -15,8 +15,8 @@ class Monitor(object):
         """
         if isinstance(self, Doberman.HostMonitor):
             self.name = db.hostname
-        elif isinstance(self, Doberman.AlarmMonitor):
-            self.name='AlarmMonitor'
+        #elif isinstance(self, Doberman.AlarmMonitor):
+        #    self.name='AlarmMonitor'
         elif isinstance(self, Doberman.SensorMonitor):
             self.name = _name
         self.db = db
@@ -51,10 +51,11 @@ class Monitor(object):
         :param name: something unique to refer to a thread by
         :param kwargs: any keyword arguments required for func
         """
+        self.logger.debug('Registering ' + name)
         func = partial(self.LoopHandler,
-                        func=(partial(func, **kwargs),
-                            period=period,
-                            name=name))))
+                        func=partial(func, **kwargs),
+                        period=period,
+                        name=name)
         self.StartThread(name, func)
 
     def Setup(self, *args, **kwargs):
@@ -126,7 +127,7 @@ class Monitor(object):
         """
         Spawns a thread to do a function
         """
-        self.logger.debug('%s starting' % n)
+        self.logger.debug('%s starting' % name)
         while self.sh.run and self.should_run[name]:
             loop_top = time.time()
             ret = func()
@@ -136,4 +137,4 @@ class Monitor(object):
             while (now - loop_top) < period and self.sh.run and self.should_run[name]:
                 time.sleep(min(1, now - loop_top))
                 now = time.time()
-        self.logger.debug('%s returning' % n)
+        self.logger.debug('%s returning' % name)
