@@ -11,14 +11,11 @@ class SensorMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
-        self.logger.debug('Setup starting')
         plugin_dir = self.db.GetHostSetting(field='plugin_dir')
-        self.logger.debug('Got dir, finding ctor')
         self.sensor_ctor = Doberman.utils.FindPlugin(self.name, plugin_dir)
         self.sensor = None
         self.buffer_lock = threading.RLock()
         cfg_doc = self.db.GetSensorSetting(self.name)
-        self.logger.debug('Got cfg doc, setting readings')
         self.readings = {reading_name : Doberman.Reading(self.name, reading_name, self.db)
             for reading_name in cfg_doc['readings'].keys()}
         self.buffer = []
@@ -66,7 +63,6 @@ class SensorMonitor(Doberman.Monitor):
 
     def ScheduleReading(self, reading):
         reading.UpdateConfig()
-        self.logger.debug('Scheduling %s' % reading.name)
         if reading.status == 'online' and reading.readout_interval > 0:
             self.sensor.AddToSchedule(reading_name=reading.name,
                     callback=partial(self.ProcessReading, reading_name=reading.name))
