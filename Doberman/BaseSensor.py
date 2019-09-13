@@ -79,7 +79,7 @@ class Sensor(object):
     def ReadoutScheduler(self):
         """
         Pulls tasks from the command queue and deals with them. If the queue is empty
-        it sleeps for 10ms and retries. This function returns when self.running
+        it sleeps for 1ms and retries. This function returns when self.running
         becomes False. While the sensor is in normal operation, this is the only
         function that should call SendRecv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
@@ -87,59 +87,33 @@ class Sensor(object):
         self.logger.debug('Readout scheduler starting')
         while self.running:
             try:
-                command, callback = self.cmd_queue.get(timeout=0.001)
+                command, retq = self.cmd_queue.get(timeout=0.001)
                 ret = self.SendRecv(command)
                 self.cmd_queue.task_done()
-                callback(ret)
+                if retq is not None:
+                    retq.put(ret)
             except queue.Empty:
                 pass
         self.logger.debug('Readout scheduler returning')
 
-    def AddToSchedule(self, reading_name=None, command=None, callback=None):
+    def AddToSchedule(self, reading_name=None, command=None, retq=None):
         """
         Adds one thing to the command queue. This is the only function called
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
+        :param reading_name: the name of the reading to schedule
         :param command: the command to issue to the sensor
-        :param callback: the function called with the results. Must accept
-            a dictionary as argument with the result from SendRecv. Required for
-            reading_name != None
+        :param retq: a queue to put the result for asyncronous processing.
+            Required for reading_name != None
         :returns None
         """
         if reading_name is not None:
-            if callback is None:
+            if retq is None:
                 return
-            self.cmd_queue.put((self.readings[reading_name],
-                partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
+            self.cmd_queue.put((self.readings[reading_name], retq))
         elif command is not None:
-            self.cmd_queue.put((command, lambda x : None))
-        return
-
-    def _ProcessReading(self, pkg, reading_name=None, cb=None):
-        """
-        Reads one value from the sensor. Unpacks the result from SendRecv
-        and passes the data to ProcessOneReading for processing. The results, along
-        with timestamp, are passed back upstream.
-
-        :param pkg: the dict returned by SendRecv
-        :param reading_name: the name of the reading
-        :param cb: a function to call with the results. Must accept
-            the read out value as argument. Will probably be the Process
-            routine of the owning SensorMonitor.
-            If ProcessOneReading throws an exception, value will be None
-        :returns None
-        """
-        try:
-            value = self.ProcessOneReading(reading_name, pkg['data'])
-        except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug('Caught a %s: %s' % (type(e),e))
-            value = None
-        if isinstance(value, (list, tuple)):  # TODO won't work in 5.0
-            for n,v in zip(self.readings.keys(), value):
-                cb(v)
-        else:
-            cb(value)
+            self.cmd_queue.put((command, None))
         return
 
     def ProcessOneReading(self, name, data):

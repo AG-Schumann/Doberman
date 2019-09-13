@@ -12,10 +12,9 @@ import logging
 import logging.handlers
 dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin SensorOpts Logger number_regex buffer_timer doberman_dir'.split()
+__all__ = 'FindPlugin SensorOpts Logger heartbeat_timer number_regex doberman_dir FakeKafka'.split()
 
 heartbeat_timer = 30
-buffer_timer = 5
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
@@ -187,7 +186,7 @@ class DobermanLogger(logging.Handler):
 
     def emit(self, record):
         self.stream.emit(record)
-        if record.levelno < self.level:
+        if record.levelno < self.level or record.levelno <= logging.DEBUG:
             return
         rec = dict(
                 msg         = record.msg,
@@ -207,3 +206,10 @@ def Logger(name, db, loglevel='DEBUG'):
     logger.setLevel(lvl)
     logger.addHandler(DobermanLogger(db, level=lvl))
     return logger
+
+class FakeKafka(object):
+    """
+    Something for testing on platforms without the Kafka driver
+    """
+    def send(self, *args, **kwargs):
+        pass

@@ -1,6 +1,7 @@
 import Doberman
 import psutil
 import datetime
+from functools import partial
 
 __all__ = 'HostMonitor'.split()
 
@@ -12,27 +13,85 @@ class HostMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
+        self.kafka = self.db.GetKafka()
         host_cfg = self.db.GetHostSetting()
+        self.last_restart_time = {}
+        swap = psutil.swap_memory()
+        self.last_swap_in = swap.sin
+        self.last_swap_out = swap.sout
+        self.sysmon_timer = cfg['sysmon_timer']
+        if 'disks' in host_cfg:
+            self.disks = host_cfg['disks']
+            self.read_disk_rate = True
+            self.last_disk_read = {}
+            self.last_disk_write = {}
+            disk_io = psutil.disk_io_counters(True)
+            for disk in self.disks:
+                self.last_disk_read[disk] = disk_io[disk].read_bytes
+                self.last_disk_write[disk] = disk_io[disk].write_bytes
+        else:
+            self.read_disk_rate = False
+        self.nics = host_cfg['nics']
+        net_io = psutil.net_io_counters(True)
+        self.last_net_recv = {}
+        self.last_net_sent = {}
+        for nic in self.nics:
+            self.last_net_recv[nic] = net_io[nic].bytes_recv
+            self.last_net_sent[nic] = net_io[nic].bytes_sent
         self.Register(func=self.SystemStatus, period=cfg['sysmon_timer'], name='sysmon')
         self.Register(func=self.Hearbeat, period=cfg['heartbeat_timer'], name='heartbeat')
-        self.last_restart_time = {}
+
+    def PushToKafka(self, topic, blob):
+        """
+        Pushes any data this monitor is responsible for collecting to Kafka
+        """
+        now = time.time()
+        if not isinstance(blob, bytes):
+            blob = blob.encode()
+        blob += f',{now:.3f}'
+        self.kafka.send(topic, blob)
+        return
 
     def SystemStatus(self):
-        ret = {}
-        ret['load_1'], ret['load_5'], ret['load_15'] = psutil.getloadavg()
-        ret['mem_avail'] = psutil.virtual_memory().available >> 20
-        ret['swap_used'] = psutil.swap_memory().used >> 20
+        push = partial(self.PushToKafka, 'sysmon')
+        n_cpus = psutil.cpu_count()
+        host = self.db.hostname
+        load_1, load_5, load_15 = psutil.getloadavg()
+        push(f'{host},load_1,{load_1/n_cpus:.3g}')
+        push(f'{host},load_5,{load_5/n_cpus:.3g}')
+        push(f'{host},load_15,{load_15/n_cpus:.3g}')
+        mem = psutil.virtual_memory()
+        push(f'{host},mem_avail,{mem.available/mem.total:.3g}')
+        swap = psutil.swap_memory()
+        push(f'{host},swap_avail,{swap.percent:.3g}')
         socket = '0'
         for row in psutil.sensors_temperatures()['coretemp']:
             if 'Package' in row.label:
                 socket = row.label[-1]  # max 10 sockets per machine
-                ret[f'cpu_{socket}_temp'] = row.current
+                push(f'{host},cpu_{socket}_temp,{row.current:.3g}')
             else:
                 core = int(row.label.split(' ')[-1])
-                ret[f'cpu_{socket}_{core:02d}_temp'] = row.current
+                push(f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
         for i,row in enumerate(psutil.cpu_freq(True)):
-            ret[f'cpu_{i:02d}_freq'] = row.current
-        self.db.PushDataUpstream('sysmon', ret)
+            push(f'{host},cpu_{i:02d}_freq,{row.current:.3g}')
+        net_io = psutil.net_io_counters(True)
+        for nic, name in self.nics.items():
+            recv_mbytes = (net_io[inc].bytes_recv - self.last_net_recv[nic])>>20
+            self.last_net_recv[nic] = net_io[inc].bytes_recv
+            push(f'{host},{name}_recv,{recv_mbytes/self.sysmon_timer:.3g}')
+            sent_mbytes = (net_io[nic].bytes_sent - self.last_net_sent[nic])>>20
+            self.last_net_sent[nic] = net_io[nic].bytes_sent
+            push(f'{host},{name}_sent,{sent_mbytes/self.sysmon_timer:.3g}')
+        if self.read_disk_rate:
+            disk_io = psutil.disk_io_counters(True)
+            for disk, name in self.disks:
+                read_mbytes = (disk_io[disk].read_bytes - self.last_disk_read[disk])>>20
+                self.last_disk_read[disk] = disk_io[disk].read_bytes
+                push(f'{host},{name}_read,{read_mbytes/self.sysmon_timer:.3g}')
+                write_mbytes = (disk_io[disk].write_bytes - self.last_disk_write[disk])>>20
+                self.last_disk_write[disk] = disk_io[disk].write_bytes
+                push(f'{host},{name}_write,{write_mbytes/self.sysmon_timer:.3g}')
+        return
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(host=self.hostname)

@@ -10,7 +10,7 @@ class Monitor(object):
     """
     A base monitor class
     """
-    def __init__(self, db=None, _name=None, loglevel='INFO'):
+    def __init__(self, db=None, _name=None, kafka_producer=None, loglevel='INFO'):
         """
         """
         if isinstance(self, Doberman.HostMonitor):
@@ -22,11 +22,12 @@ class Monitor(object):
         self.db = db
         self.logger = Doberman.utils.Logger(name=self.name, db=self.db, loglevel=loglevel)
         self.sh = Doberman.utils.SignalHandler(self.logger)
+        self.funcs = {}
         self.threads = {}
-        self.should_run = {}
+        self.events = {}
         self.Setup()
-        self.Register(func=self.HandleCommands, period=1, name='handlecommands')
-        self.Register(func=self.CheckThreads, period=30, name='checkthreads')
+        self.RegisterFunction(func=self.HandleCommands, period=1, name='handlecommands')
+        self.RegisterFunction(func=self.CheckThreads, period=30, name='checkthreads')
 
     def Close(self):
         """
@@ -34,13 +35,21 @@ class Monitor(object):
         """
         self.sh.run = False
         self.Shutdown()
-        for t, _  in self.threads.items():
+        for k,(t, _)  in self.threads.items():
             try:
+                self.should_run[k] = False
                 t.join()
             except:
                 pass
+        for k,(t,_) in self.funcs.item():
+            try:
+                self.should_run[k] = False
+                t.join()
+            except:
+                pass
+        return
 
-    def Register(self, func, period, name, **kwargs):
+    def RegisterFunction(self, func, period, name, **kwargs):
         """
         Registers a function for the handler to call periodically and starts it
 
@@ -53,10 +62,20 @@ class Monitor(object):
         """
         self.logger.debug('Registering ' + name)
         func = partial(self.LoopHandler,
-                        func=partial(func, **kwargs),
+                        func=func if not kwargs else partial(func, **kwargs),
                         period=period,
                         name=name)
-        self.StartThread(name, func)
+        self.StartFunction(name, func)
+        return
+
+    def RegisterThread(self, thread, target, name):
+        """
+        Registers a prepared (but not started) thread
+        """
+        self.logger.debug('Registering ' + name)
+        thread.start()
+        self.threads[name] = (thread, target)
+        return
 
     def Setup(self, *args, **kwargs):
         """
@@ -73,11 +92,11 @@ class Monitor(object):
         """
         pass
 
-    def StartThread(self, name, func):
+    def StartFunction(self, name, func):
         """
-        Starts a thread
+        Starts a thread to handle a registered function
         """
-        self.should_run[name] = True
+        self.should_run[name] = threading.Event()
         t = threading.Thread(target=func)
         t.start()
         self.threads[name] = (t, func)
@@ -86,7 +105,7 @@ class Monitor(object):
         """
         Stops a specific thread. Thread is not removed from thread dictionary
         """
-        self.should_run[name] = False
+        self.events[name].set()
         try:
             self.threads[name][0].join()
         except Exception as e:
@@ -135,6 +154,14 @@ class Monitor(object):
                 period = ret
             now = time.time()
             while (now - loop_top) < period and self.sh.run and self.should_run[name]:
-                time.sleep(min(1, now - loop_top))
+                time_left = loop_top + period - now
+                time.sleep(min(1, time_left))
                 now = time.time()
         self.logger.debug('%s returning' % name)
+        return
+
+
+class FunctionHandler(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__()
+        self.event = event
