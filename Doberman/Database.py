@@ -1,6 +1,11 @@
 import Doberman
 import datetime
 from socket import getfqdn
+try:
+    from kafka import KafkaProducer
+    has_kafka=True
+except ImportError:
+    has_kafka=False
 
 
 dtnow = datetime.datetime.utcnow
@@ -13,13 +18,15 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, mongo_client, influx_client=None,
-                kafka_producer=None, loglevel='INFO'):
+    def __init__(self, mongo_client, loglevel='INFO'):
         self.client = mongo_client
         self.logger = Doberman.utils.Logger(name='Database', db=self, loglevel=loglevel)
-        self.influx_client=influx_client
-        self.kafka_producer=kafka_producer
         self.hostname = getfqdn()
+        if has_kafka:
+            kwargs = self.readFromDatabase()
+            self.kafka = KafkaProducer(**kwargs)
+        else:
+            self.kafka = Doberman.utils.FakeKafka()
 
     def close(self):
         return
@@ -342,34 +349,13 @@ class Database(object):
             host = self.hostname
         self.updateDatabase('settings', 'hosts', {'host' : host},
                 updates={f'${k}' : v for k, v in kwargs.items()})
-
-    def PushDataUpstream(self, sensor_name, data_doc):
-        """
-        Writes data to the database specified by the sensor's config
-
-        :param sensor_name: the name of the sensor
-        :param data_doc: the document with data
-        :returns 0 on success, -1 otherwise
-        """
         return
-        sdt = self.GetSensorSetting(sensor_name, field='send_data_to')
-        if sdt == 'influx':
-            if self.influx_client is None:
-                self.logger.error('I don\'t have an InfluxDB client, '
-                        'I can\'t send data')
-                return -1
-            self.influx_client.write_points(json_body)
-        elif sdt == 'kafka':
-            if self.kafka_producer is None:
-                self.logger.error('I don\'t have a Kafka producer, '
-                        'I can\'t send data')
-                return -2
-            self.kafka_producer.send(topic_name, data_dump)
-        elif sdt == 'dump':
-            pass
-        else:
-            self.logger.error('What does "%s" mean?' % sdt)
-        return 0
+
+    def GetKafka(self):
+        """
+        Returns a setup kafka producer to whoever wants it
+        """
+        return self.kafka
 
     def GetCurrentStatus(self):
         """
