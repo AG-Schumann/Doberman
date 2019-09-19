@@ -133,7 +133,11 @@ class Sensor(object):
         try:
             value = self.ProcessOneReading(reading_name, pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug('Caught a %s: %s' % (type(e),e))
+            self.logger.debug('%s threw a %s: %s' % (reading_name, type(e),e))
+            if pkg['data'] is None:
+                self.logger.debug('Data was None')
+            else:
+                self.logger.debug('Data was ' + pkg['data'].decode())
             value = None
         if isinstance(value, (list, tuple)):  # TODO won't work in 5.0
             for n,v in zip(self.readings.keys(), value):

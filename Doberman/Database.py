@@ -343,33 +343,8 @@ class Database(object):
         self.updateDatabase('settings', 'hosts', {'host' : host},
                 updates={f'${k}' : v for k, v in kwargs.items()})
 
-    def PushDataUpstream(self, sensor_name, data_doc):
-        """
-        Writes data to the database specified by the sensor's config
-
-        :param sensor_name: the name of the sensor
-        :param data_doc: the document with data
-        :returns 0 on success, -1 otherwise
-        """
-        return
-        sdt = self.GetSensorSetting(sensor_name, field='send_data_to')
-        if sdt == 'influx':
-            if self.influx_client is None:
-                self.logger.error('I don\'t have an InfluxDB client, '
-                        'I can\'t send data')
-                return -1
-            self.influx_client.write_points(json_body)
-        elif sdt == 'kafka':
-            if self.kafka_producer is None:
-                self.logger.error('I don\'t have a Kafka producer, '
-                        'I can\'t send data')
-                return -2
-            self.kafka_producer.send(topic_name, data_dump)
-        elif sdt == 'dump':
-            pass
-        else:
-            self.logger.error('What does "%s" mean?' % sdt)
-        return 0
+    def PushDataUpstream(*args, **kwargs):
+        pass
 
     def GetCurrentStatus(self):
         """

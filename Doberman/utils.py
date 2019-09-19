@@ -187,7 +187,7 @@ class DobermanLogger(logging.Handler):
 
     def emit(self, record):
         self.stream.emit(record)
-        if record.levelno < self.level:
+        if record.levelno < self.level or record.levelno <= logging.DEBUG:
             return
         rec = dict(
                 msg         = record.msg,

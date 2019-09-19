@@ -2,11 +2,6 @@
 import Doberman
 from pymongo import MongoClient
 try:
-    from influxdb import InfluxDBClient
-    has_influx=True
-except ImportError:
-    has_influx=False
-try:
     from kafka import KafkaProducer
     has_kafka=True
 except ImportError:
@@ -17,7 +12,7 @@ import os
 from functools import partial
 
 
-def main(mongo_client, influx_client=None, kafka_producer=None):
+def main(mongo_client, kafka_producer=None):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
@@ -28,9 +23,14 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
                                 help='Logging level', default='INFO')
     args = parser.parse_args()
 
-    db = Doberman.Database(mongo_client,
-                           influx_client=influx_client,
-                           kafka_producer=kafka_producer)
+    if kafka_producer is None:
+        print('This host doesn\'t have the Kafka driver, '
+                'I\'m assuming you\'re OK with its data getting dumped')
+        class FakeKafka(object):
+            def send(*args, **kwargs):
+                return
+        kafka_producer = FakeKafka()
+    db = Doberman.Database(mongo_client, kafka_producer)
     kwargs = {'db' : db, 'loglevel' : args.log}
 
     try:
@@ -44,10 +44,6 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
     elif args.host:
         ctor = partial(Doberman.HostMonitor, **kwargs)
     elif args.sensor:
-        if influx_client is None and kafka_producer is None:
-            print('This host has neither Kafka nor Influx?? '
-                    'What am I supposed to do with the data??')
-            #return
         kwargs['_name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
@@ -56,14 +52,11 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
         pass
     else:
         return
-    print('60')
     sh = Doberman.utils.SignalHandler()
     monitor = None
     while sh.run:
         try:
-            print(64)
             monitor = ctor()
-            print(66)
             while monitor.sh.run:
                 time.sleep(1)
         except Exception as e:
@@ -74,21 +67,13 @@ def main(mongo_client, influx_client=None, kafka_producer=None):
 
 if __name__ == '__main__':
     try:
-        mongo_uri = os.environ['MONGO_DOBERMAN_URI']
+        mongo_uri = os.environ['DOBERMAN_MONGO_URI']
     except KeyError:
         with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
             mongo_uri = f.read().strip()
     with MongoClient(mongo_uri) as mongo_client:
-        if has_influx:
-            with InfluxDBClient() as influx_client:
-                if has_kafka:
-                    with KafkaProducer() as kafka_producer:
-                        main(mongo_client, influx_client, kafka_producer)
-                else:
-                    main(mongo_client, influx_client, None)
+        if has_kafka:
+            pass
         else:
-            if has_kafka:
-                with KafkaProducer() as kafka_producer:
-                    main(mongo_client, None, kafka_producer)
-            else:
-                main(mongo_client, None, None)
+            kafka_producer=None
+        main(mongo_client, kafka_producer)
