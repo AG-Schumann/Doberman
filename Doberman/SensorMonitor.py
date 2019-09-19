@@ -1,7 +1,6 @@
 import Doberman
 import threading
 from functools import partial
-import queue
 
 __all__ = 'SensorMonitor'.split()
 
@@ -15,16 +14,19 @@ class SensorMonitor(Doberman.Monitor):
         plugin_dir = self.db.GetHostSetting(field='plugin_dir')
         self.sensor_ctor = Doberman.utils.FindPlugin(self.name, plugin_dir)
         self.sensor = None
-        self.buffer_lock = threading.RLock()
         cfg_doc = self.db.GetSensorSetting(self.name)
         self.OpenSensor()
-        self.buffer = queue.Queue()
         for rd in cfg_doc['readings'].keys():
-            self.Register(rd, Doberman.Reading(sensor_name=self.name, reading_name=rd,
-                db=self.db, sensor=self.sensor, loglevel=self.loglevel, queue=self.buffer))
+            reading_doc = db.GetReadingSetting(self.name, rd)
+            kwargs = {'sensor_name' : self.name, 'reading_name' : rd,
+                    'db' : self.db, 'sensor' : self.sensor, 'loglevel' : self.loglevel}
+            if 'multi' in reading_doc:
+                reading = Doberman.MultiReading(**kwargs)
+            else:
+                reading = Doberman.Reading(**kwargs)
+            self.Register(rd, reading)
         self.Register(self.Heartbeat, name='heartbeat',
                 period=self.db.GetHostSetting(field='heartbeat_timer'))
-        self.Register(self.EmptyBuffer, name='Bufferer', period=5)
 
     def Shutdown(self):
         self.logger.info('Stopping sensor')
@@ -53,19 +55,6 @@ class SensorMonitor(Doberman.Monitor):
     def Heartbeat(self):
         self.db.UpdateHeartbeat(sensor=self.name)
         return self.db.GetHostSetting(field='heartbeat_timer')
-
-    def EmptyBuffer(self):
-        data = {}
-        while True:
-            try:
-                name, value = self.buffer.get()
-                data[name] = value
-                self.buffer.task_done()
-            except queue.Empty:
-                break
-        if data:
-            self.db.insertIntoDatabase('data', self.name, data)
-        return
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)
@@ -106,3 +95,6 @@ class SensorMonitor(Doberman.Monitor):
                     self.db)
             self.Register(func=self.ScheduleReading, period=r.readout_interval,
                     reading=r, name=r.name)
+
+    def BuildReading(self):
+        pass
