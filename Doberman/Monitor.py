@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 import Doberman
 from pymongo import MongoClient
-try:
-    from kafka import KafkaProducer
-    has_kafka=True
-except ImportError:
-    has_kafka=False
 import argparse
 import time
 import os
 from functools import partial
 
 
-def main(mongo_client, kafka_producer=None):
+def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
@@ -23,14 +18,7 @@ def main(mongo_client, kafka_producer=None):
                                 help='Logging level', default='INFO')
     args = parser.parse_args()
 
-    if kafka_producer is None:
-        print('This host doesn\'t have the Kafka driver, '
-                'I\'m assuming you\'re OK with its data getting dumped')
-        class FakeKafka(object):
-            def send(*args, **kwargs):
-                return
-        kafka_producer = FakeKafka()
-    db = Doberman.Database(mongo_client, kafka_producer)
+    db = Doberman.Database(mongo_client)
     kwargs = {'db' : db, 'loglevel' : args.log}
 
     try:
@@ -72,8 +60,4 @@ if __name__ == '__main__':
         with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
             mongo_uri = f.read().strip()
     with MongoClient(mongo_uri) as mongo_client:
-        if has_kafka:
-            pass
-        else:
-            kafka_producer=None
-        main(mongo_client, kafka_producer)
+        main(mongo_client)

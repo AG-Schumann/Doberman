@@ -20,13 +20,21 @@ class Monitor(object):
         elif isinstance(self, Doberman.SensorMonitor):
             self.name = _name
         self.db = db
-        self.logger = Doberman.utils.Logger(name=self.name, db=self.db, loglevel=loglevel)
+        self.logger = Doberman.utils.Logger(name=self.name, db=db, loglevel=loglevel)
         self.sh = Doberman.utils.SignalHandler(self.logger)
         self.threads = {}
-        self.should_run = {}
         self.Setup()
-        self.Register(func=self.HandleCommands, period=1, name='handlecommands')
-        self.Register(func=self.CheckThreads, period=30, name='checkthreads')
+        self.Register(obj=self.HandleCommands, period=1, name='handlecommands')
+        self.Register(obj=self.CheckThreads, period=30, name='checkthreads')
+        self.loglevel = loglevel
+
+    def __del__(self):
+        self.Close()
+        return
+
+    def __exit__(self):
+        self.Close()
+        return
 
     def Close(self):
         """
@@ -34,29 +42,30 @@ class Monitor(object):
         """
         self.sh.run = False
         self.Shutdown()
-        for t, _  in self.threads.items():
+        for n,t in self.threads.items():
             try:
+                t.event.set()
                 t.join()
             except:
                 pass
+        return
 
-    def Register(self, func, period, name, **kwargs):
-        """
-        Registers a function for the handler to call periodically and starts it
-
-        :param func: the function to call. If it requires args, they should be kwargs.
-                    Should return None (constant period) or a float (variable period)
-        :param period: how many seconds between calls (initially, can be None if the
-                    function returns floats).
-        :param name: something unique to refer to a thread by
-        :param kwargs: any keyword arguments required for func
-        """
-        self.logger.debug('Registering ' + name)
-        func = partial(self.LoopHandler,
-                        func=partial(func, **kwargs),
-                        period=period,
-                        name=name)
-        self.StartThread(name, func)
+    def Register(self, name, obj, period=None, **kwargs):
+        if isinstance(obj, threading.Thread):
+            # obj is a thread
+            t = obj
+            if not hasattr(t, 'event'):
+                raise ValueError('Register received misformed object')
+        else:
+            # obj is a function, must wrap with FunctionHandler
+            if kwargs:
+                func = partial(obj, **kwargs)
+            else:
+                func = obj
+            t = FunctionHandler(func=func, logger=self.logger, period=period)
+        t.start()
+        self.threads[name] = t
+        return
 
     def Setup(self, *args, **kwargs):
         """
@@ -73,48 +82,28 @@ class Monitor(object):
         """
         pass
 
-    def StartThread(self, name, func):
-        """
-        Starts a thread
-        """
-        self.should_run[name] = True
-        t = threading.Thread(target=func)
-        t.start()
-        self.threads[name] = (t, func)
-
     def StopThread(self, name):
         """
-        Stops a specific thread. Thread is not removed from thread dictionary
+        Stops a specific thread. Thread is removed from thread dictionary
         """
-        self.should_run[name] = False
-        try:
-            self.threads[name][0].join()
-        except Exception as e:
-            self.logger.error('Tried to stop %s-thread but failed!' % name)
+        self.threads[name].event.set()
+        self.threads[name].join()
+        del self.threads[name]
+        return
 
     def CheckThreads(self):
         """
         Checks to make sure all threads are running. Attempts to restart any
         that aren't
         """
-        to_remove = []
-        for n, (t,f) in self.threads.items():
+        for n, t in list(self.threads.items()):
             if not t.is_alive():
                 try:
-                    self.logger.info('%s-thread died, let\'s try restarting it' % n)
+                    self.logger.info('%s-thread died' % n)
                     self.StopThread(n)
-                    self.StartThread(n,f)
                 except Exception as e:
-                    self.logger.error('%s-thread died and won\'t restart' % n)
-                    self.db.LogAlarm()  # TODO finish
-                    try:
-                        self.StopThread(n)
-                    except Exception as e:
-                        pass
-                    to_remove.append(n)
-        for n in to_remove:
-            # can't call this during the above loop
-            del self.threads[n]
+                    self.logger.error('%s-thread won\'t quit' % n)
+        return
 
     def HandleCommands(self):
         """
@@ -123,18 +112,25 @@ class Monitor(object):
         """
         pass
 
-    def LoopHandler(self, func=None, period=None, name=None):
+class FunctionHandler(threading.Thread):
+    def __init__(self, func=None, logger=None, period=None):
+        threading.Thread.__init__()
+        self.event = threading.Event()
+        self.func = func
+        self.logger = logger
+        self.period = period
+        self.sh = Doberman.utils.SignalHandler(logger, self.event)
+
+    def run(self):
         """
         Spawns a thread to do a function
         """
-        self.logger.debug('%s starting' % name)
-        while self.sh.run and self.should_run[name]:
+        self.logger.debug('Starting')
+        while not self.event.is_set() and self.sh.run:
             loop_top = time.time()
-            ret = func()
+            ret = self.func()
             if isinstance(ret, (int, float)) and 0. < ret:
-                period = ret
-            now = time.time()
-            while (now - loop_top) < period and self.sh.run and self.should_run[name]:
-                time.sleep(min(1, now - loop_top))
-                now = time.time()
-        self.logger.debug('%s returning' % name)
+                self.period = ret
+            self.event.wait(loop_top + self.period - time.time())
+        self.logger.debug('Returning')
+        return

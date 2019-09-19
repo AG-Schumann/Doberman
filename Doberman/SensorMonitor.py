@@ -1,6 +1,7 @@
 import Doberman
 import threading
 from functools import partial
+import queue
 
 __all__ = 'SensorMonitor'.split()
 
@@ -16,22 +17,20 @@ class SensorMonitor(Doberman.Monitor):
         self.sensor = None
         self.buffer_lock = threading.RLock()
         cfg_doc = self.db.GetSensorSetting(self.name)
-        self.readings = {reading_name : Doberman.Reading(self.name, reading_name, self.db)
-            for reading_name in cfg_doc['readings'].keys()}
-        self.buffer = []
         self.OpenSensor()
-        self.Register(func=self.ClearBuffer, period=cfg_doc['buffer_timer'],
-                name='bufferer')
-        for r in self.readings.values():
-            self.Register(func=self.ScheduleReading, period=r.readout_interval,
-                    reading=r, name=r.name)
+        self.buffer = queue.Queue()
+        for rd in cfg_doc['readings'].keys():
+            self.Register(rd, Doberman.Reading(sensor_name=self.name, reading_name=rd,
+                db=self.db, sensor=self.sensor, loglevel=self.loglevel, queue=self.buffer))
         self.Register(self.Heartbeat, name='heartbeat',
                 period=self.db.GetHostSetting(field='heartbeat_timer'))
+        self.Register(self.EmptyBuffer, name='Bufferer', period=5)
 
     def Shutdown(self):
         self.logger.info('Stopping sensor')
-        self.sensor.running = False
+        self.sensor.event.set()
         self.sensor.close()
+        return
 
     def OpenSensor(self, reopen=False):
         self.logger.debug('Connecting to sensor')
@@ -40,46 +39,33 @@ class SensorMonitor(Doberman.Monitor):
             return
         if reopen:
             self.logger.debug('Attempting reconnect')
-            self.sensor.running = False
+            self.sensor.event.set()
             self.sensor.close()
         try:
-            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name), self.logger)
-            self.sensor.BaseSetup()
+            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name),
+                    self.logger)
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
             raise
-
-    def ClearBuffer(self):
-        with self.buffer_lock:
-            if len(self.buffer):
-                doc = dict(self.buffer)
-                self.logger.debug('%i readings, %i values' % (len(doc), len(self.buffer)))
-                self.db.PushDataUpstream(self.name, doc)
-                self.buffer = []
-            else:
-                self.logger.debug('No data in buffer')
-        return self.db.GetSensorSetting(name=self.name, field='buffer_timer')
-
-    def ScheduleReading(self, reading):
-        reading.UpdateConfig()
-        if reading.status == 'online' and reading.readout_interval > 0:
-            self.sensor.AddToSchedule(reading_name=reading.name,
-                    callback=partial(self.ProcessReading, reading_name=reading.name))
-        return reading.readout_interval
+        return
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(sensor=self.name)
         return self.db.GetHostSetting(field='heartbeat_timer')
 
-    def ProcessReading(self, value, reading_name):
-        value = self.readings[reading_name].Process(value)
-        if value is not None:
-            with self.buffer_lock:
-                if isinstance(value, (list, tuple)):
-                    pass
-                else:
-                    self.buffer.append((reading_name, value))
+    def EmptyBuffer(self):
+        data = {}
+        while True:
+            try:
+                name, value = self.buffer.get()
+                data[name] = value
+                self.buffer.task_done()
+            except queue.Empty:
+                break
+        if data:
+            self.db.insertIntoDatabase('data', self.name, data)
+        return
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)
@@ -104,8 +90,7 @@ class SensorMonitor(Doberman.Monitor):
                         self.db.GetSensorSetting(self.name, field='readings'))
                 self.ReloadReadings()
             elif command == 'stop':
-                self.sh.run = False
-                self.sh.restart_me = False  # TODO handle
+                self.event.set()
             elif self.sensor is not None:
                 self.sensor.AddToSchedule(command=command)
             else:

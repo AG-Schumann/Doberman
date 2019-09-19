@@ -12,10 +12,9 @@ import logging
 import logging.handlers
 dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin SensorOpts Logger number_regex buffer_timer doberman_dir'.split()
+__all__ = 'FindPlugin SensorOpts Logger heartbeat_timer number_regex doberman_dir FakeKafka'.split()
 
 heartbeat_timer = 30
-buffer_timer = 5
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
@@ -140,17 +139,20 @@ def FindPlugin(name, path):
 class SignalHandler(object):
     """ Handles signals from the OS
     """
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, event=None):
         self.run = True
         signal.signal(signal.SIGINT, self.interrupt)
         signal.signal(signal.SIGTERM, self.interrupt)
         self.logger = logger
+        self.event = event
 
     def interrupt(self, *args):
         if self.logger is not None:
             self.logger.info('Received signal %i' % args[0])
         self.signal_number = int(args[0])
         self.run = False
+        if self.event is not None:
+            self.event.set()
 
 class DobermanLogger(logging.Handler):
     """
@@ -207,3 +209,10 @@ def Logger(name, db, loglevel='DEBUG'):
     logger.setLevel(lvl)
     logger.addHandler(DobermanLogger(db, level=lvl))
     return logger
+
+class FakeKafka(object):
+    """
+    Something for testing on platforms without the Kafka driver
+    """
+    def send(self, *args, **kwargs):
+        pass

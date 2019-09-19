@@ -7,7 +7,6 @@ import socket
 import queue
 import time
 import threading
-from functools import partial
 
 __all__ = 'Sensor SoftwareSensor SerialSensor LANSensor'.split()
 
@@ -38,7 +37,7 @@ class Sensor(object):
             self.SetupChild()
             self.Setup()
             time.sleep(0.2)
-            self.running = True
+            self.event = threading.Event()
             self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
             self.readout_thread.start()
         except Exception as e:
@@ -79,71 +78,41 @@ class Sensor(object):
     def ReadoutScheduler(self):
         """
         Pulls tasks from the command queue and deals with them. If the queue is empty
-        it sleeps for 10ms and retries. This function returns when self.running
+        it sleeps for 1ms and retries. This function returns when self.running
         becomes False. While the sensor is in normal operation, this is the only
         function that should call SendRecv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
         self.logger.debug('Readout scheduler starting')
-        while self.running:
+        while not self.event.is_set():
             try:
-                command, callback = self.cmd_queue.get(timeout=0.001)
+                command, retq = self.cmd_queue.get(timeout=0.001)
                 ret = self.SendRecv(command)
                 self.cmd_queue.task_done()
-                callback(ret)
+                if retq is not None:
+                    retq.put(ret)
             except queue.Empty:
                 pass
         self.logger.debug('Readout scheduler returning')
 
-    def AddToSchedule(self, reading_name=None, command=None, callback=None):
+    def AddToSchedule(self, reading_name=None, command=None, retq=None):
         """
         Adds one thing to the command queue. This is the only function called
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
+        :param reading_name: the name of the reading to schedule
         :param command: the command to issue to the sensor
-        :param callback: the function called with the results. Must accept
-            a dictionary as argument with the result from SendRecv. Required for
-            reading_name != None
+        :param retq: a queue to put the result for asyncronous processing.
+            Required for reading_name != None
         :returns None
         """
         if reading_name is not None:
-            if callback is None:
+            if retq is None:
                 return
-            self.cmd_queue.put((self.readings[reading_name],
-                partial(self._ProcessReading, reading_name=reading_name, cb=callback)))
+            self.cmd_queue.put((self.readings[reading_name], retq))
         elif command is not None:
-            self.cmd_queue.put((command, lambda x : None))
-        return
-
-    def _ProcessReading(self, pkg, reading_name=None, cb=None):
-        """
-        Reads one value from the sensor. Unpacks the result from SendRecv
-        and passes the data to ProcessOneReading for processing. The results, along
-        with timestamp, are passed back upstream.
-
-        :param pkg: the dict returned by SendRecv
-        :param reading_name: the name of the reading
-        :param cb: a function to call with the results. Must accept
-            the read out value as argument. Will probably be the Process
-            routine of the owning SensorMonitor.
-            If ProcessOneReading throws an exception, value will be None
-        :returns None
-        """
-        try:
-            value = self.ProcessOneReading(reading_name, pkg['data'])
-        except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug('%s threw a %s: %s' % (reading_name, type(e),e))
-            if pkg['data'] is None:
-                self.logger.debug('Data was None')
-            else:
-                self.logger.debug('Data was ' + pkg['data'].decode())
-            value = None
-        if isinstance(value, (list, tuple)):  # TODO won't work in 5.0
-            for n,v in zip(self.readings.keys(), value):
-                cb(v)
-        else:
-            cb(value)
+            self.cmd_queue.put((command, None))
         return
 
     def ProcessOneReading(self, name, data):
@@ -187,7 +156,7 @@ class Sensor(object):
         self.logger.error("Did not understand command '%s'" % command)
 
     def close(self):
-        self.running = False
+        self.event.set()
         if hasattr(self, 'readout_thread'):
             self.readout_thread.join()
         self.Shutdown()
@@ -204,7 +173,7 @@ class Sensor(object):
 
 class SoftwareSensor(Sensor):
     """
-    Class for software-only sensors (heartbeats, system monitors, etc)
+    Class for software-only sensors (heartbeats, webcams, etc)
     """
     def SendRecv(self, command, timeout=1, **kwargs):
         for k,v in zip(['shell','stdout','stderr'],[True,PIPE,PIPE]):
@@ -227,24 +196,28 @@ class SerialSensor(Sensor):
     """
     Serial sensor class. Implements more direct serial connection specifics
     """
-
     def SetupChild(self):
+        if not has_serial:
+            raise ValueError('This host doesn\'t have the serial library')
         self._device = serial.Serial()
         self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
-        self._device.write_timeout = 5
+        self._device.write_timeout = 1
 
         if self.tty == '0':
             raise ValueError('No tty port specified!')
-        self._device.port = '/dev/tty%s' % (self.tty)
         try:
-            self._device.open()
+            self._device.port = '/dev/tty%s' % (self.name)
         except serial.SerialException as e:
-            raise ValueError('Problem opening %s: %s' % (self._device.port, e))
-        if not self._device.is_open:
-            raise ValueError('Error while connecting to device')
+            try:
+                self._device.port = '/dev/tty%s' % self.tty
+                self._device.open()
+            except serial.SerialException as e:
+                raise ValueError('Problem opening %s: %s' % (self._device.port, e))
+            if not self._device.is_open:
+                raise ValueError('Error while connecting to device')
         return
 
     def Shutdown(self):
@@ -301,4 +274,3 @@ class LANSensor(Sensor):
             self.logger.error("Error with message %s: %s" % (message.strip(), e))
             ret['retcode'] = -2
         return ret
-
