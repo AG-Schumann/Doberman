@@ -10,12 +10,13 @@ class Reading(threading.Thread):
     """
     A thread responsible for scheduling readouts and processing the returned data.
     """
-    def __init__(self, sensor_name, reading_name, db=None, sensor=None, loglevel='INFO'):
+    def __init__(self, sensor_name, reading_name, db=None, sensor=None, loglevel='INFO', queue=None):
         threading.Thread.__init__()
         self.db = db
         self.last_measurement_time = time.time()
         self.late_counter = 0
         self.kafka = db.GetKafka()
+        self.dump_queue = queue
         self.process_queue = queue.SimpleQueue()
         self.sensor_name = sensor_name
         self.event = threading.Event()
@@ -99,7 +100,8 @@ class Reading(threading.Thread):
         """
         if self.is_int:
             value = int(value)
-        self.kafka.send(f'{self.name},{value:.6g'})
+        #self.kafka.send(f'{self.name},{value:.6g'})
+        self.queue.put((self.name, value))
         return
 
 
