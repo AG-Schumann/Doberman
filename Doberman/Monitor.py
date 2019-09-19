@@ -55,7 +55,7 @@ def main(mongo_client):
 
 if __name__ == '__main__':
     try:
-        mongo_uri = os.environ['MONGO_DOBERMAN_URI']
+        mongo_uri = os.environ['DOBERMAN_MONGO_URI']
     except KeyError:
         with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
             mongo_uri = f.read().strip()
