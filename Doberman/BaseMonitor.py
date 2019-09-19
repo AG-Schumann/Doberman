@@ -126,7 +126,7 @@ class FunctionHandler(threading.Thread):
         Spawns a thread to do a function
         """
         self.logger.debug('Starting')
-        while not self.event.is_set() and self.sh.run:
+        while not self.event.is_set():
             loop_top = time.time()
             ret = self.func()
             if isinstance(ret, (int, float)) and 0. < ret:
