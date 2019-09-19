@@ -14,30 +14,26 @@ class HostMonitor(Doberman.Monitor):
 
     def Setup(self):
         self.kafka = self.db.GetKafka()
-        host_cfg = self.db.GetHostSetting()
+        cfg = self.db.GetHostSetting()
         self.last_restart_time = {}
         swap = psutil.swap_memory()
         self.last_swap_in = swap.sin
         self.last_swap_out = swap.sout
         self.sysmon_timer = cfg['sysmon_timer']
-        if 'disks' in host_cfg:
-            self.disks = host_cfg['disks']
-            self.read_disk_rate = True
-            self.last_disk_read = {}
-            self.last_disk_write = {}
-            disk_io = psutil.disk_io_counters(True)
-            for disk in self.disks:
-                self.last_disk_read[disk] = disk_io[disk].read_bytes
-                self.last_disk_write[disk] = disk_io[disk].write_bytes
-        else:
-            self.read_disk_rate = False
-        self.nics = host_cfg['nics']
+        self.disks = cfg['disks']
+        self.last_read = {}
+        self.last_write = {}
+        disk_io = psutil.disk_io_counters(True)
+        for disk in self.disks:
+            self.last_read[disk] = disk_io[disk].read_bytes
+            self.last_write[disk] = disk_io[disk].write_bytes
+        self.nics = cfg['nics']
         net_io = psutil.net_io_counters(True)
-        self.last_net_recv = {}
-        self.last_net_sent = {}
+        self.last_recv = {}
+        self.last_sent = {}
         for nic in self.nics:
-            self.last_net_recv[nic] = net_io[nic].bytes_recv
-            self.last_net_sent[nic] = net_io[nic].bytes_sent
+            self.last_recv[nic] = net_io[nic].bytes_recv
+            self.last_sent[nic] = net_io[nic].bytes_sent
         self.Register(func=self.SystemStatus, period=cfg['sysmon_timer'], name='sysmon')
         self.Register(func=self.Hearbeat, period=cfg['heartbeat_timer'], name='heartbeat')
 
@@ -48,7 +44,6 @@ class HostMonitor(Doberman.Monitor):
         now = time.time()
         if not isinstance(blob, bytes):
             blob = blob.encode()
-        blob += f',{now:.3f}'
         self.kafka.send(topic, blob)
         return
 
@@ -76,21 +71,20 @@ class HostMonitor(Doberman.Monitor):
             push(f'{host},cpu_{i:02d}_freq,{row.current:.3g}')
         net_io = psutil.net_io_counters(True)
         for nic, name in self.nics.items():
-            recv_mbytes = (net_io[inc].bytes_recv - self.last_net_recv[nic])>>20
-            self.last_net_recv[nic] = net_io[inc].bytes_recv
+            recv_mbytes = (net_io[nic].bytes_recv - self.last_recv[nic])>>20
+            self.last_recv[nic] = net_io[nic].bytes_recv
             push(f'{host},{name}_recv,{recv_mbytes/self.sysmon_timer:.3g}')
-            sent_mbytes = (net_io[nic].bytes_sent - self.last_net_sent[nic])>>20
-            self.last_net_sent[nic] = net_io[nic].bytes_sent
+            sent_mbytes = (net_io[nic].bytes_sent - self.last_sent[nic])>>20
+            self.last_sent[nic] = net_io[nic].bytes_sent
             push(f'{host},{name}_sent,{sent_mbytes/self.sysmon_timer:.3g}')
-        if self.read_disk_rate:
-            disk_io = psutil.disk_io_counters(True)
-            for disk, name in self.disks:
-                read_mbytes = (disk_io[disk].read_bytes - self.last_disk_read[disk])>>20
-                self.last_disk_read[disk] = disk_io[disk].read_bytes
-                push(f'{host},{name}_read,{read_mbytes/self.sysmon_timer:.3g}')
-                write_mbytes = (disk_io[disk].write_bytes - self.last_disk_write[disk])>>20
-                self.last_disk_write[disk] = disk_io[disk].write_bytes
-                push(f'{host},{name}_write,{write_mbytes/self.sysmon_timer:.3g}')
+        disk_io = psutil.disk_io_counters(True)
+        for disk, name in self.disks.items():
+            read_mbytes = (disk_io[disk].read_bytes - self.last_read[disk])>>20
+            self.last_read[disk] = disk_io[disk].read_bytes
+            push(f'{host},{name}_read,{read_mbytes/self.sysmon_timer:.3g}')
+            write_mbytes = (disk_io[disk].write_bytes - self.last_write[disk])>>20
+            self.last_write[disk] = disk_io[disk].write_bytes
+            push(f'{host},{name}_write,{write_mbytes/self.sysmon_timer:.3g}')
         return
 
     def Heartbeat(self):
@@ -142,8 +136,8 @@ class HostMonitor(Doberman.Monitor):
         return host_cfg['hearbeat_timer']
 
     def StartSensor(self, sensor):
-        threading.Thread(target=Doberman.SensorMonitor, _name=sensor, db=db,
-            autostart=True, daemon=True).start()
+        threading.Thread(target=Doberman.SensorMonitor, _name=sensor, db=self.db,
+            daemon=True).start()
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)

@@ -7,7 +7,6 @@ import socket
 import queue
 import time
 import threading
-from functools import partial
 
 __all__ = 'Sensor SoftwareSensor SerialSensor LANSensor'.split()
 
@@ -38,7 +37,7 @@ class Sensor(object):
             self.SetupChild()
             self.Setup()
             time.sleep(0.2)
-            self.running = True
+            self.event = threading.Event()
             self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
             self.readout_thread.start()
         except Exception as e:
@@ -85,7 +84,7 @@ class Sensor(object):
         access (ie, the isThisMe routine avoids this)
         """
         self.logger.debug('Readout scheduler starting')
-        while self.running:
+        while not self.event.is_set():
             try:
                 command, retq = self.cmd_queue.get(timeout=0.001)
                 ret = self.SendRecv(command)
@@ -157,7 +156,7 @@ class Sensor(object):
         self.logger.error("Did not understand command '%s'" % command)
 
     def close(self):
-        self.running = False
+        self.event.set()
         if hasattr(self, 'readout_thread'):
             self.readout_thread.join()
         self.Shutdown()
@@ -174,7 +173,7 @@ class Sensor(object):
 
 class SoftwareSensor(Sensor):
     """
-    Class for software-only sensors (heartbeats, system monitors, etc)
+    Class for software-only sensors (heartbeats, webcams, etc)
     """
     def SendRecv(self, command, timeout=1, **kwargs):
         for k,v in zip(['shell','stdout','stderr'],[True,PIPE,PIPE]):
@@ -197,24 +196,28 @@ class SerialSensor(Sensor):
     """
     Serial sensor class. Implements more direct serial connection specifics
     """
-
     def SetupChild(self):
+        if not has_serial:
+            raise ValueError('This host doesn\'t have the serial library')
         self._device = serial.Serial()
         self._device.baudrate=9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity=serial.PARITY_NONE
         self._device.stopbits=serial.STOPBITS_ONE
         self._device.timeout=0  # nonblocking mode
-        self._device.write_timeout = 5
+        self._device.write_timeout = 1
 
         if self.tty == '0':
             raise ValueError('No tty port specified!')
-        self._device.port = '/dev/tty%s' % (self.tty)
         try:
-            self._device.open()
+            self._device.port = '/dev/tty%s' % (self.name)
         except serial.SerialException as e:
-            raise ValueError('Problem opening %s: %s' % (self._device.port, e))
-        if not self._device.is_open:
-            raise ValueError('Error while connecting to device')
+            try:
+                self._device.port = '/dev/tty%s' % self.tty
+                self._device.open()
+            except serial.SerialException as e:
+                raise ValueError('Problem opening %s: %s' % (self._device.port, e))
+            if not self._device.is_open:
+                raise ValueError('Error while connecting to device')
         return
 
     def Shutdown(self):
@@ -271,4 +274,3 @@ class LANSensor(Sensor):
             self.logger.error("Error with message %s: %s" % (message.strip(), e))
             ret['retcode'] = -2
         return ret
-
