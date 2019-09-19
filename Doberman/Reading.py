@@ -100,8 +100,7 @@ class Reading(threading.Thread):
         """
         if self.is_int:
             value = int(value)
-        #self.kafka.send(f'{self.name},{value:.6g'})
-        self.queue.put((self.name, value))
+        self.kafka.send(f'{self.name},{value:.6g'})
         return
 
 
