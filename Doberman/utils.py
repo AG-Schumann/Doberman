@@ -139,17 +139,20 @@ def FindPlugin(name, path):
 class SignalHandler(object):
     """ Handles signals from the OS
     """
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, event=None):
         self.run = True
         signal.signal(signal.SIGINT, self.interrupt)
         signal.signal(signal.SIGTERM, self.interrupt)
         self.logger = logger
+        self.event = event
 
     def interrupt(self, *args):
         if self.logger is not None:
             self.logger.info('Received signal %i' % args[0])
         self.signal_number = int(args[0])
         self.run = False
+        if self.event is not None:
+            self.event.set()
 
 class DobermanLogger(logging.Handler):
     """

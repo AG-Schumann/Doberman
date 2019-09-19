@@ -6,8 +6,8 @@ class FeedbackController(Doberman.Reading):
     """
     Class to handle feedback and control
     """
-    def Setup(self, *args, **kwargs):
-        super().Setup(*args, **kwargs)
+    def SetName(self, *args):
+        super().SetName(*args)
         self.dtype = [('timestamp', np.float64), ('value', np.float64)]
         self.buffer = np.zeros(0, dtype=self.dtype)
 

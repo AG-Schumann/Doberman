@@ -18,14 +18,14 @@ class SensorMonitor(Doberman.Monitor):
         cfg_doc = self.db.GetSensorSetting(self.name)
         self.OpenSensor()
         for rd in cfg_doc['readings'].keys():
-            t = self.PrepareReading(rd)
-            self.RegisterThread(t, partial(self.PrepareReading, rd))
+            self.Register(rd, Doberman.Reading(sensor_name=self.name, reading_name=rd,
+                db=self.db, sensor=self.sensor, loglevel=self.loglevel))
         self.Register(self.Heartbeat, name='heartbeat',
                 period=self.db.GetHostSetting(field='heartbeat_timer'))
 
     def Shutdown(self):
         self.logger.info('Stopping sensor')
-        self.sensor.running = False
+        self.sensor.event.set()
         self.sensor.close()
 
     def OpenSensor(self, reopen=False):
@@ -35,23 +35,14 @@ class SensorMonitor(Doberman.Monitor):
             return
         if reopen:
             self.logger.debug('Attempting reconnect')
-            self.sensor.running = False
+            self.sensor.event.set()
             self.sensor.close()
         try:
             self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name), self.logger)
-            self.sensor.BaseSetup()
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
             raise
-
-    def PrepareReading(self, reading_name):
-        """
-        Returns a configured (but not yet started) Reading thread
-        """
-        t = Doberman.Reading()
-        t.Setup(self.name, reading_name, db=self.db, sensor=self.sensor)
-        return t
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(sensor=self.name)
@@ -80,8 +71,7 @@ class SensorMonitor(Doberman.Monitor):
                         self.db.GetSensorSetting(self.name, field='readings'))
                 self.ReloadReadings()
             elif command == 'stop':
-                self.sh.run = False
-                self.sh.restart_me = False  # TODO handle
+                self.event.set()
             elif self.sensor is not None:
                 self.sensor.AddToSchedule(command=command)
             else:
