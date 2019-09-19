@@ -2,18 +2,16 @@ import Doberman
 import numpy as np
 
 
-class FeedbackController(Doberman.Reading):
+class PIDReading(Doberman.Reading):
     """
     Class to handle feedback and control
     """
-    def SetName(self, *args):
-        super().SetName(*args)
+    def ChildSetup(self, doc):
         self.dtype = [('timestamp', np.float64), ('value', np.float64)]
         self.buffer = np.zeros(0, dtype=self.dtype)
 
     def UpdateChildConfig(self, doc):
-        gains = doc['pid_settings']
-        for k,v in gains.items():
+        for k,v in doc['pid'].items():
             setattr(self, k, v)
 
     def ResetIntegral(self):

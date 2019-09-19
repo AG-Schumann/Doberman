@@ -22,6 +22,8 @@ class SensorMonitor(Doberman.Monitor):
                     'db' : self.db, 'sensor' : self.sensor, 'loglevel' : self.loglevel}
             if 'multi' in reading_doc:
                 reading = Doberman.MultiReading(**kwargs)
+            elif 'pid' in reading_doc:
+                reading = Doberman.PIDReading(**kwargs)
             else:
                 reading = Doberman.Reading(**kwargs)
             self.Register(rd, reading)

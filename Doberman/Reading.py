@@ -10,26 +10,24 @@ class Reading(threading.Thread):
     """
     A thread responsible for scheduling readouts and processing the returned data.
     """
-    def __init__(self, sensor_name, reading_name, db=None, sensor=None, loglevel='INFO', queue=None):
-        threading.Thread.__init__()
-        self.db = db
+    def __init__(self, **kwargs):
+        threading.Thread.__init__(self)
+        self.db = kwargs['db']
         self.last_measurement_time = time.time()
         self.late_counter = 0
-        self.kafka = db.GetKafka()
-        self.dump_queue = queue
+        self.kafka = self.db.GetKafka()
         self.process_queue = queue.SimpleQueue()
-        self.sensor_name = sensor_name
+        self.sensor_name = kwargs['sensor_name']
         self.event = threading.Event()
-        self.SetName(reading_name)
+        self.name = kwargs['reading_name']
         self.key = '%s__%s' % (self.sensor_name, self.name)
-        self.logger = Doberman.utils.Logger(db=db, name=self.key, loglevel=loglevel)
-        self.sensor_process = partial(sensor.ProcessOneReading, name=self.name)
-        self.Schedule = partial(sensor.AddToSchedule, reading_name=self.name,
+        self.logger = Doberman.utils.Logger(db=self.db, name=self.key,
+                loglevel=kwargs['loglevel'])
+        self.sensor_process = partial(kwargs['sensor'].ProcessOneReading, name=self.name)
+        self.Schedule = partial(kwargs['sensor'].AddToSchedule, reading_name=self.name,
                 retq=self.process_queue)
+        self.ChildSetup(self.db.GetSensorSetting(sensor=self.sensor_name, name=self.name))
         self.UpdateConfig()
-
-    def SetName(self, reading_name):
-        self.name = reading_name
 
     def run(self):
         self.logger.debug('Starting')
@@ -51,6 +49,9 @@ class Reading(threading.Thread):
         self.UpdateChildConfig(doc)
         return
 
+    def ChildSetup(self, config_doc):
+        pass
+
     def UpdateChildConfig(self, config_doc):
         pass
 
@@ -63,8 +64,7 @@ class Reading(threading.Thread):
         pkg = None
         while time.time() - func_start < self.readout_interval:
             try:
-                pkg = self.process_queue.get(timeout=0.001)
-                now = time.time()
+                pkg = self.process_queue.get(timeout=0.01)
             except queue.Empty:
                 pass
             else:
@@ -109,12 +109,12 @@ class MultiReading(Reading):
     A special class to handle sensors that return multiple values for each
     readout cycle (smartec_uti, caen mainframe, etc)
     """
-    def SetName(self, reading_name):
-        self.all_names = reading_name
-        self.name = reading_name[0]
-        return
+    def ChildSetup(self, doc):
+        self.all_names = doc['multi']
 
     def MoreProcessing(self, value_arr):
         for n,v in zip(self.all_names, value_arr):
+            if self.is_int:
+                v = int(v)
             self.kafka.send(f'{n},{v:.6g}')
         return
