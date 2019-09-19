@@ -1,6 +1,7 @@
 import Doberman
 import threading
 from functools import partial
+import queue
 
 __all__ = 'SensorMonitor'.split()
 
@@ -17,16 +18,19 @@ class SensorMonitor(Doberman.Monitor):
         self.buffer_lock = threading.RLock()
         cfg_doc = self.db.GetSensorSetting(self.name)
         self.OpenSensor()
+        self.buffer = queue.Queue()
         for rd in cfg_doc['readings'].keys():
             self.Register(rd, Doberman.Reading(sensor_name=self.name, reading_name=rd,
-                db=self.db, sensor=self.sensor, loglevel=self.loglevel))
+                db=self.db, sensor=self.sensor, loglevel=self.loglevel, queue=self.buffer))
         self.Register(self.Heartbeat, name='heartbeat',
                 period=self.db.GetHostSetting(field='heartbeat_timer'))
+        self.Register(self.EmptyBuffer, name='Bufferer', period=5)
 
     def Shutdown(self):
         self.logger.info('Stopping sensor')
         self.sensor.event.set()
         self.sensor.close()
+        return
 
     def OpenSensor(self, reopen=False):
         self.logger.debug('Connecting to sensor')
@@ -38,15 +42,30 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.event.set()
             self.sensor.close()
         try:
-            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name), self.logger)
+            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name),
+                    self.logger)
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
             raise
+        return
 
     def Heartbeat(self):
         self.db.UpdateHeartbeat(sensor=self.name)
         return self.db.GetHostSetting(field='heartbeat_timer')
+
+    def EmptyBuffer(self):
+        data = {}
+        while True:
+            try:
+                name, value = self.buffer.get()
+                data[name] = value
+                self.buffer.task_done()
+            except queue.Empty:
+                break
+        if data:
+            self.db.insertIntoDatabase('data', self.name, data)
+        return
 
     def HandleCommands(self):
         doc = self.db.FindCommand(self.name)
