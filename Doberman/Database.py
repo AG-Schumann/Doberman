@@ -12,6 +12,12 @@ dtnow = datetime.datetime.utcnow
 
 __all__ = 'Database'.split()
 
+class FakeKafka(object):
+    """
+    Something for testing on platforms without the Kafka driver
+    """
+    def send(self, *args, **kwargs):
+        pass
 
 class Database(object):
     """
@@ -26,7 +32,7 @@ class Database(object):
             kwargs = self.readFromDatabase()
             self.kafka = KafkaProducer(**kwargs)
         else:
-            self.kafka = Doberman.utils.FakeKafka()
+            self.kafka = FakeKafka()
 
     def close(self):
         return
@@ -53,6 +59,8 @@ class Database(object):
         if not hasattr(self, 'experiment_name'):
             raise ValueError('I don\'t know what experiment to look for')
         db_name = self.experiment_name + '_' + db_name
+        if collection_name == 'hosts':
+            db_name = 'common'
         return self.client[db_name][collection_name]
 
     def insertIntoDatabase(self, db_name, collection_name, document, **kwargs):
@@ -347,7 +355,7 @@ class Database(object):
         """
         if host is None:
             host = self.hostname
-        self.updateDatabase('settings', 'hosts', {'host' : host},
+        self.updateDatabase('settings', 'hosts', {'hostname' : host},
                 updates={f'${k}' : v for k, v in kwargs.items()})
         return
 

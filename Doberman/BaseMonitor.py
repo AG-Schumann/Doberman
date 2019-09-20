@@ -21,12 +21,13 @@ class Monitor(object):
             self.name = _name
         self.db = db
         self.logger = Doberman.utils.Logger(name=self.name, db=db, loglevel=loglevel)
-        self.sh = Doberman.utils.SignalHandler(self.logger)
+        self.event = threading.Event()
+        self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.threads = {}
+        self.loglevel = loglevel
         self.Setup()
         self.Register(obj=self.HandleCommands, period=1, name='handlecommands')
         self.Register(obj=self.CheckThreads, period=30, name='checkthreads')
-        self.loglevel = loglevel
 
     def __del__(self):
         self.Close()
@@ -41,6 +42,7 @@ class Monitor(object):
         Joins all running threads
         """
         self.sh.run = False
+        self.event.set()
         self.Shutdown()
         for n,t in self.threads.items():
             try:
@@ -51,6 +53,7 @@ class Monitor(object):
         return
 
     def Register(self, name, obj, period=None, **kwargs):
+        self.logger.debug('Registering ' + name)
         if isinstance(obj, threading.Thread):
             # obj is a thread
             t = obj
@@ -62,7 +65,7 @@ class Monitor(object):
                 func = partial(obj, **kwargs)
             else:
                 func = obj
-            t = FunctionHandler(func=func, logger=self.logger, period=period)
+            t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event)
         t.start()
         self.threads[name] = t
         return
@@ -113,9 +116,9 @@ class Monitor(object):
         pass
 
 class FunctionHandler(threading.Thread):
-    def __init__(self, func=None, logger=None, period=None):
-        threading.Thread.__init__()
-        self.event = threading.Event()
+    def __init__(self, func=None, logger=None, period=None, event=None):
+        threading.Thread.__init__(self)
+        self.event = event
         self.func = func
         self.logger = logger
         self.period = period

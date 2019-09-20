@@ -16,9 +16,9 @@ class Reading(threading.Thread):
         self.last_measurement_time = time.time()
         self.late_counter = 0
         self.kafka = self.db.GetKafka()
-        self.process_queue = queue.SimpleQueue()
+        self.process_queue = queue.Queue()
         self.sensor_name = kwargs['sensor_name']
-        self.event = threading.Event()
+        self.event = kwargs['event']
         self.name = kwargs['reading_name']
         self.key = '%s__%s' % (self.sensor_name, self.name)
         self.logger = Doberman.utils.Logger(db=self.db, name=self.key,
@@ -26,7 +26,7 @@ class Reading(threading.Thread):
         self.sensor_process = partial(kwargs['sensor'].ProcessOneReading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].AddToSchedule, reading_name=self.name,
                 retq=self.process_queue)
-        self.ChildSetup(self.db.GetSensorSetting(sensor=self.sensor_name, name=self.name))
+        self.ChildSetup(self.db.GetSensorSetting(name=self.sensor_name))
         self.UpdateConfig()
 
     def run(self):
@@ -74,11 +74,11 @@ class Reading(threading.Thread):
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
-            value = self.sensor_process(pkg['data'])
+            value = self.sensor_process(data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.info('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
             value = None
-        if ((now - self.last_measurement_time) > 1.5*self.readout_interval or
+        if ((func_start - self.last_measurement_time) > 1.5*self.readout_interval or
                 value is None):
             self.late_counter += 1
             if self.late_counter > 2:
@@ -87,7 +87,7 @@ class Reading(threading.Thread):
                 self.late_counter = 0
         else:
             self.late_counter = max(0, self.late_counter-1)
-        self.last_measurement_time = now
+        self.last_measurement_time = func_start
         self.logger.debug('Measured %s' % (value))
         if value is not None:
             self.MoreProcessing(value)
@@ -100,7 +100,7 @@ class Reading(threading.Thread):
         """
         if self.is_int:
             value = int(value)
-        self.kafka.send(f'{self.name},{value:.6g'})
+        self.kafka.send(f'{self.name},{value:.6g}')
         return
 
 
