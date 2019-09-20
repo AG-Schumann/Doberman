@@ -18,9 +18,8 @@ def main(mongo_client):
                                 help='Logging level', default='INFO')
     args = parser.parse_args()
 
-    db = Doberman.Database(mongo_client)
+    db = Doberman.Database(mongo_client, loglevel=args.log)
     kwargs = {'db' : db, 'loglevel' : args.log}
-
     try:
         db.experiment_name = os.environ['DOBERMAN_EXPERIMENT_NAME']
     except KeyError:
@@ -45,11 +44,11 @@ def main(mongo_client):
     while sh.run:
         try:
             monitor = ctor()
-            while monitor.sh.run:
-                time.sleep(1)
+            monitor.event.wait()
         except Exception as e:
             print('Caught a %s: %s' % (type(e), e))
         break
+    print('Shutting down')
     monitor.Shutdown()
     print('Main returning')
 

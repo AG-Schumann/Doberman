@@ -1,4 +1,3 @@
-import serial
 from subprocess import Popen, PIPE, TimeoutExpired
 import importlib
 import importlib.machinery
@@ -12,7 +11,7 @@ import logging
 import logging.handlers
 dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin SensorOpts Logger heartbeat_timer number_regex doberman_dir FakeKafka'.split()
+__all__ = 'FindPlugin Logger heartbeat_timer number_regex doberman_dir'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -210,9 +209,3 @@ def Logger(name, db, loglevel='DEBUG'):
     logger.addHandler(DobermanLogger(db, level=lvl))
     return logger
 
-class FakeKafka(object):
-    """
-    Something for testing on platforms without the Kafka driver
-    """
-    def send(self, *args, **kwargs):
-        pass

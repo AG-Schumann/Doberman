@@ -21,6 +21,7 @@ class Sensor(object):
         """
         opts is the document from the database
         """
+        logger.debug('Sensor base ctor')
         for k, v in opts['address'].items():
             setattr(self, k, v)
         if 'additional_params' in opts:
@@ -115,7 +116,7 @@ class Sensor(object):
             self.cmd_queue.put((command, None))
         return
 
-    def ProcessOneReading(self, name, data):
+    def ProcessOneReading(self, name=None, data=None):
         """
         Takes the raw data as returned by SendRecv and parses
         it for the (probably) float. Does not need to catch exceptions.
@@ -266,7 +267,7 @@ class LANSensor(Sensor):
         message = str(message).rstrip()
         message = self._msg_start + message + self._msg_end
         try:
-            with socket.create_connection((self.ip, self.port), timeout=1) as s:
+            with socket.create_connection((self.ip, int(self.port)), timeout=1) as s:
                 s.sendall(message.encode())
                 time.sleep(0.001)
                 ret['data'] = s.recv(1024)

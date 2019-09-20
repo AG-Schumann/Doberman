@@ -17,9 +17,11 @@ class SensorMonitor(Doberman.Monitor):
         cfg_doc = self.db.GetSensorSetting(self.name)
         self.OpenSensor()
         for rd in cfg_doc['readings'].keys():
-            reading_doc = db.GetReadingSetting(self.name, rd)
+            self.logger.debug('Constructing ' + rd)
+            reading_doc = self.db.GetReadingSetting(self.name, rd)
             kwargs = {'sensor_name' : self.name, 'reading_name' : rd,
-                    'db' : self.db, 'sensor' : self.sensor, 'loglevel' : self.loglevel}
+                      'event' : self.event, 'db' : self.db, 'sensor' : self.sensor,
+                      'loglevel' : self.loglevel}
             if 'multi' in reading_doc:
                 reading = Doberman.MultiReading(**kwargs)
             elif 'pid' in reading_doc:
@@ -27,13 +29,16 @@ class SensorMonitor(Doberman.Monitor):
             else:
                 reading = Doberman.Reading(**kwargs)
             self.Register(rd, reading)
-        self.Register(self.Heartbeat, name='heartbeat',
+        self.Register(name='heartbeat', obj=self.Heartbeat,
                 period=self.db.GetHostSetting(field='heartbeat_timer'))
 
     def Shutdown(self):
+        if self.sensor is None:
+            return
         self.logger.info('Stopping sensor')
         self.sensor.event.set()
         self.sensor.close()
+        self.sensor = None
         return
 
     def OpenSensor(self, reopen=False):
