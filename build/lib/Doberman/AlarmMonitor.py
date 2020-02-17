@@ -13,8 +13,8 @@ class AlarmMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
-        self.Register(obj=self.CheckHeartbeats, period=30, name='heartbeat')
-        self.Register(obj=self.CheckForAlarms, period=5, name='alarmcheck')
+        self.Register(func=self.CheckHeartbeats, period=30, name='heartbeat')
+        self.Register(func=self.CheckForAlarms, period=5, name='alarmcheck')
 
     def getConnectionDetails(self, which):
         detail_doc = self.db.readFromDatabase('settings', 'alarm_config',
@@ -69,7 +69,7 @@ class AlarmMonitor(Doberman.Monitor):
                 signature = ("\n\n----------\n"
                              "Message created on %s by slowcontrol. "
                              "This is a automatic message. "
-                             % now)
+                             % now.isoformat(timespec='minutes'))
                 body = str(message) + signature
             else:
                 body = str(message)
@@ -148,6 +148,7 @@ class AlarmMonitor(Doberman.Monitor):
     def CheckForAlarms(self):
         doc_filter = {'acknowledged' : {'$exists' : 0}}
         messages = {}
+        msg_format = '{name} : {when} : {msg}'
         updates = {'$set' : {'acknowledged' : dtnow()}}
         db_col = ('logging', 'alarm_history')
         if self.db.Count(*db_col, doc_filter) == 0:
@@ -161,9 +162,8 @@ class AlarmMonitor(Doberman.Monitor):
         if messages:
             self.logger.warning(f'Found alarms!')
             for (lvl,), msg_docs in messages.items():
-                message = ""
-                for msg_doc in msg_docs:
-                    message += f'{msg_doc["_id"].generation_time}: {msg_doc["msg"]} \n'
+                message = '\n'.join(map(lambda d :
+                    msg_format.format(**d, when=d['_id'].generation_time), msg_docs))
                 self.sendMessage(lvl, message)
         return
 
@@ -172,8 +172,8 @@ class AlarmMonitor(Doberman.Monitor):
         Sends 'message' to the contacts specified by 'level'
         """
         now = dtnow()
-        message_time = self.db.GetRunmodeSetting(runmode='default',
-                field='message_time')
+        message_time = self.db.GetRunmodeDetail(runmode='default',
+                fieldname='message_time')
         if hasattr(self, 'last_message_time') and self.last_message_time is not None:
             dt = (now - self.last_message_time).total_seconds()/60
             if dt < message_time:
@@ -200,7 +200,7 @@ class AlarmMonitor(Doberman.Monitor):
                 {'status' : {'$ne' : 'offline'}})
         now = dtnow()
         for host in hosts:
-            if (now - host['heartbeat']).total_seconds() > 3*Doberman.utils.heartbeat_timer:
+            if (now - host['heartbeat']).total_seconds() > 3*utils.heartbeat_timer:
                 alarm_doc = {'name' : 'alarm_monitor', 'howbad' : 0,
                     'msg' : 'Host "%s" hasn\'t heartbeated recently' % host['hostname']}
-                self.db.LogAlarm(alarm_doc)
+                self.db.logAlarm(alarm_doc)

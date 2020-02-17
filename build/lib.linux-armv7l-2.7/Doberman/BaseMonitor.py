@@ -13,20 +13,18 @@ class Monitor(object):
     def __init__(self, db=None, _name=None, loglevel='INFO'):
         """
         """
-        self.db = db
         if isinstance(self, Doberman.HostMonitor):
             self.name = db.hostname
-        elif isinstance(self, Doberman.AlarmMonitor):
-            self.name='AlarmMonitor'
+        #elif isinstance(self, Doberman.AlarmMonitor):
+        #    self.name='AlarmMonitor'
         elif isinstance(self, Doberman.SensorMonitor):
             self.name = _name
-        
+        self.db = db
         self.logger = Doberman.utils.Logger(name=self.name, db=db, loglevel=loglevel)
         self.event = threading.Event()
+        self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.threads = {}
         self.loglevel = loglevel
-        if threading.current_thread() is threading.main_thread():
-            self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.Setup()
         self.Register(obj=self.HandleCommands, period=1, name='handlecommands')
         self.Register(obj=self.CheckThreads, period=30, name='checkthreads')
@@ -43,10 +41,7 @@ class Monitor(object):
         """
         Joins all running threads
         """
-        if isinstance(self, Doberman.HostMonitor):
-            self.sh.run = False
-            self.db.SetHostSetting(self.name, set={'active': []})
-            self.db.SetHostSetting(self.name, set={'status': 'offline'})
+        self.sh.run = False
         self.event.set()
         self.Shutdown()
         for n,t in self.threads.items():
@@ -127,8 +122,7 @@ class FunctionHandler(threading.Thread):
         self.func = func
         self.logger = logger
         self.period = period
-        if threading.current_thread() is threading.main_thread():
-            self.sh = Doberman.utils.SignalHandler(logger, self.event)
+        self.sh = Doberman.utils.SignalHandler(logger, self.event)
 
     def run(self):
         """

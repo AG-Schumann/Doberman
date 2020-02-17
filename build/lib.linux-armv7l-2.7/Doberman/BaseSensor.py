@@ -211,12 +211,15 @@ class SerialSensor(Sensor):
         if self.tty == '0':
             raise ValueError('No tty port specified!')
         try:
-            self._device.port = '/dev/tty%s' % self.tty
-            self._device.open()
+            self._device.port = '/dev/tty%s' % (self.name)
         except serial.SerialException as e:
-            raise ValueError('Problem opening %s: %s' % (self._device.port, e))
-        if not self._device.is_open:
-            raise ValueError('Error while connecting to device')
+            try:
+                self._device.port = '/dev/tty%s' % self.tty
+                self._device.open()
+            except serial.SerialException as e:
+                raise ValueError('Problem opening %s: %s' % (self._device.port, e))
+            if not self._device.is_open:
+                raise ValueError('Error while connecting to device')
         return
 
     def Shutdown(self):
@@ -231,6 +234,10 @@ class SerialSensor(Sensor):
     def SendRecv(self, message, dev=None):
         device = dev if dev else self._device
         ret = {'retcode' : 0, 'data' : None}
+        if not self._connected and dev is None:
+            self.logger.error('No sensor connected, can\'t send message %s' % message)
+            ret['retcode'] = -1
+            return ret
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())

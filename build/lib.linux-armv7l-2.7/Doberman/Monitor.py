@@ -1,12 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import Doberman
 from pymongo import MongoClient
 import argparse
 import time
 import os
-import threading
 from functools import partial
-from socket import getfqdn
+
 
 def main(mongo_client):
     parser = argparse.ArgumentParser()
@@ -24,31 +23,33 @@ def main(mongo_client):
         kwargs['experiment_name'] = os.environ['DOBERMAN_EXPERIMENT_NAME']
     except KeyError:
         print('You haven\'t specified an experiment, this might go badly')
+
     db = Doberman.Database(**kwargs)
     kwargs = {'db' : db, 'loglevel' : args.log}
+
     # TODO add checks for running systems
     if args.alarm:
         ctor = partial(Doberman.AlarmMonitor, **kwargs)
     elif args.host:
-        if db.GetHostSetting(db.hostname, 'status') == 'online':
-            print(f'Host monitor {db.hostname}  already online!')
-            return
         ctor = partial(Doberman.HostMonitor, **kwargs)
     elif args.sensor:
         kwargs['_name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
-        # check if sensor is already running, otherwise start it
-        else:
-            ctor = partial(Doberman.SensorMonitor, **kwargs)
+        ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.status:
         pass
     else:
         return
-    monitor = ctor()
-    if threading.current_thread() is threading.main_thread():
-        while not monitor.sh.event.is_set():
-            monitor.event.wait(10)
+    sh = Doberman.utils.SignalHandler()
+    monitor = None
+    while sh.run:
+        try:
+            monitor = ctor()
+            monitor.event.wait()
+        except Exception as e:
+            print('Caught a %s: %s' % (type(e), e))
+        break
     print('Shutting down')
     monitor.Shutdown()
     print('Main returning')

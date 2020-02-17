@@ -22,7 +22,7 @@ class SensorMonitor(Doberman.Monitor):
             kwargs = {'sensor_name' : self.name, 'reading_name' : rd,
                       'event' : self.event, 'db' : self.db, 'sensor' : self.sensor,
                       'loglevel' : self.loglevel}
-            if 'is_multi' in reading_doc:
+            if 'multi' in reading_doc:
                 reading = Doberman.MultiReading(**kwargs)
             elif 'pid' in reading_doc:
                 reading = Doberman.PIDReading(**kwargs)

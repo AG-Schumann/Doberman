@@ -1,12 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import Doberman
 from pymongo import MongoClient
 import argparse
 import time
 import os
-import threading
 from functools import partial
-from socket import getfqdn
+
 
 def main(mongo_client):
     parser = argparse.ArgumentParser()
@@ -30,25 +29,19 @@ def main(mongo_client):
     if args.alarm:
         ctor = partial(Doberman.AlarmMonitor, **kwargs)
     elif args.host:
-        if db.GetHostSetting(db.hostname, 'status') == 'online':
-            print(f'Host monitor {db.hostname}  already online!')
-            return
         ctor = partial(Doberman.HostMonitor, **kwargs)
     elif args.sensor:
         kwargs['_name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
-        # check if sensor is already running, otherwise start it
-        else:
-            ctor = partial(Doberman.SensorMonitor, **kwargs)
+        ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.status:
         pass
     else:
         return
     monitor = ctor()
-    if threading.current_thread() is threading.main_thread():
-        while not monitor.sh.event.is_set():
-            monitor.event.wait(10)
+    while not monitor.sh.event.is_set():
+        monitor.event.wait(10)
     print('Shutting down')
     monitor.Shutdown()
     print('Main returning')

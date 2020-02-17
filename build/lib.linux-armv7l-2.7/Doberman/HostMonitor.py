@@ -2,10 +2,6 @@ import Doberman
 import psutil
 import datetime
 from functools import partial
-from socket import getfqdn
-import threading
-
-dtnow = datetime.datetime.utcnow
 
 __all__ = 'HostMonitor'.split()
 
@@ -17,16 +13,13 @@ class HostMonitor(Doberman.Monitor):
     """
 
     def Setup(self):
-        self.hostname = getfqdn()
         self.kafka = self.db.GetKafka("sysmon")
-        self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         cfg = self.db.GetHostSetting()
-        self.db.SetHostSetting(self.hostname, set={'status':'online'})
-        self.last_restart_times = {}
+        self.last_restart_time = {}
         swap = psutil.swap_memory()
         self.last_swap_in = swap.sin
         self.last_swap_out = swap.sout
-        self.sysmon_timer = int(cfg['sysmon_timer'])
+        self.sysmon_timer = cfg['sysmon_timer']
         self.disks = cfg['disks']
         self.last_read = {}
         self.last_write = {}
@@ -41,8 +34,8 @@ class HostMonitor(Doberman.Monitor):
         for nic in self.nics:
             self.last_recv[nic] = net_io[nic].bytes_recv
             self.last_sent[nic] = net_io[nic].bytes_sent
-        self.Register(obj=self.SystemStatus, period=cfg['sysmon_timer'], name='sysmon')
-        self.Register(obj=self.Heartbeat, period=cfg['heartbeat_timer'], name='heartbeat')
+        self.Register(func=self.SystemStatus, period=cfg['sysmon_timer'], name='sysmon')
+        self.Register(func=self.Hearbeat, period=cfg['heartbeat_timer'], name='heartbeat')
 
     def SystemStatus(self):
         n_cpus = psutil.cpu_count()
@@ -56,13 +49,13 @@ class HostMonitor(Doberman.Monitor):
         swap = psutil.swap_memory()
         self.kafka(value=f'{host},swap_avail,{swap.percent:.3g}')
         socket = '0'
-        #for row in psutil.sensors_temperatures()['coretemp']:
-        #    if 'Package' in row.label:
-        #        socket = row.label[-1]  # max 10 sockets per machine
-        #        self.kafka(value=f'{host},cpu_{socket}_temp,{row.current:.3g}')
-        #    else:
-        #        core = int(row.label.split(' ')[-1])
-        #        self.kafka(value=f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
+        for row in psutil.sensors_temperatures()['coretemp']:
+            if 'Package' in row.label:
+                socket = row.label[-1]  # max 10 sockets per machine
+                self.kafka(value=f'{host},cpu_{socket}_temp,{row.current:.3g}')
+            else:
+                core = int(row.label.split(' ')[-1])
+                self.kafka(value=f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
         for i,row in enumerate(psutil.cpu_freq(True)):
             self.kafka(value=f'{host},cpu_{i:02d}_freq,{row.current:.3g}')
         net_io = psutil.net_io_counters(True)
@@ -90,30 +83,16 @@ class HostMonitor(Doberman.Monitor):
         active = host_cfg['active']
         in_error = host_cfg['in_error']
         now = datetime.datetime.utcnow()
-        other_hosts = self.db.Distinct('common', 'hosts', 'hostname', cuts={'status' : 'online'})
-        other_hosts.remove(self.hostname)
-        other_default = []
-        for host in other_hosts:
-            other_default.extend(self.db.GetHostSetting(host, 'default'))
-        for sensor in active:
-            if sensor not in default:
-                self.db.LogCommand({"command": "stop", "name": sensor, "logged": dtnow()})
-                self.db.SetHostSetting(pull={"active": sensor})
         for sensor in default:
-            if sensor in other_default:
-                self.logger.info(f'{sensor} is already dealt with by another online host monitor')
-                continue
             # all sensors in 'default' should be online
             if sensor not in active:
-                # sensor isn't online
+                # sensor is isn't online
                 if sensor in in_error:
                     # it has some already-acknowledged issue
                     self.logger.debug('%s has an acknowledged error' % sensor)
                     continue
                 # isn't running? Start it
                 self.StartSensor(sensor)
-                self.db.SetHostSetting(push={"active": sensor})
-               
             else:
                 # sensor claims to be online, is it really?
                 hb = self.db.GetHeartbeat(sensor=sensor)
@@ -121,11 +100,12 @@ class HostMonitor(Doberman.Monitor):
                     # hasn't heartbeated recently
                     self.logger.info(('%s hasn\'t heartbeated recently, '
                                       'let me try to restart it' % sensor))
+                    self.db.SetSensorSetting(sensor, field='status', value='offline')
                     self.StartSensor(sensor)
                     if sensor not in self.last_restart_times:
                         self.last_restart_times[sensor] = now
                     else:
-                        dt = (now - self.last_restart_times[sensor]).total_seconds()
+                        dt = (self.last_restart_times[sensor] - now).total_seconds()
                         if dt < 3*host_cfg['heartbeat_timer']:
                             doc = dict(name=self.hostname, howbad=0,
                                     msg=('%s has needed restarting twice within the last '
@@ -142,15 +122,15 @@ class HostMonitor(Doberman.Monitor):
                     if sensor not in active:
                         self.db.SetHostInfo(push={'active' : sensor})
         # TODO add checks for LAN sensors running on other hosts
-        return host_cfg['heartbeat_timer']
+        return host_cfg['hearbeat_timer']
 
     def StartSensor(self, sensor):
-        threading.Thread(target=Doberman.SensorMonitor, kwargs=dict(_name=sensor, db=self.db), 
-                daemon=True).start()
+        threading.Thread(target=Doberman.SensorMonitor, _name=sensor, db=self.db,
+            daemon=True).start()
 
     def HandleCommands(self):
-        doc = self.db.FindCommand(self.hostname)
-        while doc is not None:
+        doc = self.db.FindCommand(self.name)
+        while doc is None:
             cmd = doc['command']
             if cmd.startswith('start'):
                 _, sensor = cmd.split(' ', maxsplit=1)
@@ -158,8 +138,6 @@ class HostMonitor(Doberman.Monitor):
             elif cmd.startswith('heartbeat'):
                 _, hb = cmd.split(' ', maxsplit=1)
                 self.db.SetHostSetting(set={'heartbeat_timer' : float(hb)})
-            elif cmd.startswith('stop'):
-                self.Close(); 
             else:
                 self.logger.error(f'Command "{cmd}" not understood')
-            doc = self.db.FindCommand(self.hostname)
+            doc = self.db.FindCommand()
