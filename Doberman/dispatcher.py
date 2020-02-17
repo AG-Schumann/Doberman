@@ -1,10 +1,11 @@
 import re
+import datetime
 import sys
 import Doberman
 import os
+dtnow = datetime.datetime.now
 
-
-__all__ = 'PrintHelp ProcessCommandStepOne'.split()
+__all__ = 'PrintHelp ProcessCommand'.split()
 
 def PrintHelp(db, name):
     print('Accepted commands:')
@@ -65,7 +66,7 @@ def ProcessCommand(db, command_str, user=None):
     for pattern in patterns:
         m = re.search(pattern, command_str)
         if m:
-            StepTwo(m, user=user)
+            StepTwo(db, m, user=user)
             if user is not None:  # for non-CLI users
                 break
             time.sleep(3)
@@ -78,20 +79,12 @@ def ProcessCommand(db, command_str, user=None):
     else:
         print('Command \'%s\' not understood' % command_str)
 
-    def StepTwo(db, m, user=None):
+def StepTwo(db, m, user=None):
     """
     Takes the match object (m) from StepOne and figures out what it actually means
     """
     command = m['command']
     name = str(m['name'])
-    if db.getDefaultSettings(name='status') == 'sleep':
-        if command != 'wake' and name != 'None':
-            print('System currently in sleep mode, command not accepted')
-            return
-    if command == 'sleep' and name == 'None':
-        if len(db.getDefaultSettings(name='managed_plugins')) > 0:
-            print('Can\'t sleep while managing plugins!')
-            return
     names = {'None' : ['doberman']}
     if name != 'None':
         names.update({name : [name]})
@@ -108,20 +101,20 @@ def ProcessCommand(db, command_str, user=None):
             'runmode' : online}[command]})
     if command == 'start':
         for n in names[name]:
-            db.StepThree('doberman', 'start %s %s' % (n, m['runmode']), user=user)
+            StepThree(db, 'doberman', 'start %s %s' % (n, m['runmode']), user=user)
     elif command == 'stop':
         for n in names[name]:
-            db.StepThree(n, 'stop', user=user)
+            StepThree(db, n, 'stop', user=user)
     elif command == 'restart':
         td = datetime.timedelta(seconds=1.1*utils.heartbeat_timer)
         for n in names[name]:
-            db.StepThree(n, 'stop', user=user)
-            db.StepThree('doberman', 'start %s None' % n, td, user=user)
+            StepThree(db, n, 'stop', user=user)
+            StepThree('doberman', 'start %s None' % n, td, user=user)
     elif command == 'runmode':
         for n in names[name]:
-            db.StepThree(n, 'runmode %s' % m['runmode'], user=user)
+            StepThree(db, n, 'runmode %s' % m['runmode'], user=user)
     else:
-        db.StepThree(name, command, user=user)
+        StepThree(name, command, user=user)
 
 def StepThree(db, name, command, future=None, user=None):
     """
