@@ -2,7 +2,6 @@ import Doberman
 import datetime
 from socket import getfqdn
 from functools import partial
-import time
 try:
     from kafka import KafkaProducer
     has_kafka=True
@@ -152,20 +151,6 @@ class Database(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
-    def DeleteAlarm(self, reading_name, alarm_type):
-        """
-        Delete alarm of specific type from a reading
-        :param reading_name: name of the reading
-        :param alarm_type: alarm type to be removed
-        """
-        self.updateDatabase('settings', 'readings', {'name' : reading_name},
-                {'$pull': {'alarms': {'type': alarm_type}}}) 
-    def UpdateAlarm(self, reading_name, alarm_doc):
-        alarm_type = alarm_doc['type']
-        self.DeleteAlarm(reading_name, alarm_type)
-        self.updateDatabase('settings', 'readings', {'name' : reading_name},
-                {'$push': {'alarms': alarm_doc}})
-
     def Distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
         """
         Transfer function for collection.distinct
@@ -259,32 +244,22 @@ class Database(object):
             for p in protocols:
                 ret[p].append(doc[p])
         return ret
-    
-    def GetHeartbeat(self, host=None, sensor=None):
-        if host is not None:
-            cuts = {'hostname' : host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        doc = self.readFromDatabase('settings', coll, cuts=cuts, onlyone=True)
-        return doc['heartbeat']
 
     def UpdateHeartbeat(self, host=None, sensor=None):
         """
         Heartbeats the specified sensor or host
         """
         if host is not None:
-            cuts = {'hostname' : host}
+            cuts = {'host' : host}
             coll = 'hosts'
         elif sensor is not None:
-            cuts = {'name' : sensor}
+            cuts = {'sensor' : sensor}
             coll = 'sensors'
         self.updateDatabase('settings', coll, cuts=cuts,
                     updates={'$set' : {'heartbeat' : dtnow()}})
         return
-    
-    def LogAlarm(self, document):
+
+    def logAlarm(self, document):
         """
         Adds the alarm to the history.
         """
@@ -359,7 +334,7 @@ class Database(object):
         Reads default Doberman settings from database.
 
         :param runmode: the runmode to get settings for
-        :param field: the name of the setting
+        :param name: the name of the setting
         :returns: the setting dictionary if name=None, otherwise the specific field
         """
         doc = self.readFromDatabase('settings', 'runmodes',
@@ -379,7 +354,7 @@ class Database(object):
         if field is not None:
             return doc[field]
         return doc
-    
+
     def SetHostSetting(self, host=None, **kwargs):
         """
         Updates the setting document of the specified host. Kwargs should be one
@@ -389,19 +364,8 @@ class Database(object):
         if host is None:
             host = self.hostname
         self.updateDatabase('settings', 'hosts', {'hostname' : host},
-                updates={f'${k}'  : v for k, v in kwargs.items()})
+                updates={f'$k'  : v for k, v in kwargs.items()})
         return
-    
-    def GetUnmonitoredSensors(self):
-        """
-        Returns list of sensors that are not in 'default' of e.g. not read out by any host
-        """
-        all_sensors = self.Distinct('settings', 'sensors', 'name')
-        hosts = self.Distinct('common', 'hosts', 'hostname')
-        monitored = []
-        for host in hosts:
-            monitored.extend(self.GetHostSetting(host, 'default'))
-        return list(set(all_sensors) - set(monitored))
 
     def GetKafka(self, topic):
         """
@@ -409,7 +373,7 @@ class Database(object):
         """
         return partial(self.kafka.send, topic=topic)
 
-    def GetCurrentStatus_old(self):
+    def GetCurrentStatus(self):
         """
         Gives a snapshot of the current system status
         """
@@ -423,7 +387,7 @@ class Database(object):
                     'status' : sensor_doc['status'],
                     'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
                     'readings' : {}
-                    }
+                }
             for reading_name in sensor_doc['readings']:
                 reading_doc = self.GetReadingSetting(sensor_name, reading_name)
                 status[sensor_name]['readings'][reading_name] = {
@@ -440,34 +404,4 @@ class Database(object):
                     status[sensor_name]['readings'][reading_name]['last_value'] = data_doc[reading_name]
                     doc_time = int(str(data_doc['_id'])[:8], 16)
                     status[sensor_name]['readings'][reading_name]['last_time'] = time.time() - doc_time
-        return status
-
-    def GetCurrentStatus(self):
-        """
-        Gives a snapshot of the current system status
-        """
-        status = {}
-        now = dtnow()
-        for host_doc in self.readFromDatabase('common', 'hosts'):
-            hostname = host_doc['hostname']
-            status[hostname] = {
-                    'status' : host_doc['status'],
-                    'last_heartbeat' : (now - host_doc['heartbeat']).total_seconds(),
-                    'sensors' : {}
-                    }
-            for sensor_name in host_doc['default']:
-                sensor_doc = self.readFromDatabase('settings', 'sensors', cuts={'name' : sensor_name}, onlyone = True)
-                status[hostname]['sensors'][sensor_name] = {
-                        'status': sensor_doc['status'],
-                        'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
-                        'readings' : {}
-                        }
-                for reading_name in sensor_doc['readings']:
-                    reading_doc = self.GetReadingSetting(sensor_name, reading_name)
-                    status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
-                        'description' : reading_doc['description'],
-                        'status' : reading_doc['status'],
-                        }
-                    if reading_doc['status'] == 'online':
-                        status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
         return status
