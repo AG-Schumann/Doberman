@@ -420,7 +420,6 @@ class Database(object):
             if 'Test' in sensor_name:
                 continue
             status[sensor_name] = {
-                    'status' : sensor_doc['status'],
                     'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
                     'readings' : {}
                     }
@@ -456,18 +455,20 @@ class Database(object):
                     'sensors' : {}
                     }
             for sensor_name in host_doc['default']:
-                sensor_doc = self.readFromDatabase('settings', 'sensors', cuts={'name' : sensor_name}, onlyone = True)
-                status[hostname]['sensors'][sensor_name] = {
-                        'status': sensor_doc['status'],
+                try :
+                    sensor_doc = self.readFromDatabase('settings', 'sensors', cuts={'name' : sensor_name}, onlyone = True)
+                    status[hostname]['sensors'][sensor_name] = {
                         'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
                         'readings' : {}
                         }
-                for reading_name in sensor_doc['readings']:
-                    reading_doc = self.GetReadingSetting(sensor_name, reading_name)
-                    status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
-                        'description' : reading_doc['description'],
-                        'status' : reading_doc['status'],
-                        }
-                    if reading_doc['status'] == 'online':
-                        status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
+                    for reading_name in sensor_doc['readings']:
+                        reading_doc = self.GetReadingSetting(sensor_name, reading_name)
+                        status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
+                            'description' : reading_doc['description'],
+                            'status' : reading_doc['status'],
+                            }
+                        if reading_doc['status'] == 'online':
+                            status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
+                except TypeError as e:
+                    pass
         return status

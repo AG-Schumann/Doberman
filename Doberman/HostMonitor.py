@@ -56,13 +56,16 @@ class HostMonitor(Doberman.Monitor):
         swap = psutil.swap_memory()
         self.kafka(value=f'{host},swap_avail,{swap.percent:.3g}')
         socket = '0'
-        #for row in psutil.sensors_temperatures()['coretemp']:
-        #    if 'Package' in row.label:
-        #        socket = row.label[-1]  # max 10 sockets per machine
-        #        self.kafka(value=f'{host},cpu_{socket}_temp,{row.current:.3g}')
-        #    else:
-        #        core = int(row.label.split(' ')[-1])
-        #        self.kafka(value=f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
+        try:
+            for row in psutil.sensors_temperatures()['coretemp']:
+                if 'Package' in row.label:
+                    socket = row.label[-1]  # max 10 sockets per machine
+                    self.kafka(value=f'{host},cpu_{socket}_temp,{row.current:.3g}')
+                else:
+                    core = int(row.label.split(' ')[-1])
+                    self.kafka(value=f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
+        except Exception e:
+            self.logger.debug(f'Couldn\'t read out CPU temperatures for {host}.')
         for i,row in enumerate(psutil.cpu_freq(True)):
             self.kafka(value=f'{host},cpu_{i:02d}_freq,{row.current:.3g}')
         net_io = psutil.net_io_counters(True)

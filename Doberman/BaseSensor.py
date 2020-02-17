@@ -211,10 +211,10 @@ class SerialSensor(Sensor):
         if self.tty == '0':
             raise ValueError('No tty port specified!')
         try:
-            self._device.port = '/dev/tty%s' % self.tty
+            self._device.port = f'/dev/tty{self.tty}' 
             self._device.open()
         except serial.SerialException as e:
-            raise ValueError('Problem opening %s: %s' % (self._device.port, e))
+            raise ValueError(f'Problem opening {self._device.port}: {e}')
         if not self._device.is_open:
             raise ValueError('Error while connecting to device')
         return
