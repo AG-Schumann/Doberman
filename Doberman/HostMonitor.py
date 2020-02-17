@@ -114,8 +114,13 @@ class HostMonitor(Doberman.Monitor):
                     self.logger.debug('%s has an acknowledged error' % sensor)
                     continue
                 # isn't running? Start it
-                self.StartSensor(sensor)
-                self.db.SetHostSetting(push={"active": sensor})
+                try:
+                    self.StartSensor(sensor)
+                    self.db.SetHostSetting(push={"active": sensor})
+                except Exception e:
+                    self.logger.debug(f'Couldn\'t start {sensor}. {type(e)}: {e}')
+                    self.db.SetHostSetting(pull={"default": sensor})
+                    self.dbSetHostSetting(push={"in_error": sensor})
                
             else:
                 # sensor claims to be online, is it really?
