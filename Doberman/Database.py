@@ -407,7 +407,7 @@ class Database(object):
         """
         Returns a setup kafka producer to whoever wants it
         """
-        return partial(self.kafka.send, topic=topic)
+        return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
 
     def GetCurrentStatus_old(self):
         """

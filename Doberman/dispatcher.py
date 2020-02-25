@@ -1,9 +1,12 @@
 import re
 import datetime
+import time
 import sys
 import Doberman
 import os
-dtnow = datetime.datetime.now
+import socket
+from pymongo import MongoClient
+dtnow = datetime.datetime.utcnow
 
 __all__ = 'PrintHelp ProcessCommand'.split()
 
@@ -19,11 +22,12 @@ def PrintHelp(db, name):
     print(' | '.join(names))
     print()
     print('Plugin commands:')
-    print('<plugin_name> [<reading_name>] runmode <runmode>: changes the active runmode for the specified sensor\'s reading (\'all\' accepted')
+    print('<plugin_name> [<reading_name>] runmode <runmode>: changes the active runmode for the specified sensor\'s reading (\'all\' accepted)')
     print()
     if name:
         print('Commands specific to %s:' % name)
-        snsr_cls = utils.FindPlugin(name, ['.'])
+        path = db.readFromDatabase('common', 'hosts', {'hostname': socket.gethostname()},onlyone=True)['plugin_dir']
+        snsr_cls = Doberman.utils.FindPlugin(name, path)
         if not hasattr(snsr_cls, 'accepted_commands'):
             print('none')
         else:
@@ -54,7 +58,7 @@ def ProcessCommand(db, command_str, user=None):
             name = command_str[len('help '):]
             if name in names:
                 n = name
-        db.PrintHelp(n)
+        PrintHelp(db, n)
         return
 
     patterns = [
@@ -83,6 +87,7 @@ def StepTwo(db, m, user=None):
     """
     Takes the match object (m) from StepOne and figures out what it actually means
     """
+    
     command = m['command']
     name = str(m['name'])
     names = {'None' : ['doberman']}
@@ -106,7 +111,7 @@ def StepTwo(db, m, user=None):
         for n in names[name]:
             StepThree(db, n, 'stop', user=user)
     elif command == 'restart':
-        td = datetime.timedelta(seconds=1.1*utils.heartbeat_timer)
+        td = datetime.timedelta(seconds=1.1*Doberman.utils.heartbeat_timer)
         for n in names[name]:
             StepThree(db, n, 'stop', user=user)
             StepThree('doberman', 'start %s None' % n, td, user=user)
@@ -114,7 +119,7 @@ def StepTwo(db, m, user=None):
         for n in names[name]:
             StepThree(db, n, 'runmode %s' % m['runmode'], user=user)
     else:
-        StepThree(name, command, user=user)
+        StepThree(db, name, command, user=user)
 
 def StepThree(db, name, command, future=None, user=None):
     """
@@ -141,10 +146,11 @@ def StepThree(db, name, command, future=None, user=None):
 
 def main(client):
     command = ' '.join(sys.argv[1:])
-    db = Doberman.Database(client)
+    db = Doberman.Database(client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'])
+    ProcessCommand(db, command)
 
 if __name__ == '__main__':
-    with MongoClient(os.environ['DOBERMAN_MONGO_URI']) as client:
+    with MongoClient(os.environ['DOBERMAN_CONNECTION_URI']) as client:
         try:
             main(client)
         except Exception as e:

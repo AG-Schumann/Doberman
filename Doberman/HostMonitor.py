@@ -64,7 +64,7 @@ class HostMonitor(Doberman.Monitor):
                 else:
                     core = int(row.label.split(' ')[-1])
                     self.kafka(value=f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
-        except Exception e:
+        except Exception as e:
             self.logger.debug(f'Couldn\'t read out CPU temperatures for {host}.')
         for i,row in enumerate(psutil.cpu_freq(True)):
             self.kafka(value=f'{host},cpu_{i:02d}_freq,{row.current:.3g}')
@@ -87,6 +87,7 @@ class HostMonitor(Doberman.Monitor):
         return
 
     def Heartbeat(self):
+        self.logger.debug("Heartbeat")
         self.db.UpdateHeartbeat(host=self.hostname)
         host_cfg = self.db.GetHostSetting()
         default = host_cfg['default']
@@ -117,7 +118,7 @@ class HostMonitor(Doberman.Monitor):
                 try:
                     self.StartSensor(sensor)
                     self.db.SetHostSetting(push={"active": sensor})
-                except Exception e:
+                except Exception as e:
                     self.logger.debug(f'Couldn\'t start {sensor}. {type(e)}: {e}')
                     self.db.SetHostSetting(pull={"default": sensor})
                     self.dbSetHostSetting(push={"in_error": sensor})
