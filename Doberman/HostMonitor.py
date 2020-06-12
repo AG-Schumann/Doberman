@@ -106,6 +106,7 @@ class HostMonitor(Doberman.Monitor):
         for sensor in default:
             if sensor in other_default:
                 self.logger.info(f'{sensor} is already dealt with by another online host monitor')
+                self.db.SetHostSetting(pull={"default": sensor})
                 continue
             # all sensors in 'default' should be online
             if sensor not in active:
@@ -121,7 +122,7 @@ class HostMonitor(Doberman.Monitor):
                 except Exception as e:
                     self.logger.debug(f'Couldn\'t start {sensor}. {type(e)}: {e}')
                     self.db.SetHostSetting(pull={"default": sensor})
-                    self.dbSetHostSetting(push={"in_error": sensor})
+                    self.db.SetHostSetting(push={"in_error": sensor})
                
             else:
                 # sensor claims to be online, is it really?
@@ -136,7 +137,7 @@ class HostMonitor(Doberman.Monitor):
                     else:
                         dt = (now - self.last_restart_times[sensor]).total_seconds()
                         if dt < 3*host_cfg['heartbeat_timer']:
-                            doc = dict(name=self.hostname, howbad=0,
+                            doc = dict(name=self.hostname, howbad=1,
                                     msg=('%s has needed restarting twice within the last '
                                          '%d seconds, is it working properly?' %
                                          (sensor, dt)))
@@ -150,7 +151,6 @@ class HostMonitor(Doberman.Monitor):
                         self.db.SetHostInfo(pull={'in_error': sensor})
                     if sensor not in active:
                         self.db.SetHostInfo(push={'active' : sensor})
-        # TODO add checks for LAN sensors running on other hosts
         return host_cfg['heartbeat_timer']
 
     def StartSensor(self, sensor):

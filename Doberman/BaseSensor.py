@@ -254,18 +254,40 @@ class LANSensor(Sensor):
     """
     Class for LAN-connected sensors
     """
+    def SetupChild(self):
+        self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self._device.settimeout(1)
+            self._device.connect((self.ip, int(self.port)))
+        except socket.error as e:
+            self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
+            return False
+        self._connected = True
+        return True
+
+    def Shutdown(self):
+        self._device.close()
 
     def SendRecv(self, message):
         ret = {'retcode' : 0, 'data' : None}
 
+        if not self._connected:
+            self.logger.error('No sensor connected, can\'t send message %s' % message)
+            ret['retcode'] = -1
+            return ret
         message = str(message).rstrip()
         message = self._msg_start + message + self._msg_end
         try:
-            with socket.create_connection((self.ip, int(self.port)), timeout=1) as s:
-                s.sendall(message.encode())
-                time.sleep(0.001)
-                ret['data'] = s.recv(1024)
+            self._device.sendall(message.encode())
         except socket.error as e:
-            self.logger.error("Error with message %s: %s" % (message.strip(), e))
+            self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
+            ret['retcode'] = -2
+            return ret
+        time.sleep(0.01)
+
+        try:
+            ret['data'] = self._device.recv(1024)
+        except socket.error as e:
+            self.logger.fatal('Could not receive data from sensor. Error: %s' % e)
             ret['retcode'] = -2
         return ret
