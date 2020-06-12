@@ -15,6 +15,7 @@ class Reading(threading.Thread):
         self.db = kwargs['db']
         self.last_measurement_time = time.time()
         self.late_counter = 0
+        self.recurrence_counter = 0
         self.process_queue = queue.Queue()
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
@@ -101,11 +102,41 @@ class Reading(threading.Thread):
         """
         if self.is_int:
             value = int(value)
-        try:
-            self.kafka(value=f'{self.name},{value:.6g}')
-        except Exception as e:
-            self.kafka(value=f'{self.name},{value}')
-        return
+        if self.db.has_kafka:
+            try:
+                self.kafka(value=f'{self.name},{value:.6g}')
+            except Exception as e:
+                self.kafka(value=f'{self.name},{value}')
+            return
+        else:
+            self.CheckForAlarm(value)
+
+    def CheckForAlarm(self, value):
+        """
+        If Kafka is not used this checks the reading for alarms and logs it to the database
+        """
+        reading = self.db.GetReadingSetting(self.sensor_name, self.reading_name)
+        if reading['runmode'] == 'default':
+            alarms = reading['alarms']
+            try:
+                simple_alarm = list(filter(lambda alarm: alarm['type'] == 'simple', alarms))[0]
+                if simple_alarm['enabled'] == 'true':
+                    setpoint = simple_alarm['setpoint']
+                    recurrence = simple_alarm['recurrence']
+                    levels = simple_alarm['levels']
+                    for i, level in reversed(list(enumerate(levels))):
+                        lo, hi = level
+                        if lo <= value - setpoint <= hi:
+                            self.recurrence_counter = 0
+                        else:
+                            self.recurrence_counter += 1
+                            if self.recurrence_counter >= recurrence:
+                                self.db.LogAlarm({'msg' : f'Alarm for {reading["topic"]} measurement {self.reading_name}: {value} is outside alarm range ({lo, {hi})', 'name' : self.key, 'howbad': i})
+                                self.recurrence_counter = 0
+                            break
+            except Exeption as e:
+                self.logger.debug(f'Alarms not properly configured for {self.reading_name}') 
+
 
 
 class MultiReading(Reading):
