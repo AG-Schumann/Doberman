@@ -1,8 +1,15 @@
 import datetime
+import time
+from dateutil.tz import *
+import re
+from PIL import Image
+import requests
+from io import BytesIO
 import smtplib
 import Doberman
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 dtnow = datetime.datetime.utcnow
 
 __all__ = 'AlarmMonitor'.split()
@@ -26,9 +33,7 @@ class AlarmMonitor(Doberman.Monitor):
             return None
 
     def sendEmail(self, toaddr, subject, message, Cc=None, Bcc=None, add_signature=True):
-        '''
-        Sends an email. Make sure toaddr is a list of strings.
-        '''
+        
         # Get connectioins details
         connection_details = self.getConnectionDetails('email')
         if connection_details is None:
@@ -74,6 +79,23 @@ class AlarmMonitor(Doberman.Monitor):
             else:
                 body = str(message)
             msg.attach(MIMEText(body, 'plain'))
+            # if available attach grafana plot of the last hour
+            try:
+                grafana_info = self.getConnectionDetails('grafana')
+                to = int(1000 * time.time())
+                fro = to - 3600000
+                tz = datetime.datetime.now(tzlocal()).tzname()
+                reading_name = re.search("measurement (.*?):", str(message)).group(1)
+                for name in grafana_info['panel_map'].keys():
+                    if name in reading_name:
+                        panel_id = int(grafana_info['panel_map'][name])
+                        break
+                url = f'{grafana_info["url"]}&from={fro}&to={to}&tz={tz}&panelId={panel_id}'
+                response = requests.get(url)
+                msg.attach(MIMEImage(response.content))
+            except Exception as e:
+                self.logger.info(f'Didn\'t attach grafana plot, error: {str(e)} ({type(e)})')
+
             # Connect and send
             if server_addr == 'localhost':  # From localhost
                 smtp = smtplib.SMTP(server_addr)
@@ -97,7 +119,7 @@ class AlarmMonitor(Doberman.Monitor):
     def sendSMS(self, phonenumber, message):
         '''
         Sends an SMS.
-        This works with sms sides which provieds sms sending by email.
+        This works with sms sites which provide sms sending via email.
         '''
         # Get connection details
         connection_details = self.getConnectionDetails('sms')

@@ -83,8 +83,8 @@ class Reading(threading.Thread):
                 value is None):
             self.late_counter += 1
             if self.late_counter > 2:
-                #self.db.LogAlarm({'msg' : ('Sensor responding slowly? %i measurements '
-                #    'are late or missing' % self.late_counter), 'name' : self.key})
+                self.db.LogAlarm({'msg' : f'Sensor {self.sensor_name} responding slowly? {self.late_counter}  measurements ' +
+                    'are late or missing', 'name' : self.key, 'howbad': 1})
                 self.late_counter = 0
         else:
             self.late_counter = max(0, self.late_counter-1)
@@ -101,7 +101,10 @@ class Reading(threading.Thread):
         """
         if self.is_int:
             value = int(value)
-        self.kafka(value=f'{self.name},{value:.6g}')
+        try:
+            self.kafka(value=f'{self.name},{value:.6g}')
+        except Exception as e:
+            self.kafka(value=f'{self.name},{value}')
         return
 
 
