@@ -35,12 +35,14 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name=experiment_name
         if has_kafka:
+            self.has_kafka = True
             kafka_cfg = self.readFromDatabase('settings', 'experiment_config',
                     {'name' : 'kafka'}, onlyone=True)
             self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
                     value_serializer=partial(bytes, encoding='utf-8'))
         else:
             self.kafka = FakeKafka()
+            self.has_kafka = False
 
     def close(self):
         self.kafka.close()
