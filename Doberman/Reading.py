@@ -1,8 +1,10 @@
 import Doberman
 import time
+
 import queue
 from functools import partial
 import threading
+import influxdb
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -30,6 +32,10 @@ class Reading(threading.Thread):
                 retq=self.process_queue)
         self.ChildSetup(self.db.GetSensorSetting(name=self.sensor_name))
         self.UpdateConfig()
+        if self.db.has_kafka == False:
+            influx = self.db.readFromDatabase('settings', 'experiment_config', cuts = {'name' : 'influx'},
+                    onlyone = True)
+            self.client = influxdb.InfluxDBClient(host = influx['host'], port = influx['port'])
 
     def run(self):
         self.logger.debug('Starting')
@@ -109,6 +115,13 @@ class Reading(threading.Thread):
                 self.kafka(value=f'{self.name},{value}')
             return
         else:
+            reading = self.db.GetReadingSetting(self.sensor_name, self.name)
+            data = [{'measurement': reading['topic'], 
+                    'time': int(time.time() * 1000000000),
+                    'fields' : { reading['name'] : value }
+                    }]
+            self.logger.debug(data)
+            self.client.write_points(data, database = self.db.experiment_name)
             self.CheckForAlarm(value)
 
     def CheckForAlarm(self, value):
