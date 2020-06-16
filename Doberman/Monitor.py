@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import Doberman
 from pymongo import MongoClient
 import argparse
@@ -7,7 +7,6 @@ import os
 import threading
 from functools import partial
 from socket import getfqdn
-
 def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)

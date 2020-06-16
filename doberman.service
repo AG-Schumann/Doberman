@@ -1,15 +1,14 @@
 [Unit]
 Description=Doberman slow control
-After=mongod.service
-StartLimitIntervalSec=30
-StartLimitBurst=10
+After=network.target remote-fs.target
 
 [Service]
 Type=simple
-Restart=always
-RestartSec=3
+Restart=on-failure
 User=doberman
-ExecStart=/scratch/doberman/Doberman.py
+Environment=DOBERMAN_MONGO_URI=mongodb://webmonitor:42RKBu2QyeOUHkxOdHAhjfIpw1cgIQVgViO4U4nPr0s=@192.168.131.2:27017/admin
+Environment=DOBERMAN_EXPERIMENT_NAME=xebra
+ExecStart=/software/Doberman/Doberman/Monitor.py --host
 
 [Install]
 WantedBy=multi-user.target
