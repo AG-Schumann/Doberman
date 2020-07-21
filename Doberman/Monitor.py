@@ -2,11 +2,11 @@
 import Doberman
 from pymongo import MongoClient
 import argparse
-import time
 import os
 import threading
 from functools import partial
-from socket import getfqdn
+import datetime
+
 def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -18,20 +18,24 @@ def main(mongo_client):
                                 help='Logging level', default='INFO')
     args = parser.parse_args()
 
-    kwargs = {'mongo_client' : mongo_client, 'loglevel' : args.log}
+    db_kwargs = {'mongo_client' : mongo_client, 'loglevel' : args.log}
     try:
-        kwargs['experiment_name'] = os.environ['DOBERMAN_EXPERIMENT_NAME']
+        db_kwargs['experiment_name'] = os.environ['DOBERMAN_EXPERIMENT_NAME']
     except KeyError:
         print('You haven\'t specified an experiment, this might go badly')
-    db = Doberman.Database(**kwargs)
+    db = Doberman.Database(**db_kwargs)
     kwargs = {'db' : db, 'loglevel' : args.log}
     # TODO add checks for running systems
     if args.alarm:
         ctor = partial(Doberman.AlarmMonitor, **kwargs)
     elif args.host:
-        if db.GetHostSetting(db.hostname, 'status') == 'online':
-            print(f'Host monitor {db.hostname}  already online!')
-            return
+        doc = db.GetHostSetting(db.hostname)
+        if doc['status'] == 'online':
+            if (datetime.datetime.utcnow() - doc['heartbeat'].seconds < 2*doc['heartbeat_timer']:
+                print(f'Host monitor {db.hostname}  already online!')
+                return
+            else:
+                print(f'Host monitor {db.hostname} crashed?')
         ctor = partial(Doberman.HostMonitor, **kwargs)
     elif args.sensor:
         kwargs['_name'] = args.sensor

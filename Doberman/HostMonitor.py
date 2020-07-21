@@ -122,7 +122,7 @@ class HostMonitor(Doberman.Monitor):
                 except Exception as e:
                     self.logger.debug(f'Couldn\'t start {sensor}. {type(e)}: {e}')
                     self.db.SetHostSetting(pull={"default": sensor})
-                    self.db.SetHostSetting(push={"in_error": sensor})
+                    self.db.SetHostSetting(addToSet={"in_error": sensor})
                
             else:
                 # sensor claims to be online, is it really?
@@ -143,17 +143,19 @@ class HostMonitor(Doberman.Monitor):
                                          (sensor, dt)))
                             self.db.LogAlarm(doc)
                             self.db.SetHostSetting(pull={'active' : sensor},
-                                                   push={'in_error' : sensor})
+                                                   addToSet={'in_error' : sensor})
                 else:
                     # sensor has heartbeated recently
                     if sensor in in_error:
                         # clear a previous error
-                        self.db.SetHostInfo(pull={'in_error': sensor})
+                        self.db.SetHostSetting(pull={'in_error': sensor})
                     if sensor not in active:
-                        self.db.SetHostInfo(push={'active' : sensor})
+                        self.db.SetHostSetting(addToSet={'active' : sensor})
         return host_cfg['heartbeat_timer']
 
     def StartSensor(self, sensor):
+        self.db.SetHostSetting(addToSet={'default':sensor})
+        self.logger.debug.info(f'Host monitor starting {sensor}') 
         threading.Thread(target=Doberman.SensorMonitor, kwargs=dict(_name=sensor, db=self.db), 
                 daemon=True).start()
 
@@ -172,3 +174,9 @@ class HostMonitor(Doberman.Monitor):
             else:
                 self.logger.error(f'Command "{cmd}" not understood')
             doc = self.db.FindCommand(self.hostname)
+
+    def Shutdown(self):
+        self.sh.run = False
+        self.db.SetHostSetting(self.name, set={'active': []})
+        self.db.SetHostSetting(self.name, set={'in_error': []})
+        self.db.SetHostSetting(self.name, set={'status': 'offline'})

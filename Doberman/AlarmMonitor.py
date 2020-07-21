@@ -222,7 +222,7 @@ class AlarmMonitor(Doberman.Monitor):
                 {'status' : {'$ne' : 'offline'}})
         now = dtnow()
         for host in hosts:
-            if (now - host['heartbeat']).total_seconds() > 3*Doberman.utils.heartbeat_timer:
-                alarm_doc = {'name' : 'alarm_monitor', 'howbad' : 0,
+            if (now - host['heartbeat']).total_seconds() > 2*host['heartbeat_timer']:
+                alarm_doc = {'name' : 'alarm_monitor', 'howbad' : 1,
                     'msg' : 'Host "%s" hasn\'t heartbeated recently' % host['hostname']}
                 self.db.LogAlarm(alarm_doc)
