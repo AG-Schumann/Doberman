@@ -31,7 +31,7 @@ def main(mongo_client):
     elif args.host:
         doc = db.GetHostSetting(db.hostname)
         if doc['status'] == 'online':
-            if (datetime.datetime.utcnow() - doc['heartbeat'].seconds < 2*doc['heartbeat_timer']:
+            if ((datetime.datetime.utcnow() - doc['heartbeat']).seconds < 2*doc['heartbeat_timer']):
                 print(f'Host monitor {db.hostname}  already online!')
                 return
             else:

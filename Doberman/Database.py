@@ -36,8 +36,7 @@ class Database(object):
         self.experiment_name=experiment_name
         if has_kafka:
             self.has_kafka = True
-            kafka_cfg = self.readFromDatabase('settings', 'experiment_config',
-                    {'name' : 'kafka'}, onlyone=True)
+            kafka_cfg = self.readFromDatabase('settings', 'experiment_config', {'name' : 'kafka'}, onlyone=True)
             self.logger.debug(f" Trying to connect to Kafka: {kafka_cfg['bootstrap_servers']}")
             try: 
                 self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
@@ -48,6 +47,7 @@ class Database(object):
                 self.kafka = FakeKafka()
                 self.has_kafka = False
         else:
+            self.logger.debug(f"Could not import KafkaProducer. I will run in independent mode.")
             self.kafka = FakeKafka()
             self.has_kafka = False
 

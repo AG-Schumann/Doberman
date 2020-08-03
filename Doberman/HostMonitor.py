@@ -155,7 +155,7 @@ class HostMonitor(Doberman.Monitor):
 
     def StartSensor(self, sensor):
         self.db.SetHostSetting(addToSet={'default':sensor})
-        self.logger.debug.info(f'Host monitor starting {sensor}') 
+        self.logger.info(f'Host monitor starting {sensor}') 
         threading.Thread(target=Doberman.SensorMonitor, kwargs=dict(_name=sensor, db=self.db), 
                 daemon=True).start()
 
