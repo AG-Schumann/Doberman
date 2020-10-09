@@ -1,0 +1,14 @@
+[Unit]
+Description=Alarm Monitor of Doberman slow control. Checks for unacknowledged alarms and distributes      messages
+After=network.target remote-fs.target
+
+[Service]
+Type=simple
+Restart=on-failure
+User=doberman
+Environment=DOBERMAN_MONGO_URI=mongodb://webmonitor:42RKBu2QyeOUHkxOdHAhjfIpw1cgIQVgViO4U4nPr0s=@192.168.131.2:27017/admin
+Environment=DOBERMAN_EXPERIMENT_NAME=xebra
+ExecStart=/usr/bin/python3 /software/Doberman/Doberman/Monitor.py --alarm
+
+[Install]
+WantedBy=multi-user.target
