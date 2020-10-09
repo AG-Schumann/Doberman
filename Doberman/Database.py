@@ -37,12 +37,11 @@ class Database(object):
         if has_kafka:
             self.has_kafka = True
             kafka_cfg = self.readFromDatabase('settings', 'experiment_config', {'name' : 'kafka'}, onlyone=True)
-            self.logger.debug(f" Trying to connect to Kafka: {kafka_cfg['bootstrap_servers']}")
             try: 
                 self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
                         value_serializer=partial(bytes, encoding='utf-8'))
+                self.logger.debug(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
             except Exception as e:
-
                 self.logger.debug(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
                 self.kafka = FakeKafka()
                 self.has_kafka = False
