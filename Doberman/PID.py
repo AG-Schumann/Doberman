@@ -1,27 +1,31 @@
 import Doberman
 import numpy as np
+import time
+
+__all__ = 'PIDReading'.split()
 
 
 class PIDReading(Doberman.Reading):
     """
     Class to handle feedback and control
     """
-    def ChildSetup(self, doc):
+
+    def child_setup(self, doc):
         self.dtype = [('timestamp', np.float64), ('value', np.float64)]
         self.buffer = np.zeros(0, dtype=self.dtype)
 
-    def UpdateChildConfig(self, doc):
-        for k,v in doc['pid'].items():
+    def update_child_config(self, doc):
+        for k, v in doc['pid'].items():
             setattr(self, k, v)
 
-    def ResetIntegral(self):
+    def reset_integral(self):
         self.buffer = np.zeros(0, dtype=self.dtype)
 
-    def MoreProcessing(self, value):  # TODO deal with input delay
-        super().MoreProcessing(value)
+    def more_processing(self, value):  # TODO deal with input delay
+        super().more_processing(value)
         if self.pid_status == 'offline':
             return
-        newbit = np.array([(time.time(), self.sp-value)], dtype=self.dtype)
+        newbit = np.array([(time.time(), self.sp - value)], dtype=self.dtype)
         self.buffer = np.append(self.buffer, newbit)
 
         self.logger.debug('Buffer length %i' % len(self.buffer))
@@ -29,7 +33,7 @@ class PIDReading(Doberman.Reading):
         keep_mask = self.buffer['time'][-1] - self.buffer['time'] < self.Ti + self.input_delay
         self.buffer = self.buffer[keep_mask]
 
-        if self.n_filter > 0 and len(self.buffer) >= self.n_filter:
+        if 0 < self.n_filter <= len(self.buffer):
             qs = np.nanpercentile(self.buffer['value'], self.filter_percentiles)
             mask = (qs[0] < self.buffer['value']) & (self.buffer['value'] < qs[1])
             b = self.buffer[mask]
@@ -49,6 +53,6 @@ class PIDReading(Doberman.Reading):
         self.logger.debug('Differential term %.2g' % D)
 
         if self.status == 'active':
-            self.db.LogCommand({'name' : self.target,
-                            'by' : 'feedback',
-                            'command' : self.command.format(value=P+I+D)})
+            self.db.log_command({'name': self.target,
+                                 'by': 'feedback',
+                                 'command': self.command.format(value=P + I + D)})

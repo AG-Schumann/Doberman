@@ -3,26 +3,30 @@ import datetime
 from socket import getfqdn
 from functools import partial
 import time
+
 try:
     from kafka import KafkaProducer
-    has_kafka=True
-except ImportError:
-    has_kafka=False
 
+    has_kafka = True
+except ImportError:
+    has_kafka = False
 
 dtnow = datetime.datetime.utcnow
 
 __all__ = 'Database'.split()
 
+
 class FakeKafka(object):
     """
     Something for testing on platforms without the Kafka driver
     """
+
     def send(self, *args, **kwargs):
         pass
 
     def close(self, *args, **kwargs):
         pass
+
 
 class Database(object):
     """
@@ -31,15 +35,15 @@ class Database(object):
 
     def __init__(self, mongo_client, loglevel='INFO', experiment_name=None):
         self.client = mongo_client
-        self.logger = Doberman.utils.Logger(name='Database', db=self, loglevel=loglevel)
+        self.logger = Doberman.utils.logger(name='Database', db=self, loglevel=loglevel)
         self.hostname = getfqdn()
-        self.experiment_name=experiment_name
+        self.experiment_name = experiment_name
         if has_kafka:
             self.has_kafka = True
-            kafka_cfg = self.readFromDatabase('settings', 'experiment_config', {'name' : 'kafka'}, onlyone=True)
-            try: 
+            kafka_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'kafka'}, onlyone=True)
+            try:
                 self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
-                        value_serializer=partial(bytes, encoding='utf-8'))
+                                           value_serializer=partial(bytes, encoding='utf-8'))
                 self.logger.debug(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
             except Exception as e:
                 self.logger.debug(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
@@ -80,7 +84,7 @@ class Database(object):
             db_name = 'common'
         return self.client[db_name][collection_name]
 
-    def insertIntoDatabase(self, db_name, collection_name, document, **kwargs):
+    def insert_into_db(self, db_name, collection_name, document, **kwargs):
         """
         Inserts document(s) into the specified database/collection
 
@@ -95,8 +99,8 @@ class Database(object):
         if isinstance(document, (list, tuple)):
             result = collection.insert_many(document, **kwargs)
             if len(result.inserted_ids) != len(document):
-                self.logger.error('Inserted %i entries instead of %i into %s/%s' % (
-                    len(result.inserted_ids), len(document), db_name, collection_name))
+                self.logger.error(f'Inserted {len(result.inserted_ids)} entries instead of {len(document)} into'
+                                  + f'{db_name}.{collection_name}')
                 return -1
             return 0
         elif isinstance(document, dict):
@@ -106,10 +110,10 @@ class Database(object):
             else:
                 return -2
         else:
-            self.logger.error('Not sure what to do with %s type' % type(document))
+            self.logger.error(f'Not sure what to do with {type(document)} type')
             return 1
 
-    def readFromDatabase(self, db_name, collection_name, cuts={}, onlyone = False, **kwargs):
+    def read_from_db(self, db_name, collection_name, cuts={}, onlyone=False, **kwargs):
         """
         Finds one or more documents that pass the specified cuts
 
@@ -131,7 +135,7 @@ class Database(object):
         else:
             return cursor
 
-    def updateDatabase(self, db_name, collection_name, cuts, updates, **kwargs):
+    def update_db(self, db_name, collection_name, cuts, updates, **kwargs):
         """
         Updates documents that meet pass the specified cuts
 
@@ -148,7 +152,7 @@ class Database(object):
             return 1
         return 0
 
-    def DeleteDocuments(self, db_name, collection_name, cuts):
+    def delete_documents(self, db_name, collection_name, cuts):
         """
         Deletes documents from the specified collection
 
@@ -160,33 +164,34 @@ class Database(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
-    def DeleteAlarm(self, reading_name, alarm_type):
+    def delete_alarm(self, reading_name, alarm_type):
         """
         Delete alarm of specific type from a reading
         :param reading_name: name of the reading
         :param alarm_type: alarm type to be removed
         """
-        self.updateDatabase('settings', 'readings', {'name' : reading_name},
-                {'$pull': {'alarms': {'type': alarm_type}}}) 
-    def UpdateAlarm(self, reading_name, alarm_doc):
-        alarm_type = alarm_doc['type']
-        self.DeleteAlarm(reading_name, alarm_type)
-        self.updateDatabase('settings', 'readings', {'name' : reading_name},
-                {'$push': {'alarms': alarm_doc}})
+        self.update_db('settings', 'readings', {'name': reading_name},
+                       {'$pull': {'alarms': {'type': alarm_type}}})
 
-    def Distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
+    def update_alarm(self, reading_name, alarm_doc):
+        alarm_type = alarm_doc['type']
+        self.delete_alarm(reading_name, alarm_type)
+        self.update_db('settings', 'readings', {'name': reading_name},
+                       {'$push': {'alarms': alarm_doc}})
+
+    def distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
         """
         Transfer function for collection.distinct
         """
         return self._check(db_name, collection_name).distinct(field, cuts, **kwargs)
 
-    def Count(self, db_name, collection_name, cuts, **kwargs):
+    def count(self, db_name, collection_name, cuts, **kwargs):
         """
         Transfer function for collection.count/count_documents
         """
         return self._check(db_name, collection_name).count_documents(cuts, **kwargs)
 
-    def FindOneAndUpdate(self, db_name, collection_name, cuts, updates, **kwargs):
+    def find_one_and_update(self, db_name, collection_name, cuts, updates, **kwargs):
         """
         Finds one document and applies updates. A bit of a special implementation so
         the 'sort' kwarg will actually do something
@@ -198,12 +203,12 @@ class Database(object):
         :**kwargs: keyword args passed to readFromDatabase
         :returns document
         """
-        doc = self.readFromDatabase(db_name, collection_name, cuts, onlyone=True, **kwargs)
+        doc = self.read_from_db(db_name, collection_name, cuts, onlyone=True, **kwargs)
         if doc is not None:
-            self.updateDatabase(db_name, collection_name, {'_id' : doc['_id']}, updates)
+            self.update_db(db_name, collection_name, {'_id': doc['_id']}, updates)
         return doc
 
-    def FindCommand(self, name):
+    def find_command(self, name):
         """
         Finds the oldest unacknowledged command for the specified entity
         and updates it as acknowledged. Deletes command documents used in
@@ -213,24 +218,24 @@ class Database(object):
         :returns command document
         """
         now = dtnow()
-        doc = self.FindOneAndUpdate('logging', 'commands',
-                cuts={'name' : name,
-                      'acknowledged' : {'$exists' : 0},
-                      'logged' : {'$lte' : now}},
-                updates={'$set' : {'acknowledged' : now}},
-                sort=[('logged', 1)])
+        doc = self.find_one_and_update('logging', 'commands',
+                                       cuts={'name': name,
+                                             'acknowledged': {'$exists': 0},
+                                             'logged': {'$lte': now}},
+                                       updates={'$set': {'acknowledged': now}},
+                                       sort=[('logged', 1)])
         if doc and 'by' in doc and doc['by'] == 'feedback':
-            self.DeleteDocuments('logging', 'commands', {'_id' : doc['_id']})
+            self.delete_documents('logging', 'commands', {'_id': doc['_id']})
         return doc
 
-    def LogCommand(self, doc):
+    def log_command(self, doc):
         """
         """
         if 'logged' not in doc:
             doc['logged'] = dtnow()
-        self.insertIntoDatabase('logging', 'commands', doc)
+        self.insert_into_db('logging', 'commands', doc)
 
-    def getMessageProtocols(self, level):
+    def get_message_protocols(self, level):
         """
         Gets message protocols for the specified alarm level. If none are found,
         takes those from the next lowest level.
@@ -238,17 +243,17 @@ class Database(object):
         :param level: which alarm level is in question (0, 1, etc)
         :returns: list of message protocols to use
         """
-        doc = self.readFromDatabase('settings', 'alarm_config',
-                {'level' : level}, onlyone=True)
+        doc = self.read_from_db('settings', 'alarm_config',
+                                {'level': level}, onlyone=True)
         if doc is None:
             self.logger.error(('No message protocols for alarm level %i! '
-                'Defaulting to next lowest level' % level))
-            doc = self.readFromDatabase('settings', 'alarm_config',
-                    {'level' : {'$lte' : level}}, onlyone=True,
-                    sort=[('level', -1)])
+                               'Defaulting to next lowest level' % level))
+            doc = self.read_from_db('settings', 'alarm_config',
+                                    {'level': {'$lte': level}}, onlyone=True,
+                                    sort=[('level', -1)])
         return doc['protocols']
 
-    def getContactAddresses(self, level):
+    def get_contact_addresses(self, level):
         """
         Returns a list of addresses to contact at 'level' who are currently on shift,
             defined as when the function is called
@@ -256,73 +261,73 @@ class Database(object):
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
-        protocols = self.getMessageProtocols(level)
-        ret = {k : [] for k in protocols}
+        protocols = self.get_message_protocols(level)
+        ret = {k: [] for k in protocols}
         now = datetime.datetime.now()  # no UTC here, we want local time
-        shifters = self.readFromDatabase('settings', 'shifts',
-                {'start' : {'$lte' : now}, 'end' : {'$gte' : now}},
-                onlyone=True)['shifters']
-        for doc in self.readFromDatabase('settings', 'contacts',
-                    {'name' : {'$in' : shifters}}):
+        shifters = self.read_from_db('settings', 'shifts',
+                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
+                                     onlyone=True)['shifters']
+        for doc in self.read_from_db('settings', 'contacts',
+                                     {'name': {'$in': shifters}}):
             for p in protocols:
                 ret[p].append(doc[p])
         return ret
-    
-    def GetHeartbeat(self, host=None, sensor=None):
+
+    def get_heartbeat(self, host=None, sensor=None):
         if host is not None:
-            cuts = {'hostname' : host}
+            cuts = {'hostname': host}
             coll = 'hosts'
         elif sensor is not None:
             cuts = {'name': sensor}
             coll = 'sensors'
-        doc = self.readFromDatabase('settings', coll, cuts=cuts, onlyone=True)
+        doc = self.read_from_db('settings', coll, cuts=cuts, onlyone=True)
         return doc['heartbeat']
 
-    def UpdateHeartbeat(self, host=None, sensor=None):
+    def update_heartbeat(self, host=None, sensor=None):
         """
         Heartbeats the specified sensor or host
         """
         if host is not None:
-            cuts = {'hostname' : host}
+            cuts = {'hostname': host}
             coll = 'hosts'
         elif sensor is not None:
-            cuts = {'name' : sensor}
+            cuts = {'name': sensor}
             coll = 'sensors'
-        self.updateDatabase('settings', coll, cuts=cuts,
-                    updates={'$set' : {'heartbeat' : dtnow()}})
+        self.update_db('settings', coll, cuts=cuts,
+                       updates={'$set': {'heartbeat': dtnow()}})
         return
-    
-    def LogAlarm(self, document):
+
+    def log_alarm(self, document):
         """
         Adds the alarm to the history.
         """
-        if self.insertIntoDatabase('logging', 'alarm_history', document):
+        if self.insert_into_db('logging', 'alarm_history', document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
 
-    def LogUpdate(self, **kwargs):
+    def log_update(self, **kwargs):
         """
         Logs changes submitted from the website
         """
-        self.insertIntoDatabase('logging', 'updates', kwargs)
+        self.insert_into_db('logging', 'updates', kwargs)
         return
 
-    def GetSensorSetting(self, name, field=None):
+    def get_sensor_setting(self, name, field=None):
         """
         Gets a specific setting from one sensor
 
-        :param sensor_name: the name of the sensor
+        :param name: the name of the sensor
         :param field: the field you want
         :returns: the value of the named field
         """
-        doc = self.readFromDatabase('settings', 'sensors', cuts={'name' : name},
-                onlyone=True)
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': name},
+                                onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def SetSensorSetting(self, name, field, value):
+    def set_sensor_setting(self, name, field, value):
         """
         Updates the setting from one sensor
 
@@ -330,25 +335,26 @@ class Database(object):
         :param field: the specific field to update
         :param value: the new value
         """
-        self.updateDatabase('settings', 'sensors', cuts={'name' : name},
-                updates = {'$set' : {field : value}})
+        self.update_db('settings', 'sensors', cuts={'name': name},
+                       updates={'$set': {field: value}})
         return
 
-    def GetReadingSetting(self, sensor=None, name=None, field=None):
+    def get_reading_setting(self, sensor=None, name=None, field=None):
         """
         Gets the document from one reading
 
         :param sensor: the name of the sensor
         :param name: the name of the reading
+        :param field: the specific field to return
         :returns: reading document
         """
-        doc = self.readFromDatabase('settings', 'readings',
-                cuts={'sensor' : sensor, 'name' : name}, onlyone=True)
+        doc = self.read_from_db('settings', 'readings',
+                                cuts={'sensor': sensor, 'name': name}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def SetReadingSetting(self, sensor=None, name=None, field=None, value=None):
+    def set_reading_setting(self, sensor=None, name=None, field=None, value=None):
         """
         Updates a parameter for a reading, used only by the web interface
 
@@ -357,12 +363,12 @@ class Database(object):
         :param field: the specific field to update
         :param value: the new value
         """
-        self.updateDatabase('settings', 'readings',
-                cuts={'sensor' : sensor, 'name' : name},
-                updates={'$set' : {field : value}})
+        self.update_db('settings', 'readings',
+                       cuts={'sensor': sensor, 'name': name},
+                       updates={'$set': {field: value}})
         return
 
-    def GetRunmodeSetting(self, runmode=None, field=None):
+    def get_runmode_setting(self, runmode=None, field=None):
         """
         Reads default Doberman settings from database.
 
@@ -370,25 +376,25 @@ class Database(object):
         :param field: the name of the setting
         :returns: the setting dictionary if name=None, otherwise the specific field
         """
-        doc = self.readFromDatabase('settings', 'runmodes',
-                    {'mode' : runmode}, onlyone=True)
+        doc = self.read_from_db('settings', 'runmodes',
+                                {'mode': runmode}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def GetHostSetting(self, host=None, field=None):
+    def get_host_setting(self, host=None, field=None):
         """
         Gets the setting document of the specified host
         """
         if host is None:
             host = self.hostname
-        doc = self.readFromDatabase('settings', 'hosts', {'hostname' : host},
-                onlyone=True)
+        doc = self.read_from_db('settings', 'hosts', {'hostname': host},
+                                onlyone=True)
         if field is not None:
             return doc[field]
         return doc
-    
-    def SetHostSetting(self, host=None, **kwargs):
+
+    def set_host_setting(self, host=None, **kwargs):
         """
         Updates the setting document of the specified host. Kwargs should be one
         of the Mongo commands (set, unset, push, pull) without the $ char.
@@ -396,87 +402,56 @@ class Database(object):
         """
         if host is None:
             host = self.hostname
-        self.updateDatabase('settings', 'hosts', {'hostname' : host},
-                updates={f'${k}'  : v for k, v in kwargs.items()})
+        self.update_db('settings', 'hosts', {'hostname': host},
+                       updates={f'${k}': v for k, v in kwargs.items()})
         return
-    
-    def GetUnmonitoredSensors(self):
+
+    def get_unmonitored_sensors(self):
         """
-        Returns list of sensors that are not in 'default' of e.g. not read out by any host
+        Returns list of sensors that are not in 'default' of any host (i.e. not read out by any host)
         """
-        all_sensors = self.Distinct('settings', 'sensors', 'name')
-        hosts = self.Distinct('common', 'hosts', 'hostname')
+        all_sensors = self.distinct('settings', 'sensors', 'name')
+        hosts = self.distinct('common', 'hosts', 'hostname')
         monitored = []
         for host in hosts:
-            monitored.extend(self.GetHostSetting(host, 'default'))
+            monitored.extend(self.get_host_setting(host, 'default'))
         return list(set(all_sensors) - set(monitored))
 
-    def GetKafka(self, topic):
+    def get_kafka(self, topic):
         """
         Returns a setup kafka producer to whoever wants it
         """
         return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
 
-    def GetCurrentStatus_old(self):
+    def get_current_status(self):
         """
         Gives a snapshot of the current system status
         """
         status = {}
         now = dtnow()
-        for sensor_doc in self.readFromDatabase('settings', 'sensors'):
-            sensor_name = sensor_doc['name']
-            if 'Test' in sensor_name:
-                continue
-            status[sensor_name] = {
-                    'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
-                    'readings' : {}
-                    }
-            for reading_name in sensor_doc['readings']:
-                reading_doc = self.GetReadingSetting(sensor_name, reading_name)
-                status[sensor_name]['readings'][reading_name] = {
-                        'description' : reading_doc['description'],
-                        'status' : reading_doc['status'],
-                    }
-                if reading_doc['status'] == 'online':
-                    status[sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
-                    data_doc = self.readFromDatabase('data', sensor_name,
-                                cuts={reading_name : {'$exists' : 1}},
-                                sort=[('_id', -1)], onlyone=True)
-                    if data_doc is None:
-                        continue
-                    status[sensor_name]['readings'][reading_name]['last_value'] = data_doc[reading_name]
-                    doc_time = int(str(data_doc['_id'])[:8], 16)
-                    status[sensor_name]['readings'][reading_name]['last_time'] = time.time() - doc_time
-        return status
-
-    def GetCurrentStatus(self):
-        """
-        Gives a snapshot of the current system status
-        """
-        status = {}
-        now = dtnow()
-        for host_doc in self.readFromDatabase('common', 'hosts'):
+        for host_doc in self.read_from_db('common', 'hosts'):
             hostname = host_doc['hostname']
             status[hostname] = {
-                    'status' : host_doc['status'],
-                    'last_heartbeat' : (now - host_doc['heartbeat']).total_seconds(),
-                    'sensors' : {}
-                    }
+                'status': host_doc['status'],
+                'last_heartbeat': (now - host_doc['heartbeat']).total_seconds(),
+                'sensors': {}
+            }
             for sensor_name in host_doc['default']:
-                try :
-                    sensor_doc = self.readFromDatabase('settings', 'sensors', cuts={'name' : sensor_name}, onlyone = True)
+                try:
+                    sensor_doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor_name}, onlyone=True)
                     status[hostname]['sensors'][sensor_name] = {
-                        'last_heartbeat' : (now - sensor_doc['heartbeat']).total_seconds(),
-                        'readings' : {}
-                        }
+                        'last_heartbeat': (now - sensor_doc['heartbeat']).total_seconds(),
+                        'readings': {}
+                    }
                     for reading_name in sensor_doc['readings']:
-                        reading_doc = self.GetReadingSetting(sensor_name, reading_name)
+                        reading_doc = self.get_reading_setting(sensor_name, reading_name)
                         status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
-                            'description' : reading_doc['description'],
-                            'status' : reading_doc['status'],
-                            }
+                            'description': reading_doc['description'],
+                            'status': reading_doc['status'],
+                        }
                         if reading_doc['status'] == 'online':
-                            status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
+                            status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] \
+                                = reading_doc['runmode']
                 except TypeError as e:
                     pass
         return status

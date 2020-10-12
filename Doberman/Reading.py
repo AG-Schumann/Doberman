@@ -1,6 +1,5 @@
 import Doberman
 import time
-
 import queue
 from functools import partial
 import threading
@@ -8,10 +7,12 @@ import influxdb
 
 __all__ = 'Reading MultiReading'.split()
 
+
 class Reading(threading.Thread):
     """
     A thread responsible for scheduling readouts and processing the returned data.
     """
+
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.db = kwargs['db']
@@ -22,48 +23,48 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
-        self.kafka = self.db.GetKafka(self.db.GetReadingSetting(sensor=self.sensor_name,
-            name=self.name, field='topic'))
+        self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
+                                                                   name=self.name, field='topic'))
         self.key = '%s__%s' % (self.sensor_name, self.name)
-        self.logger = Doberman.utils.Logger(db=self.db, name=self.key,
-                loglevel=kwargs['loglevel'])
-        self.sensor_process = partial(kwargs['sensor'].ProcessOneReading, name=self.name)
-        self.Schedule = partial(kwargs['sensor'].AddToSchedule, reading_name=self.name,
-                retq=self.process_queue)
-        self.ChildSetup(self.db.GetSensorSetting(name=self.sensor_name))
-        self.UpdateConfig()
-        if self.db.has_kafka == False:
-            influx = self.db.readFromDatabase('settings', 'experiment_config', cuts = {'name' : 'influx'},
-                    onlyone = True)
-            self.client = influxdb.InfluxDBClient(host = influx['host'], port = influx['port'])
+        self.logger = Doberman.utils.logger(db=self.db, name=self.key,
+                                            loglevel=kwargs['loglevel'])
+        self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
+        self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
+                                retq=self.process_queue)
+        self.child_setup(self.db.get_sensor_setting(name=self.sensor_name))
+        self.update_config()
+        if not self.db.has_kafka:
+            influx = self.db.read_from_db('settings', 'experiment_config', cuts={'name': 'influx'},
+                                          onlyone=True)
+            self.client = influxdb.InfluxDBClient(host=influx['host'], port=influx['port'])
 
     def run(self):
         self.logger.debug('Starting')
         while not self.event.is_set():
             loop_top = time.time()
-            self.UpdateConfig()
+            self.update_config()
             if self.status == 'online':
                 self.Schedule()
-                self.Process()
+                self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
         self.logger.debug('Returning')
         return
 
-    def UpdateConfig(self):
-        doc = self.db.GetReadingSetting(sensor=self.sensor_name, name=self.name)
+    def update_config(self):
+        doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
-        self.UpdateChildConfig(doc)
+        self.update_child_config(doc)
         return
 
-    def ChildSetup(self, config_doc):
+    def child_setup(self, config_doc):
         pass
 
-    def UpdateChildConfig(self, config_doc):
+    def update_child_config(self, config_doc):
         pass
 
-    def Process(self):
+    def process(self):
         """
         Receives the value from the sensor and makes sure that there actually is
         something coming back
@@ -86,22 +87,22 @@ class Reading(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.info('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
             value = None
-        if ((func_start - self.last_measurement_time) > 1.5*self.readout_interval or
+        if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
                 value is None):
             self.late_counter += 1
             if self.late_counter > 2:
-                self.db.LogAlarm({'msg' : f'Sensor {self.sensor_name} responding slowly? {self.late_counter}  measurements ' +
-                    'are late or missing', 'name' : self.key, 'howbad': 1})
+                self.db.log_alarm({'msg': f'Sensor {self.sensor_name} responding slowly? {self.late_counter}'
+                                          + 'measurements are late or missing', 'name': self.key, 'howbad': 1})
                 self.late_counter = 0
         else:
-            self.late_counter = max(0, self.late_counter-1)
+            self.late_counter = max(0, self.late_counter - 1)
         self.last_measurement_time = func_start
-        self.logger.debug('Measured %s' % (value))
+        self.logger.debug(f'Measured {value}')
         if value is not None:
-            self.MoreProcessing(value)
+            self.more_processing(value)
         return
 
-    def MoreProcessing(self, value):
+    def more_processing(self, value):
         """
         Does anything interesting with the value. This function is responsible for
         pushing data upstream
@@ -115,20 +116,20 @@ class Reading(threading.Thread):
                 self.kafka(value=f'{self.name},{value}')
             return
         else:
-            reading = self.db.GetReadingSetting(self.sensor_name, self.name)
-            data = [{'measurement': reading['topic'], 
-                    'time': int(time.time() * 1000000000),
-                    'fields' : { reading['name'] : value }
-                    }]
+            reading = self.db.get_reading_setting(self.sensor_name, self.name)
+            data = [{'measurement': reading['topic'],
+                     'time': int(time.time() * 1000000000),
+                     'fields': {reading['name']: value}
+                     }]
             self.logger.debug(data)
-            self.client.write_points(data, database = self.db.experiment_name)
-            self.CheckForAlarm(value)
+            self.client.write_points(data, database=self.db.experiment_name)
+            self.check_for_alarm(value)
 
-    def CheckForAlarm(self, value):
+    def check_for_alarm(self, value):
         """
         If Kafka is not used this checks the reading for alarms and logs it to the database
         """
-        reading = self.db.GetReadingSetting(self.sensor_name, self.name)
+        reading = self.db.get_reading_setting(self.sensor_name, self.name)
         if reading['runmode'] == 'default':
             alarms = reading['alarms']
             try:
@@ -144,14 +145,14 @@ class Reading(threading.Thread):
                         else:
                             self.recurrence_counter += 1
                             if self.recurrence_counter >= recurrence:
-                                msg = f'Alarm for {reading["topic"]} measurement {self.name}: {value} is outside alarm range ({setpoint + lo}, {setpoint + hi})'
+                                msg = f'Alarm for {reading["topic"]} measurement {self.name}: {value} is outside ' \
+                                      + f'alarm range ({setpoint + lo}, {setpoint + hi})'
                                 self.logger.warning(msg)
-                                self.db.LogAlarm({'msg' : msg, 'name' : self.key, 'howbad': i})
+                                self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
                                 self.recurrence_counter = 0
                             break
-            except Exeption as e:
-                self.logger.debug(f'Alarms not properly configured for {self.reading_name}') 
-
+            except Exception as e:
+                self.logger.debug(f'Alarms not properly configured for {self.reading_name}: {e}')
 
 
 class MultiReading(Reading):
@@ -159,11 +160,12 @@ class MultiReading(Reading):
     A special class to handle sensors that return multiple values for each
     readout cycle (smartec_uti, caen mainframe, etc)
     """
-    def ChildSetup(self, doc):
+
+    def child_setup(self, doc):
         self.all_names = doc['multi']
 
-    def MoreProcessing(self, value_arr):
-        for n,v in zip(self.all_names, value_arr):
+    def more_processing(self, value_arr):
+        for n, v in zip(self.all_names, value_arr):
             if self.is_int:
                 v = int(v)
             self.kafka(value=f'{n},{v:.6g}')

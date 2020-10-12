@@ -9,6 +9,8 @@ import inspect
 import re
 import logging
 import logging.handlers
+import serial
+
 dtnow = datetime.datetime.now
 
 __all__ = 'FindPlugin Logger heartbeat_timer number_regex doberman_dir'.split()
@@ -17,23 +19,24 @@ heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
-def refreshTTY(db):
+
+def refresh_tty(db):
     """
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
-    cuts = {'status' : 'online', 'address.tty' : {'$exists' : 1, '$regex' : 'USB'}}
-    if db.Count('settings','sensors', cuts):
+    cuts = {'status': 'online', 'address.tty': {'$exists': 1, '$regex': 'USB'}}
+    if db.count('settings', 'sensors', cuts):
         print('Some USB sensors are running! Stopping them now')
-        running_sensors = db.Distinct('settings','sensors','name', cuts)
+        running_sensors = db.distinct('settings', 'sensors', 'name', cuts)
         for name in running_sensors:
             db.ProcessCommandStepOne('stop %s' % name)
-        time.sleep(heartbeat_timer*1.2)
+        time.sleep(heartbeat_timer * 1.2)
     else:
         running_sensors = []
-    db.updateDatabase('settings','sensors',
-            cuts={'address.tty' : {'$exists' : 1, '$regex' : '^0|USB[1-9]?[0-9]'}},
-            updates={'$set' : {'address.tty' : '0'}})
+    db.update_db('settings', 'sensors',
+                 cuts={'address.tty': {'$exists': 1, '$regex': '^0|USB[1-9]?[0-9]'}},
+                 updates={'$set': {'address.tty': '0'}})
     print('Refreshing ttyUSB mapping...')
     proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
     try:
@@ -43,18 +46,18 @@ def refreshTTY(db):
         out, err = proc.communicate()
     if not len(out) or len(err):
         raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
-    ttyUSBs = out.decode().splitlines()
-    cursor = db.readFromDatabase('settings','sensors',
-            cuts={'address.tty' : {'$exists' : 1, '$regex' : '^0|USB[1-9]?[0-9]'}})
-    sensor_config = {row['name'] : row for row in cursor}
+    tty_usbs = out.decode().splitlines()
+    cursor = db.read_from_db('settings', 'sensors',
+                             cuts={'address.tty': {'$exists': 1, '$regex': '^0|USB[1-9]?[0-9]'}})
+    sensor_config = {row['name']: row for row in cursor}
     sensor_names = list(sensor_config.keys())
     sensors = {name: None for name in sensor_names}
-    matched = {'sensors' : [], 'ttys' : []}
+    matched = {'sensors': [], 'ttys': []}
     for sensor in sensor_names:
         opts = SensorOpts(sensor_config[sensor])
-        sensors[sensor] = FindPlugin(sensor, [doberman_dir])(opts)
+        sensors[sensor] = find_plugin(sensor, [doberman_dir])(opts)
     dev = serial.Serial()
-    for tty in ttyUSBs:
+    for tty in tty_usbs:
         tty_num = int(re.search('USB([1-9]?[0-9])', tty).group(1))
         print('Checking %s' % tty)
         dev.port = tty
@@ -66,26 +69,26 @@ def refreshTTY(db):
         for name, sensor in sensors.items():
             if name in matched['sensors']:
                 continue
-            if sensor.isThisMe(dev):
+            if sensor.is_this_me(dev):
                 print('Matched %s to %s' % (tty, name))
                 matched['sensors'].append(name)
                 matched['ttys'].append(tty)
-                db.updateDatabase('settings','sensors', {'name' : name},
-                        {'$set' : {'address.tty' : 'USB%i' % tty_num}})
+                db.update_db('settings', 'sensors', {'name': name},
+                             {'$set': {'address.tty': 'USB%i' % tty_num}})
                 dev.close()
                 break
-            #print('Not %s' % name)
+            # print('Not %s' % name)
             time.sleep(0.5)  # devices are slow
         else:
             print('Could not assign %s!' % tty)
         dev.close()
-    if len(matched['sensors']) == len(sensors)-1: # n-1 case
+    if len(matched['sensors']) == len(sensors) - 1:  # n-1 case
         try:
-            name = (set(sensors.keys())-set(matched['sensors'])).pop()
-            tty = (set(ttyUSBs) - set(matched['ttys'])).pop()
+            name = (set(sensors.keys()) - set(matched['sensors'])).pop()
+            tty = (set(tty_usbs) - set(matched['ttys'])).pop()
             print('Matched %s to %s via n-1' % (name, tty))
-            db.updateDatabase('settings','sensors', {'name' : name},
-                    {'$set' : {'address.tty' : tty.split('tty')[-1]}})
+            db.update_db('settings', 'sensors', {'name': name},
+                         {'$set': {'address.tty': tty.split('tty')[-1]}})
         except:
             pass
     elif len(matched['sensors']) != len(sensors):
@@ -95,19 +98,20 @@ def refreshTTY(db):
         print('\n'.join(l))
         print()
         print('tty ports unmatched:')
-        l = set(ttyUSBs) - set(matched['ttys'])
+        l = set(tty_usbs) - set(matched['ttys'])
         print('\n'.join(l))
         return False
-    #for usb, name in zip(matched['ttys'],matched['sensors']):
+    # for usb, name in zip(matched['ttys'],matched['sensors']):
     #        db.updateDatabase('settings','sensors', {'name' : name},
     #                {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
 
-    db.updateDatabase('settings','current_status', {}, {'$set' : {'tty_update' : dtnow()}})
+    db.update_db('settings', 'current_status', {}, {'$set': {'tty_update': dtnow()}})
     for name in running_sensors:
         db.ParseCommand('start %s' % name)
     return True
 
-def FindPlugin(name, path):
+
+def find_plugin(name, path):
     """
     Finds the sensor constructor with the specified name, in the specified paths.
     Will attempt to strip numbers off the end of the name if necessary (ex,
@@ -135,9 +139,11 @@ def FindPlugin(name, path):
         raise AttributeError('Cound not find constructor for %s!' % name)
     return sensor_ctor
 
+
 class SignalHandler(object):
     """ Handles signals from the OS
     """
+
     def __init__(self, logger=None, event=None):
         self.run = True
         signal.signal(signal.SIGINT, self.interrupt)
@@ -153,11 +159,13 @@ class SignalHandler(object):
         if self.event is not None:
             self.event.set()
 
+
 class DobermanLogger(logging.Handler):
     """
     Custom logging interface for Doberman. Logs to
     the database (with disk as backup).
     """
+
     def __init__(self, db, level=logging.INFO):
         logging.Handler.__init__(self)
         self.db = db
@@ -165,12 +173,12 @@ class DobermanLogger(logging.Handler):
         self.collection_name = 'logs'
         backup_filename = datetime.date.today().isoformat()
         self.backup_logger = logging.handlers.TimedRotatingFileHandler(
-                os.path.join(doberman_dir, 'logs', backup_filename + '.log'),
-                when='midnight', delay=True)
+            os.path.join(doberman_dir, 'logs', backup_filename + '.log'),
+            when='midnight', delay=True)
         self.stream = logging.StreamHandler()
         f = logging.Formatter('%(asctime)s | '
-                '%(levelname)s | %(name)s | %(funcName)s | '
-                '%(lineno)d | %(message)s')
+                              '%(levelname)s | %(name)s | %(funcName)s | '
+                              '%(lineno)d | %(message)s')
         self.setFormatter(f)
         self.stream.setFormatter(f)
         self.backup_logger.setFormatter(f)
@@ -191,15 +199,16 @@ class DobermanLogger(logging.Handler):
         if record.levelno < self.level or record.levelno <= logging.DEBUG:
             return
         rec = dict(
-                msg         = record.msg,
-                level       = record.levelno,
-                name        = record.name,
-                funcname    = record.funcName,
-                lineno      = record.lineno)
-        if self.db.insertIntoDatabase(self.db_name, self.collection_name, rec):
+            msg=record.msg,
+            level=record.levelno,
+            name=record.name,
+            funcname=record.funcName,
+            lineno=record.lineno)
+        if self.db.insert_into_db(self.db_name, self.collection_name, rec):
             self.backup_logger.emit(record)
 
-def Logger(name, db, loglevel='DEBUG'):
+
+def logger(name, db, loglevel='DEBUG'):
     logger = logging.getLogger(name)
     try:
         lvl = getattr(logging, loglevel)
@@ -208,4 +217,3 @@ def Logger(name, db, loglevel='DEBUG'):
     logger.setLevel(lvl)
     logger.addHandler(DobermanLogger(db, level=lvl))
     return logger
-
