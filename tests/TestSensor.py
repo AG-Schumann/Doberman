@@ -3,7 +3,7 @@ import re
 
 
 class TestSensor(Doberman.LANSensor):
-    def SetParameters(self):
+    def set_parameters(self):
         self._msg_start = '*'
         self._msg_end = '\r\n'
         self.reading_commands = {'one' : 'READ:one',

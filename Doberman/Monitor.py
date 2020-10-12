@@ -7,6 +7,7 @@ import threading
 from functools import partial
 import datetime
 
+
 def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -14,24 +15,24 @@ def main(mongo_client):
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
-    parser.add_argument('--log', choices=['DEBUG','INFO','WARNING','ERROR','FATAL'],
-                                help='Logging level', default='INFO')
+    parser.add_argument('--log', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL'],
+                        help='Logging level', default='INFO')
     args = parser.parse_args()
 
-    db_kwargs = {'mongo_client' : mongo_client, 'loglevel' : args.log}
+    db_kwargs = {'mongo_client': mongo_client, 'loglevel': args.log}
     try:
         db_kwargs['experiment_name'] = os.environ['DOBERMAN_EXPERIMENT_NAME']
     except KeyError:
         print('You haven\'t specified an experiment, this might go badly')
     db = Doberman.Database(**db_kwargs)
-    kwargs = {'db' : db, 'loglevel' : args.log}
+    kwargs = {'db': db, 'loglevel': args.log}
     # TODO add checks for running systems
     if args.alarm:
         ctor = partial(Doberman.AlarmMonitor, **kwargs)
     elif args.host:
-        doc = db.GetHostSetting(db.hostname)
+        doc = db.get_host_setting(db.hostname)
         if doc['status'] == 'online':
-            if ((datetime.datetime.utcnow() - doc['heartbeat']).seconds < 2*doc['heartbeat_timer']):
+            if (datetime.datetime.utcnow() - doc['heartbeat']).seconds < 2 * doc['heartbeat_timer']:
                 print(f'Host monitor {db.hostname}  already online!')
                 return
             else:
@@ -53,8 +54,9 @@ def main(mongo_client):
         while not monitor.sh.event.is_set():
             monitor.event.wait(10)
     print('Shutting down')
-    monitor.Shutdown()
+    monitor.shutdown()
     print('Main returning')
+
 
 if __name__ == '__main__':
     try:

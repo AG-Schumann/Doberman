@@ -1,4 +1,0 @@
-Doberman.egg-info/PKG-INFO
-Doberman.egg-info/SOURCES.txt
-Doberman.egg-info/dependency_links.txt
-Doberman.egg-info/top_level.txt
