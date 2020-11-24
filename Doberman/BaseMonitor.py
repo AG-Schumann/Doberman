@@ -48,16 +48,17 @@ class Monitor(object):
         self.event.set()
         self.shutdown()
         pop = []
-        for n, t in self.threads.items():
+        thread_numbers  = self.threads.keys()
+        for thread_number in thread_numbers:
             try:
-                t.event.set()
-                t.join()
+                self.threads[thread_number].event.set()
+                self.threads[thread_number].join()
             except Exception as e:
-                self.logger.debug(f'Can\'t close {n}-thread. {e}')
+                self.logger.debug(f'Can\'t close {thread_number}-thread. {e}')
             else:
-                pop += [n]
-            for p in pop:
-                self.threads.pop(p)
+                pop += [thread_number]
+        for p in pop:
+            self.threads.pop(p)
         return
 
     def register(self, name, obj, period=None, **kwargs):

@@ -85,9 +85,9 @@ class Reading(threading.Thread):
         try:
             value = self.sensor_process(data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.info('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
+            self.logger.debug('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
             value = None
-        if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
+        if ((func_start - self.last_measurement_time) > 2.5 * self.readout_interval or
                 value is None):
             self.late_counter += 1
             if self.late_counter > 2:
