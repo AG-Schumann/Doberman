@@ -23,6 +23,7 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
+        self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
         self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
                                                                    name=self.name, field='topic'))
         self.key = '%s__%s' % (self.sensor_name, self.name)
@@ -87,12 +88,16 @@ class Reading(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
             value = None
-        if ((func_start - self.last_measurement_time) > 2.5 * self.readout_interval or
+        if ((func_start - self.last_measurement_time) > 10 * self.readout_interval or
                 value is None):
             self.late_counter += 1
-            if self.late_counter > 2:
-                self.db.log_alarm({'msg': f'Sensor {self.sensor_name} responding slowly? {self.late_counter}'
-                                          + 'measurements are late or missing', 'name': self.key, 'howbad': 1})
+            if self.late_counter > 5:
+                if self.runmode == 'default':
+                    self.db.log_alarm({'msg': f'Sensor {self.sensor_name} responding slowly? {self.late_counter}'
+                                          + ' measurements are late or missing', 'name': self.key, 'howbad': 1})
+                else:
+                    self.logger.info(f'Sensor {self.sensor_name} responding slowly? {self.late_counter}'
+                                          + ' measurements are late or missing')
                 self.late_counter = 0
         else:
             self.late_counter = max(0, self.late_counter - 1)
