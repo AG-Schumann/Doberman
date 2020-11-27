@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.7
 import Doberman
 from pymongo import MongoClient
 import argparse
@@ -20,10 +20,20 @@ def main(mongo_client):
     args = parser.parse_args()
 
     db_kwargs = {'mongo_client': mongo_client, 'loglevel': args.log}
+    err_msg = 'Specify an experiment first! This can be done either as an environment variable '
+    err_msg += 'DOBERMAN_EXPERIMENT_NAME or in the file experiment_name'
     try:
         db_kwargs['experiment_name'] = os.environ['DOBERMAN_EXPERIMENT_NAME']
     except KeyError:
-        print('You haven\'t specified an experiment, this might go badly')
+        try:
+            with open(os.path.join(Doberman.utils.doberman_dir, 'experiment_name'), 'r') as f:
+                db_kwargs['experiment_name'] = f.read().strip()
+        except FileNotFoundError:
+            print(err_msg)
+            return
+    if len(db_kwargs['experiment_name']) == 0:
+            print(err_msg)
+            return
     db = Doberman.Database(**db_kwargs)
     kwargs = {'db': db, 'loglevel': args.log}
     # TODO add checks for running systems
@@ -62,7 +72,11 @@ if __name__ == '__main__':
     try:
         mongo_uri = os.environ['DOBERMAN_MONGO_URI']
     except KeyError:
-        with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
-            mongo_uri = f.read().strip()
-    with MongoClient(mongo_uri) as mongo_client:
-        main(mongo_client)
+        try:
+            with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
+                mongo_uri = f.read().strip()
+                with MongoClient(mongo_uri) as mongo_client:
+                    main(mongo_client)
+        except:
+            print('I need the connection uri to the Config DB. Specify either as an environment', end=' ')
+            print('variable DOBERMAN_MONGO_URI or in the file connection_uri in the Doberman directory')
