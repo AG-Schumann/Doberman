@@ -71,12 +71,14 @@ def main(mongo_client):
 if __name__ == '__main__':
     try:
         mongo_uri = os.environ['DOBERMAN_MONGO_URI']
+        with MongoClient(mongo_uri) as mongo_client:
+            main(mongo_client)
     except KeyError:
         try:
             with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
                 mongo_uri = f.read().strip()
-                with MongoClient(mongo_uri) as mongo_client:
-                    main(mongo_client)
+            with MongoClient(mongo_uri) as mongo_client:
+                main(mongo_client)
         except:
             print('I need the connection uri to the Config DB. Specify either as an environment', end=' ')
             print('variable DOBERMAN_MONGO_URI or in the file connection_uri in the Doberman directory')
