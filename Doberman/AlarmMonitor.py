@@ -20,6 +20,7 @@ class AlarmMonitor(Doberman.Monitor):
     """
 
     def setup(self):
+        now = dtnow()
         self.current_shifters = self.db.read_from_db('settings', 'shifts', 
                 {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)['shifters']
         self.current_shifters.sort()
@@ -223,17 +224,18 @@ class AlarmMonitor(Doberman.Monitor):
                 self.db.log_alarm(alarm_doc)
 
 
-    def check_shifters(self)
+    def check_shifters(self):
         """
         Logs a notification (alarm) when the list of shifters changes
         """
 
+        now = dtnow()
         shift = self.db.read_from_db('settings', 'shifts',
                 {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
         new_shifters = shift['shifters']
         new_shifters.sort()
         shift_end = shift['end']
-        if new_shifters != self.current_shifters and len(''.join(new_shifters) != 0):
+        if new_shifters != self.current_shifters and len(''.join(new_shifters)) != 0:
             doc = {'name': 'alarm_monitor', 'howbad': 1,
                     'msg': f'There has been a change in the list of shifters. You are now on shift until {shift_end.ctime()}.Don\'t forget to turn your volume up.'}
             self.db.log_alarm(doc)
