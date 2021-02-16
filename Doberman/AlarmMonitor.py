@@ -20,8 +20,13 @@ class AlarmMonitor(Doberman.Monitor):
     """
 
     def setup(self):
+        now = dtnow()
+        self.current_shifters = self.db.read_from_db('settings', 'shifts', 
+                {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)['shifters']
+        self.current_shifters.sort()
         self.register(obj=self.check_heartbeats, period=30, name='heartbeat')
         self.register(obj=self.check_for_alarms, period=5, name='alarmcheck')
+        self.register(obj=self.check_shifters, period=60, name='shiftercheck')
 
     def get_connection_details(self, which):
         detail_doc = self.db.read_from_db('settings', 'alarm_config',
@@ -217,3 +222,24 @@ class AlarmMonitor(Doberman.Monitor):
                 alarm_doc = {'name': 'alarm_monitor', 'howbad': 1,
                              'msg': 'Host "%s" hasn\'t heartbeated recently' % host['hostname']}
                 self.db.log_alarm(alarm_doc)
+
+
+    def check_shifters(self):
+        """
+        Logs a notification (alarm) when the list of shifters changes
+        """
+
+        now = dtnow()
+        shift = self.db.read_from_db('settings', 'shifts',
+                {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
+        new_shifters = shift['shifters']
+        new_shifters.sort()
+        shift_end = shift['end']
+        if new_shifters != self.current_shifters and len(''.join(new_shifters)) != 0:
+            doc = {'name': 'alarm_monitor', 'howbad': 1,
+                    'msg': f'There has been a change in the list of shifters. You are now on shift until {shift_end.ctime()}.Don\'t forget to turn your volume up.'}
+            self.db.log_alarm(doc)
+            self.current_shifters = new_shifters
+
+
+
