@@ -443,7 +443,11 @@ class Database(object):
                         'last_heartbeat': (now - sensor_doc['heartbeat']).total_seconds(),
                         'readings': {}
                     }
-                    for reading_name in sensor_doc['readings']:
+                    if 'multi' in sensor_doc:
+                        readings = sensor_doc['multi']
+                    else:
+                        readings = sensor_doc['readings']
+                    for reading_name in readings:
                         reading_doc = self.get_reading_setting(sensor_name, reading_name)
                         status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
                             'description': reading_doc['description'],
