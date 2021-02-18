@@ -56,15 +56,12 @@ class Database(object):
 
     def close(self):
         self.kafka.close()
-        return
 
     def __del__(self):
         self.close()
-        return
 
     def __exit__(self):
         self.close()
-        return
 
     def _check(self, db_name, collection_name):
         """
@@ -103,15 +100,13 @@ class Database(object):
                                   + f'{db_name}.{collection_name}')
                 return -1
             return 0
-        elif isinstance(document, dict):
+        if isinstance(document, dict):
             result = collection.insert_one(document, **kwargs)
             if result.acknowledged:
                 return 0
-            else:
-                return -2
-        else:
-            self.logger.error(f'Not sure what to do with {type(document)} type')
-            return 1
+            return -2
+        self.logger.error(f'Not sure what to do with {type(document)} type')
+        return 1
 
     def read_from_db(self, db_name, collection_name, cuts={}, onlyone=False, **kwargs):
         """
@@ -311,7 +306,6 @@ class Database(object):
         Logs changes submitted from the website
         """
         self.insert_into_db('logging', 'updates', kwargs)
-        return
 
     def get_sensor_setting(self, name, field=None):
         """
@@ -337,7 +331,6 @@ class Database(object):
         """
         self.update_db('settings', 'sensors', cuts={'name': name},
                        updates={'$set': {field: value}})
-        return
 
     def get_reading_setting(self, sensor=None, name=None, field=None):
         """
@@ -366,7 +359,6 @@ class Database(object):
         self.update_db('settings', 'readings',
                        cuts={'sensor': sensor, 'name': name},
                        updates={'$set': {field: value}})
-        return
 
     def get_runmode_setting(self, runmode=None, field=None):
         """
@@ -404,7 +396,6 @@ class Database(object):
             host = self.hostname
         self.update_db('settings', 'hosts', {'hostname': host},
                        updates={f'${k}': v for k, v in kwargs.items()})
-        return
 
     def get_unmonitored_sensors(self):
         """

@@ -35,11 +35,9 @@ class Monitor(object):
 
     def __del__(self):
         self.close()
-        return
 
     def __exit__(self):
         self.close()
-        return
 
     def close(self):
         """
@@ -59,7 +57,6 @@ class Monitor(object):
                 pop += [thread_number]
         for p in pop:
             self.threads.pop(p)
-        return
 
     def register(self, name, obj, period=None, **kwargs):
         self.logger.debug('Registering ' + name)
@@ -77,14 +74,12 @@ class Monitor(object):
             t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event)
         t.start()
         self.threads[name] = t
-        return
 
     def setup(self, *args, **kwargs):
         """
         Called by the constructor. Allows subclasses to initialize stuff (most
         notably calls to Register)
         """
-        pass
 
     def shutdown(self):
         """
@@ -92,7 +87,6 @@ class Monitor(object):
         set to False before this is called, and all threads will be joined once
         this function returns
         """
-        pass
 
     def stop_thread(self, name):
         """
@@ -101,7 +95,6 @@ class Monitor(object):
         self.threads[name].event.set()
         self.threads[name].join()
         del self.threads[name]
-        return
 
     def check_threads(self):
         """
@@ -115,14 +108,12 @@ class Monitor(object):
                     self.stop_thread(n)
                 except Exception as e:
                     self.logger.error(f'{n}-thread won\'t quit: {e}')
-        return
 
     def handle_commands(self):
         """
         A function for base classes to implement to handle any commands
         this instance should address
         """
-        pass
 
 
 class FunctionHandler(threading.Thread):
@@ -147,4 +138,3 @@ class FunctionHandler(threading.Thread):
                 self.period = ret
             self.event.wait(loop_top + self.period - time.time())
         self.logger.debug('Returning')
-        return
