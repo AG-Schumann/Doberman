@@ -45,8 +45,7 @@ def main(mongo_client):
             if (datetime.datetime.utcnow() - doc['heartbeat']).seconds < 2 * doc['heartbeat_timer']:
                 print(f'Host monitor {db.hostname}  already online!')
                 return
-            else:
-                print(f'Host monitor {db.hostname} crashed?')
+            print(f'Host monitor {db.hostname} crashed?')
         ctor = partial(Doberman.HostMonitor, **kwargs)
     elif args.sensor:
         kwargs['_name'] = args.sensor
@@ -79,6 +78,6 @@ if __name__ == '__main__':
                 mongo_uri = f.read().strip()
             with MongoClient(mongo_uri) as mongo_client:
                 main(mongo_client)
-        except:
+        except FileNotFoundError:
             print('I need the connection uri to the Config DB. Specify either as an environment', end=' ')
             print('variable DOBERMAN_MONGO_URI or in the file connection_uri in the Doberman directory')

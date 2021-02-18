@@ -55,21 +55,18 @@ class Sensor(object):
         A function for a child class to implement with anything that should happen
         before shutdown, such as closing an active hardware connection
         """
-        pass
 
     def set_parameters(self):
         """
         A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
-        pass
 
     def setup(self):
         """
         If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
-        pass
 
     def setup_child(self):
         """
@@ -77,7 +74,6 @@ class Sensor(object):
         to be done before handing off to the user's code (such as opening a
         hardware connection)
         """
-        pass
 
     def readout_scheduler(self):
         """
@@ -164,15 +160,12 @@ class Sensor(object):
         if hasattr(self, 'readout_thread'):
             self.readout_thread.join()
         self.shutdown()
-        return
 
     def __del__(self):
         self.close()
-        return
 
     def __exit__(self):
         self.close()
-        return
 
 
 class SoftwareSensor(Sensor):
@@ -221,7 +214,6 @@ class SerialSensor(Sensor):
             raise ValueError(f'Problem opening {self._device.port}: {e}')
         if not self._device.is_open:
             raise ValueError('Error while connecting to device')
-        return
 
     def shutdown(self):
         self._device.close()

@@ -1,6 +1,6 @@
 import datetime
 import time
-from dateutil.tz import *
+from dateutil.tz import tzlocal
 import re
 import requests
 import smtplib
@@ -132,14 +132,12 @@ class AlarmMonitor(Doberman.Monitor):
                 self.logger.warning("No phone number given. Can not send SMS.")
                 return 0
             # Server has different type request for 1 or several numbers.
-            elif len(phone_number) == 1:
-                toaddr = str(identification) + '.' + \
-                         phone_number[0] + '@' + str(server)
+            if len(phone_number) == 1:
+                toaddr = f'{identification}.{phone_number[0]}@{server}'
                 bcc = None
-            elif len(phone_number) > 1:
+            else:
                 toaddr = contactaddr
-                bcc = [str(identification) + '.' + str(number) +
-                       '@' + str(server) for number in phone_number]
+                bcc = [f'{identification}.{number}@{server}' for number in phone_number]
             message = str(message)
             subject = ''
             # Long SMS (>160 characters) cost more and are shortened
@@ -240,6 +238,3 @@ class AlarmMonitor(Doberman.Monitor):
                     'msg': f'There has been a change in the list of shifters. You are now on shift until {shift_end.ctime()}.Don\'t forget to turn your volume up.'}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
-
-
-

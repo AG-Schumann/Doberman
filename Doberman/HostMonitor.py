@@ -86,7 +86,6 @@ class HostMonitor(Doberman.Monitor):
             write_mbytes = (disk_io[disk].write_bytes - self.last_write[disk]) >> 20
             self.last_write[disk] = disk_io[disk].write_bytes
             self.kafka(value=f'{host},{name}_write,{write_mbytes / self.sysmon_timer:.3g}')
-        return
 
     def heartbeat(self):
         self.logger.debug("Heartbeat")
