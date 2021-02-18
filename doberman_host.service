@@ -6,8 +6,8 @@ After=network.target remote-fs.target
 Type=simple
 Restart=on-failure
 User=doberman
-Environment=DOBERMAN_MONGO_URI=mongodb://webmonitor:42RKBu2QyeOUHkxOdHAhjfIpw1cgIQVgViO4U4nPr0s=@192.168.131.2:27017/admin
-Environment=DOBERMAN_EXPERIMENT_NAME=xebra
+Environment=DOBERMAN_MONGO_URI=
+Environment=DOBERMAN_EXPERIMENT_NAME=
 ExecStart=/software/Doberman/Doberman/Monitor.py --host
 
 [Install]
