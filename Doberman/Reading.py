@@ -170,8 +170,12 @@ class MultiReading(Reading):
         self.all_names = doc['multi']
 
     def more_processing(self, value_arr):
-        for n, v in zip(self.all_names, value_arr):
-            if self.is_int:
-                v = int(v)
-            self.kafka(value=f'{n},{v:.6g}')
-        return
+        try:
+            for n, v in zip(self.all_names, value_arr):
+                if self.is_int:
+                    v = int(v)
+                self.kafka(value=f'{n},{v:.6g}')
+            return
+        except Exception as e:
+            self.logger.info(f'{type(e)}: {e}')
+            return
