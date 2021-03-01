@@ -44,7 +44,7 @@ def refresh_tty(db):
     except TimeoutExpired:
         proc.kill()
         out, err = proc.communicate()
-    if not len(out) or len(err):
+    if not out or err:
         raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
     tty_usbs = out.decode().splitlines()
     cursor = db.read_from_db('settings', 'sensors',
@@ -188,11 +188,9 @@ class DobermanLogger(logging.Handler):
         self.backup_logger.close()
         self.stream.close()
         self.db = None
-        return
 
     def __del__(self):
         self.close()
-        return
 
     def emit(self, record):
         self.stream.emit(record)

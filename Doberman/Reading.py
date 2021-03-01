@@ -49,7 +49,6 @@ class Reading(threading.Thread):
                 self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
         self.logger.debug('Returning')
-        return
 
     def update_config(self):
         doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
@@ -57,7 +56,6 @@ class Reading(threading.Thread):
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
         self.update_child_config(doc)
-        return
 
     def child_setup(self, config_doc):
         pass
@@ -120,15 +118,13 @@ class Reading(threading.Thread):
             except Exception as e:
                 self.kafka(value=f'{self.name},{value}')
             return
-        else:
-            reading = self.db.get_reading_setting(self.sensor_name, self.name)
-            data = [{'measurement': reading['topic'],
-                     'time': int(time.time() * 1000000000),
-                     'fields': {reading['name']: value}
-                     }]
-            self.logger.debug(data)
-            self.client.write_points(data, database=self.db.experiment_name)
-            self.check_for_alarm(value)
+        reading = self.db.get_reading_setting(self.sensor_name, self.name)
+        data = [{'measurement': reading['topic'],
+                 'time': int(time.time() * 1000000000),
+                 'fields': {reading['name']: value}
+                 }]
+        self.client.write_points(data, database=self.db.experiment_name)
+        self.check_for_alarm(value)
 
     def check_for_alarm(self, value):
         """
