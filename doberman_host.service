@@ -1,0 +1,14 @@
+[Unit]
+Description=Doberman slow control
+After=network.target remote-fs.target
+
+[Service]
+Type=simple
+Restart=on-failure
+User=doberman
+Environment=DOBERMAN_MONGO_URI=
+Environment=DOBERMAN_EXPERIMENT_NAME=
+ExecStart=/software/Doberman/Doberman/Monitor.py --host
+
+[Install]
+WantedBy=multi-user.target
