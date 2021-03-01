@@ -43,7 +43,6 @@ def print_help(db, name):
     runmodes = db.distinct('settings', 'runmodes', 'mode')
     print(' | '.join(runmodes))
     print()
-    return
 
 
 def process_command(db, command_str, user=None):
@@ -148,7 +147,6 @@ def step_three(db, name, command, future=None, user=None):
     if future is not None:
         command_doc['logged'] += future
     db.insert_into_db('logging', 'commands', command_doc)
-    return
 
 
 def main(mongo_client):
