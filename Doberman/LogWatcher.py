@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""
-What is this file? Should it be deleted?
-"""
 
-import DobermanDB
+import Doberman
 import argparse
 import datetime
 import time
-
+import os
+from pymongo import MongoClient
 
 def cuts(delay, level):
     then = datetime.datetime.now() - datetime.timedelta(seconds=delay)
@@ -33,9 +31,16 @@ def main(db):
 
 
 if __name__ == '__main__':
-    db = DobermanDB.DobermanDB(appname="Longwatch")
     try:
-        main(db)
-    except Exception as e:
-        print('Caught a %s: %s' % (type(e), e))
-    db.close()
+        mongo_uri = os.environ['DOBERMAN_MONGO_URI']
+        mongo_client = MongoClient(mongo_uri)
+        experiment_name = os.environ['DOBERMAN_EXPERIMENT_NAME']
+    except KeyError:
+        print("Specify environment variables 'DOBERMAN_MONGO_URI' and 'DOBERMAN_EXPERIMENT_NAME'")
+    else:
+        db = Doberman.Database(mongo_client=mongo_client, experiment_name=experiment_name)
+        try:
+            main(db)
+        except Exception as e:
+            print('Caught a %s: %s' % (type(e), e))
+        db.close()
