@@ -3,6 +3,7 @@ import datetime
 from socket import getfqdn
 from functools import partial
 import time
+import requests
 try:
     from kafka import KafkaProducer
     has_kafka=True
@@ -451,6 +452,14 @@ class Database(object):
         """
         Gives a snapshot of the current system status
         """
+        influx_cfg = self.readFromDatabase('settings', 'experiment_config',
+                    cuts = {'name' : 'influx'}, onlyone = True)
+        try:
+            url = '%s/query?db=%s&u=%s&p=%s' % (
+                    influx_cfg['server'], influx_cfg['database'],
+                    influx_cfg['username'], influx_cfg['password'])
+        except:
+            url = None
         status = {}
         now = dtnow()
         for host_doc in self.readFromDatabase('common', 'hosts'):
@@ -474,7 +483,34 @@ class Database(object):
                             'status' : reading_doc['status'],
                             }
                         if reading_doc['status'] == 'online':
-                            status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] = reading_doc['runmode'],
+                            dt, last_val = GetLastValue(url, reading_name, sensor_name,
+                                    reading_doc['topic'])
+                            status[hostname]['sensors'][sensor_name]['readings'][reading_name].update({
+                                    'runmode' : reading_doc['runmode'],
+                                    'last_measured_value' : last_val,
+                                    'last_measured_time' : dt})
+
                 except TypeError as e:
                     pass
         return status
+
+def GetLastValue(url, reading, sensor, topic):
+    """
+    Makes a request for the most recent data from the storage database
+    returns (time, value) if possible
+    """
+    if url is None:
+        return None, None
+    params = {'q' : 'SELECT * FROM %s WHERE sensor=\'%s\' AND reading=\'%s\' ORDER BY time DESC LIMIT 1' % (
+            topic, sensor, reading)}
+    headers = {"Accept": "application/csv"}
+    r = requests.get(url, headers=headers, params=params)
+    if (r.status_code < 400):
+        try:
+            _, data = r.content.splitlines()
+            _, _, ts, _, _, val = data.split(b',')
+            return (time.time()-int(ts)/1e9, float(val))
+        except:
+            return None, None
+    else:
+        return None, None

@@ -31,6 +31,7 @@ class SensorMonitor(Doberman.Monitor):
             self.Register(rd, reading)
         self.Register(name='heartbeat', obj=self.Heartbeat,
                 period=self.db.GetHostSetting(field='heartbeat_timer'))
+        self.db.SetHostSetting(addToSet={'active' : self.name})
     
     def Shutdown(self):
         if self.sensor is None:
@@ -39,6 +40,7 @@ class SensorMonitor(Doberman.Monitor):
         self.sensor.event.set()
         self.sensor.close()
         self.sensor = None
+        self.db.SetHostSetting(pull={'active' : self.name})
         return
 
     def OpenSensor(self, reopen=False):
@@ -75,20 +77,21 @@ class SensorMonitor(Doberman.Monitor):
                     self.logger.error('Bad runmode command')
                 else:
                     if reading == 'all':
-                        for rd in self.reading_names:
-                            self.db.SetReadingSetting(sensor=self.name, reading=rd,
-                                    set={'runmode' : runmode})
+                        for rd in self.db.GetSensorSetting(self.name, 'readings'):
+                            self.db.SetReadingSetting(sensor=self.name, name=rd,
+                                    field='runmode', value=runmode)
                     else:
-                        self.db.SetReadingSetting(sensor=self.name, reading=reading,
-                                set={'runmode' : runmode})
+                        self.db.SetReadingSetting(sensor=self.name, name=reading,
+                                field='runmode', value=runmode)
             elif command == 'reload readings':
                 self.sensor.setattr('readings',
                         self.db.GetSensorSetting(self.name, field='readings'))
                 self.ReloadReadings()
             elif command == 'stop':
                 self.event.set()
+                self.db.SetHostSetting(pull={'default' : self.name})
             elif self.sensor is not None:
-                self.sensor.AddToSchedule(command=command)
+                self.sensor.ExecuteCommand(command=command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
             doc = self.db.FindCommand(self.name)
