@@ -4,7 +4,7 @@ import time
 import queue
 from functools import partial
 import threading
-import influxdb
+import requests
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -27,15 +27,27 @@ class Reading(threading.Thread):
         self.key = '%s__%s' % (self.sensor_name, self.name)
         self.logger = Doberman.utils.Logger(db=self.db, name=self.key,
                 loglevel=kwargs['loglevel'])
+        self.logger.debug('Starting')
         self.sensor_process = partial(kwargs['sensor'].ProcessOneReading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].AddToSchedule, reading_name=self.name,
                 retq=self.process_queue)
         self.ChildSetup(self.db.GetSensorSetting(name=self.sensor_name))
         self.UpdateConfig()
         if self.db.has_kafka == False:
-            influx = self.db.readFromDatabase('settings', 'experiment_config', cuts = {'name' : 'influx'},
-                    onlyone = True)
-            self.client = influxdb.InfluxDBClient(host = influx['host'], port = influx['port'])
+            cfg = self.db.readFromDatabase('settings', 'experiment_config',
+                    cuts = {'name' : 'influx'}, onlyone = True)
+            self.url = '%s/write?db=%s&u=%s&p=%s&precision=%s' % (
+                    cfg['server'], cfg['database'], cfg['username'], cfg['password'],
+                    cfg['precision'])
+            self.precision_scale = {
+                    's': 1,
+                    'ms': 1000,
+                    'us': 1000000,
+                    'ns': 1000000000
+            }[cfg['precision']]
+
+    def __del__(self):
+        return
 
     def run(self):
         self.logger.debug('Starting')
@@ -54,6 +66,8 @@ class Reading(threading.Thread):
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
+        if 'topic' in doc:
+            self.topic = doc['topic']
         self.UpdateChildConfig(doc)
         return
 
@@ -78,14 +92,17 @@ class Reading(threading.Thread):
             else:
                 self.process_queue.task_done()
                 break
+
         if pkg is None:
             self.logger.info('Didn\'t get anything from the sensor!')
             return
+
         try:
             value = self.sensor_process(data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.info('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
             value = None
+
         if ((func_start - self.last_measurement_time) > 1.5*self.readout_interval or
                 value is None):
             self.late_counter += 1
@@ -115,13 +132,14 @@ class Reading(threading.Thread):
                 self.kafka(value=f'{self.name},{value}')
             return
         else:
-            reading = self.db.GetReadingSetting(self.sensor_name, self.name)
-            data = [{'measurement': reading['topic'], 
-                    'time': int(time.time() * 1000000000),
-                    'fields' : { reading['name'] : value }
-                    }]
-            self.logger.debug(data)
-            self.client.write_points(data, database = self.db.experiment_name)
+            if self.is_int:
+                value_ = '%si' % value
+            else:
+                value_ = value
+            data = "%s,sensor=%s,reading=%s value=%s %i" % (
+                    self.topic, self.sensor_name, self.name, value_,
+                    int(time.time()*self.precision_scale))
+            requests.post(self.url, data=data)
             self.CheckForAlarm(value)
 
     def CheckForAlarm(self, value):
@@ -149,8 +167,9 @@ class Reading(threading.Thread):
                                 self.db.LogAlarm({'msg' : msg, 'name' : self.key, 'howbad': i})
                                 self.recurrence_counter = 0
                             break
-            except Exeption as e:
-                self.logger.debug(f'Alarms not properly configured for {self.reading_name}') 
+            except Exception as e:
+                self.logger.debug(f'Alarms not properly configured for {self.name}')
+                self.logger.debug(f'Got a {type(e)}: {e}')
 
 
 
@@ -166,5 +185,14 @@ class MultiReading(Reading):
         for n,v in zip(self.all_names, value_arr):
             if self.is_int:
                 v = int(v)
-            self.kafka(value=f'{n},{v:.6g}')
+            if self.db.has_kafka:
+                try:
+                    self.kafka(value=f'{n},{v:.6g}')
+                except Exception as e:
+                    self.kafka(value=f'{n},{v}')
+                return
+            else:
+                data = f'{self.topic},sensor={self.sensor_name},reading={n} value={v} {int(time.time()*self.precision_scale)}'
+                requests.post(self.url, data=data)
+                #self.CheckForAlarm(v)
         return

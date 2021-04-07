@@ -22,6 +22,7 @@ class Monitor(object):
             self.name = _name
         
         self.logger = Doberman.utils.Logger(name=self.name, db=db, loglevel=loglevel)
+        self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
         self.loglevel = loglevel
@@ -43,18 +44,19 @@ class Monitor(object):
         """
         Joins all running threads
         """
-        if isinstance(self, Doberman.HostMonitor):
-            self.sh.run = False
-            self.db.SetHostSetting(self.name, set={'active': []})
-            self.db.SetHostSetting(self.name, set={'status': 'offline'})
         self.event.set()
         self.Shutdown()
+        pop = []
         for n,t in self.threads.items():
             try:
                 t.event.set()
                 t.join()
             except:
                 pass
+            else:
+                pop += [n]
+        for p in pop:
+            self.threads.pop(p)
         return
 
     def Register(self, name, obj, period=None, **kwargs):

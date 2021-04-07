@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import re
 import datetime
 import time
@@ -22,7 +23,7 @@ def PrintHelp(db, name):
     print(' | '.join(names))
     print()
     print('Plugin commands:')
-    print('<plugin_name> [<reading_name>] runmode <runmode>: changes the active runmode for the specified sensor\'s reading (\'all\' accepted)')
+    print('<plugin_name> runmode <runmode> <reading>: changes the active runmode for the specified sensor\'s reading (\'all\' accepted)')
     print()
     if name:
         print('Commands specific to %s:' % name)
@@ -62,9 +63,8 @@ def ProcessCommand(db, command_str, user=None):
         return
 
     patterns = [
-        '^(?P<command>start|stop|restart) (?P<name>%s)(?: (?P<runmode>%s))?' % (names_, runmodes_),
-        '^(?:(?P<name>%s) )?(?P<command>sleep|wake)(?: (?P<duration>(?:[1-9][0-9]*[dhms])|(?:inf)))?' % names_,
-        '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s)' % (names_, runmodes_),
+        '^(?P<command>start|stop|restart) (?P<name>%s)$' % (names_),
+        '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s) (?P<reading>[a-zA-Z0-9_\\-]+)$' % (names_, runmodes_),
         '^(?P<name>%s) (?P<command>.+)$' % names_,
     ]
     for pattern in patterns:
@@ -89,7 +89,10 @@ def StepTwo(db, m, user=None):
     """
     
     command = m['command']
-    name = str(m['name'])
+    try:
+        name = str(m['name'])
+    except:
+        name = 'None'
     names = {'None' : ['doberman']}
     if name != 'None':
         names.update({name : [name]})
@@ -106,7 +109,7 @@ def StepTwo(db, m, user=None):
             'runmode' : online}[command]})
     if command == 'start':
         for n in names[name]:
-            StepThree(db, 'doberman', 'start %s %s' % (n, m['runmode']), user=user)
+            StepThree(db, db.hostname, 'start %s' % (n), user=user)
     elif command == 'stop':
         for n in names[name]:
             StepThree(db, n, 'stop', user=user)
@@ -114,10 +117,11 @@ def StepTwo(db, m, user=None):
         td = datetime.timedelta(seconds=1.1*Doberman.utils.heartbeat_timer)
         for n in names[name]:
             StepThree(db, n, 'stop', user=user)
-            StepThree('doberman', 'start %s None' % n, td, user=user)
+            StepThree(db, db.hostname, 'start %s' % n, td, user=user)
     elif command == 'runmode':
-        for n in names[name]:
-            StepThree(db, n, 'runmode %s' % m['runmode'], user=user)
+        StepThree(db, name, 'runmode %s %s' % (m['runmode'], m['reading']), user=user)
+        #for n in names[name]:
+        #    StepThree(db, n, 'runmode %s' % m['runmode'], user=user)
     else:
         StepThree(db, name, command, user=user)
 
@@ -142,6 +146,8 @@ def StepThree(db, name, command, future=None, user=None):
     if future is not None:
         command_doc['logged'] += future
     db.insertIntoDatabase('logging','commands', command_doc)
+    print('Stored command "%s" for %s (%s)' % (command, name, dtnow()))
+    #print('Stored command "%s" for %s' % (command, name))
     return
 
 def main(client):
@@ -150,7 +156,7 @@ def main(client):
     ProcessCommand(db, command)
 
 if __name__ == '__main__':
-    with MongoClient(os.environ['DOBERMAN_CONNECTION_URI']) as client:
+    with MongoClient(os.environ['DOBERMAN_MONGO_URI']) as client:
         try:
             main(client)
         except Exception as e:

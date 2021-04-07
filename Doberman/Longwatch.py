@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-import DobermanDB
+import Doberman
 import argparse
 import datetime
 import time
+import os
+from pymongo import MongoClient
 
 def cuts(delay, level):
     then = datetime.datetime.now() - datetime.timedelta(seconds=delay)
     return {'when' : {'$gte' : then}, 'level' : {'$gte' : level}}
 
-def main(db):
+def main(client):
+    db = Doberman.Database(client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'],)
     parser = argparse.ArgumentParser(usage='%(prog)s: like tail -f but for Doberman messages')
     parser.add_argument('--delay', type=int, default=5,
                         help='How often to refresh (in seconds)')
@@ -26,9 +29,8 @@ def main(db):
     return
 
 if __name__ == '__main__':
-    db = DobermanDB.DobermanDB(appname="Longwatch")
     try:
-        main(db)
+        client = MongoClient(os.environ['DOBERMAN_MONGO_URI'])
+        main(client)
     except Exception as e:
         print('Caught a %s: %s' % (type(e), e))
-    db.close()
