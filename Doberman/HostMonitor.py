@@ -138,11 +138,10 @@ class HostMonitor(Doberman.Monitor):
                     else:
                         dt = (now - self.last_restart_times[sensor]).total_seconds()
                         if dt < 3 * host_cfg['heartbeat_timer']:
-                            doc = dict(name=self.hostname, howbad=1,
-                                       msg=('%s has needed restarting twice within the last '
-                                            '%d seconds, is it working properly?' %
-                                            (sensor, dt)))
-                            self.db.log_alarm(doc)
+                            if self.runmode == 'default':
+                                doc = dict(name=self.hostname, howbad=1,
+                                        msg='{sensor} has needed restarting twice within the last {dt} seconds, is it working properly?')
+                                self.db.log_alarm(doc)
                             self.db.set_host_setting(pull={'active': sensor},
                                                      addToSet={'in_error': sensor})
                 else:

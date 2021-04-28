@@ -86,16 +86,15 @@ class Reading(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
             value = None
-        if ((func_start - self.last_measurement_time) > 10 * self.readout_interval or
+        if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
                 value is None):
             self.late_counter += 1
-            if self.late_counter > 5:
+            if self.late_counter > 2:
+                msg = f'Sensor {self.sensor_name} responding slowly? {self.late_counter} measurements are late or missing'
                 if self.runmode == 'default':
-                    self.db.log_alarm({'msg': f'Sensor {self.sensor_name} responding slowly? {self.late_counter}'
-                                          + ' measurements are late or missing', 'name': self.key, 'howbad': 1})
+                    self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': 1})
                 else:
-                    self.logger.info(f'Sensor {self.sensor_name} responding slowly? {self.late_counter}'
-                                          + ' measurements are late or missing')
+                    self.logger.info(msg)
                 self.late_counter = 0
         else:
             self.late_counter = max(0, self.late_counter - 1)
