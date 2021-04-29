@@ -1,3 +1,4 @@
+import json
 import re
 import datetime
 import time
@@ -15,6 +16,7 @@ __all__ = 'PrintHelp ProcessCommand'.split()
 def print_help(db, name):
     print('Accepted commands:')
     print('help [<plugin_name>]: help [for specific plugin]')
+    print('add <config_file>: add a sensor to the Database')
     print('start <plugin_name> [<runmode>]: starts a plugin [in the specified runmode]')
     print('stop <plugin_name>: stops a plugin')
     print('restart <plugin_name>: restarts a plugin')
@@ -65,6 +67,7 @@ def process_command(db, command_str, user=None):
         return
 
     patterns = [
+        'add (?P<file>)',
         '^(?P<command>start|stop|restart) (?P<name>%s)(?: (?P<runmode>%s))?' % (names_, runmodes_),
         '^(?:(?P<name>%s) )?(?P<command>sleep|wake)(?: (?P<duration>(?:[1-9][0-9]*[dhms])|(?:inf)))?' % names_,
         '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s)' % (names_, runmodes_),
@@ -99,6 +102,8 @@ def step_two(db, m, user=None):
     online = db.distinct('settings', 'sensors', 'name', {'status': 'online'})
     offline = db.distinct('settings', 'sensors', 'name', {'status': 'offline'})
     asleep = db.distinct('settings', 'sensors', 'name', {'status': 'sleep'})
+    if command == 'add':
+        add_sensor(db, m['file'])
     if command in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
         names.update({'all': {
             'start': offline,
@@ -148,7 +153,67 @@ def step_three(db, name, command, future=None, user=None):
         command_doc['logged'] += future
     db.insert_into_db('logging', 'commands', command_doc)
 
-
+def add_sensor(db, file):
+    try:
+        with open(file) as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Couldn't find or interpret file '{f}'. Got an {type(e)} error: {e}")
+    try:
+        sensor_doc = {"name": data["name"],
+                      "address": data["address"],
+                      "readings": {}
+                      }
+        if "additional_params" in data:
+            sensor_doc["additional_params"] = data["additional_params"]
+        reading_docs = []
+        for reading in data["readings"]:
+            sensor_doc["readings"][reading] = reading["msg"]
+            reading_doc = {"description": data["readings"][reading]["description"],
+                           "name": reading,
+                           "readout_interval": data["readings"][reading]["readout_interval"],
+                           "sensor": data["name"],
+                           "runmode": "testing",
+                           "status": "offline",
+                           "topic": data["readings"][reading]["topic"],
+                           "alarms": [
+                               {
+                                   "type": "pid",
+                                   "enabled": "false",
+                                   "a": 0,
+                                   "b": 0,
+                                   "c": 0,
+                                   "dt_diff": 1,
+                                   "dt_int": 1,
+                                   "setpoint": 0,
+                                   "recurrence": 1,
+                                   "levels": [
+                                       [-1, 1]
+                                   ]
+                               },
+                               {
+                                   "type": "time_since",
+                                   "enabled": "false",
+                                   "lower_threshold": 0,
+                                   "upper_threshold": 0,
+                                   "max_duration": [1,]
+                               },
+                               {
+                                   "type": "simple",
+                                   "enabled": "false",
+                                   "setpoint": 0,
+                                   "levels": [
+                                       [-1, 1]
+                                   ]
+                               }
+                           ]
+                           }
+            reading_docs.append(reading_doc)
+    except KeyError as e:
+        print(f"Incomplete config file: {e}")
+    db.insert_into_db('settings', 'sensors', sensor_doc)
+    for reading_doc in reading_docs:
+        db.insert_into_db('settings', 'readings', reading_doc)
 def main(mongo_client):
     command = ' '.join(sys.argv[1:])
     db = Doberman.Database(mongo_client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'])
