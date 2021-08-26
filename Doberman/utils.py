@@ -5,11 +5,13 @@ import time
 import datetime
 import signal
 import os.path
+import os
 import inspect
 import re
 import logging
 import logging.handlers
 import serial
+import threading
 
 dtnow = datetime.datetime.now
 
@@ -162,56 +164,83 @@ class SignalHandler(object):
 
 class DobermanLogger(logging.Handler):
     """
-    Custom logging interface for Doberman. Logs to
-    the database (with disk as backup).
+    Custom logger for Doberman. DEBUG goes to disk, INFO and higher also to disk in own files,
+    WARNING and higher go to the database
     """
-
-    def __init__(self, db, level=logging.INFO):
+    def __init__(self, db, name):
         logging.Handler.__init__(self)
+        self.mutex = threading.Lock()
         self.db = db
+        self.name = name
+        self.experiment = db.experiment_name
         self.db_name = 'logging'
         self.collection_name = 'logs'
-        backup_filename = datetime.date.today().isoformat()
-        self.backup_logger = logging.handlers.TimedRotatingFileHandler(
-            os.path.join(doberman_dir, 'logs', backup_filename + '.log'),
-            when='midnight', delay=True)
-        self.stream = logging.StreamHandler()
-        f = logging.Formatter('%(asctime)s | '
-                              '%(levelname)s | %(name)s | %(funcName)s | '
-                              '%(lineno)d | %(message)s')
-        self.setFormatter(f)
-        self.stream.setFormatter(f)
-        self.backup_logger.setFormatter(f)
-        self.level = level
+        self.today = datetime.date.today()
+        self.open_files(self.today)
+        self.flush_cycle = 0
 
-    def close(self):
-        self.backup_logger.close()
-        self.stream.close()
-        self.db = None
+    def rotate(self, when):
+        for f in cls.output_files.values():
+            if f is not None:
+                f.close()
+        self.today = datetime.date.today()
+        self.open_files(when)
 
-    def __del__(self):
-        self.close()
+    def open_files(self, when):
+        self.files = {'DEBUG': open(os.path.join(self.logdir(when), self.filename(when, 'DEBUG')), 'a'),
+                'INFO': open(os.path.join(self.logdir(when), self.filename(when)), 'a')}
+        for k in 'WARNING ERROR FATAL'.split():
+            # copy for INFO and higher
+            self.files[k] = self.files['INFO']
+
+    def filename(self, when, level=None):
+        lvl = '' if level is None else f'{level}_'
+        return f'{lvl}{self.name}.log'
+
+    def logdir(self, when):
+        """
+        Returns a directory where you can put the day's logs. Creates the directories if they dont exist
+        """
+        p = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
+        os.makedirs(p, exist_ok=True)
+        return p
 
     def emit(self, record):
-        self.stream.emit(record)
-        if record.levelno < self.level or record.levelno <= logging.DEBUG:
-            return
-        rec = dict(
-            msg=record.msg,
-            level=record.levelno,
-            name=record.name,
-            funcname=record.funcName,
-            lineno=record.lineno)
-        if self.db.insert_into_db(self.db_name, self.collection_name, rec):
-            self.backup_logger.emit(record)
+        msg_datetime = datetime.datetime.fromtimestamp(record.created)
+        msg_date = datetime.date(mgs_datetime.year, msg_datetime.month, msg_datetime.day)
+        m = self.format_message(msg_datetime, record.levelname, record.funcName, record.lineno, record.getMessage())
+        with self.mutex:
+            # we wrap anything hitting files or stdout with a mutex because logging happens from
+            # multiple threads
+            if msg_date != self.today:
+                # it's a brand new day, and the sun is high...
+                self.rotate(msg_today)
+            print(m)
+            self.files.get(str(record.levelname).upper(), self.files['INFO']).write(m + '\n')
+            self.flush_cycle += 1
+            if self.flush_cycle > 10: # TODO make config value?
+                # if we don't regularly flush the buffers, messages will sit around in memory rather than actually
+                # get pushed to disk, and we don't want this. If we do it too frequently it's slow
+                for f in self.files.values():
+                    f.flush()
+                self.flush_cycle = 0
+        if record.level > logging.INFO:
+            rec = dict(
+                msg=record.getMessage(),
+                level=record.levelno,
+                name=record.name,
+                funcname=record.funcName,
+                lineno=record.lineno,
+                date=msg_datetime,
+                )
+            self.db.insert_into_db(self.db_name, self.collection_name, rec)
+
+    def format_message(self, when, level, func_name, lineno, msg):
+        return f'{when.isoformat(sep=" ")} | {str(level).upper()} | {self.name} | {func_name} | {lineno} | {msg}'
 
 
-def logger(name, db, loglevel='DEBUG'):
+def get_logger(name, db):
     logger = logging.getLogger(name)
-    try:
-        lvl = getattr(logging, loglevel)
-    except AttributeError:
-        lvl = logging.INFO
-    logger.setLevel(lvl)
-    logger.addHandler(DobermanLogger(db, level=lvl))
+    logger.addHandler(DobermanLogger(db, name))
+    logger.setLevel(logging.DEBUG)
     return logger
