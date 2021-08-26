@@ -11,22 +11,13 @@ class Monitor(object):
     A base monitor class
     """
 
-    def __init__(self, db=None, _name=None, loglevel='INFO'):
+    def __init__(self, db=None, _name=None):
         """
         """
         self.db = db
-        if isinstance(self, Doberman.HostMonitor):
-            self.name = db.hostname
-        elif isinstance(self, Doberman.AlarmMonitor):
-            self.name = 'AlarmMonitor'
-        elif isinstance(self, Doberman.SensorMonitor):
-            self.name = _name
-
-        self.logger = Doberman.utils.logger(name=self.name, db=db, loglevel=loglevel)
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
-        self.loglevel = loglevel
         if threading.current_thread() is threading.main_thread():
             self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()

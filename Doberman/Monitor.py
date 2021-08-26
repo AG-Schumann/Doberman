@@ -15,11 +15,9 @@ def main(mongo_client):
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
-    parser.add_argument('--log', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL'],
-                        help='Logging level', default='INFO')
     args = parser.parse_args()
 
-    db_kwargs = {'mongo_client': mongo_client, 'loglevel': args.log}
+    db_kwargs = {'mongo_client': mongo_client}
     err_msg = 'Specify an experiment first! This can be done either as an environment variable '
     err_msg += 'DOBERMAN_EXPERIMENT_NAME or in the file experiment_name'
     try:
@@ -35,7 +33,7 @@ def main(mongo_client):
             print(err_msg)
             return
     db = Doberman.Database(**db_kwargs)
-    kwargs = {'db': db, 'loglevel': args.log}
+    kwargs = {'db': db}
     # TODO add checks for running systems
     if args.alarm:
         ctor = partial(Doberman.AlarmMonitor, **kwargs)

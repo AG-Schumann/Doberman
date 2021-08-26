@@ -87,6 +87,7 @@ class Sensor(object):
         while not self.event.is_set():
             try:
                 command, retq = self.cmd_queue.get(timeout=0.001)
+                self.logger.debug(f'Executing {command}')
                 ret = self.send_recv(command)
                 self.cmd_queue.task_done()
                 if retq is not None:
@@ -110,8 +111,10 @@ class Sensor(object):
         if reading_name is not None:
             if retq is None:
                 return
+            self.logger.debug(f'Scheduling {self.readings[reading_name]}')
             self.cmd_queue.put((self.readings[reading_name], retq))
         elif command is not None:
+            self.logger.debug(f'Scheduling {command}')
             self.cmd_queue.put((command, None))
         return
 
@@ -204,6 +207,9 @@ class SerialSensor(Sensor):
         self._device.stopbits = serial.STOPBITS_ONE
         self._device.timeout = 0  # nonblocking mode
         self._device.write_timeout = 1
+        if not hasattr(self, 'msg_sleep'):
+            # so we can more easily change this later
+            self.msg_sleep = 1.0
 
         if self.tty == '0':
             raise ValueError('No tty port specified!')
@@ -233,7 +239,7 @@ class SerialSensor(Sensor):
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(1.0)
+            time.sleep(self.msg_sleep)
             if device.in_waiting:
                 s = device.read(device.in_waiting)
                 ret['data'] = s
