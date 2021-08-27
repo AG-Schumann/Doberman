@@ -1,6 +1,5 @@
 try:
     import serial
-
     has_serial = True
 except ImportError:
     has_serial = False
