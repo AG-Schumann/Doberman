@@ -19,7 +19,7 @@ class Sensor(object):
     _msg_start = ''
     _msg_end = ''
 
-    def __init__(self, opts, logger):
+    def __init__(self, opts, logger, event):
         """
         opts is the document from the database
         """
@@ -32,6 +32,7 @@ class Sensor(object):
                 setattr(self, k, v)
         self.readings = opts['readings']
         self.logger = logger
+        self.event = event
         self.set_parameters()
         self.base_setup()
 
@@ -41,7 +42,6 @@ class Sensor(object):
             self.setup_child()
             self.setup()
             time.sleep(0.2)
-            self.event = threading.Event()
             self.readout_thread = threading.Thread(target=self.readout_scheduler)
             self.readout_thread.start()
         except Exception as e:
@@ -55,18 +55,21 @@ class Sensor(object):
         A function for a child class to implement with anything that should happen
         before shutdown, such as closing an active hardware connection
         """
+        pass
 
     def set_parameters(self):
         """
         A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
+        pass
 
     def setup(self):
         """
         If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
+        pass
 
     def setup_child(self):
         """
@@ -74,6 +77,7 @@ class Sensor(object):
         to be done before handing off to the user's code (such as opening a
         hardware connection)
         """
+        pass
 
     def readout_scheduler(self):
         """
@@ -156,7 +160,7 @@ class Sensor(object):
                 continue
             self.add_to_schedule(command=func(m))
             return
-        self.logger.error("Did not understand command '%s'" % command)
+        self.logger.error(f"Did not understand command '{command}'")
 
     def close(self):
         self.event.set()

@@ -23,12 +23,11 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
+        self.logger = kwargs.pop('logger')
         self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
         self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
                                                                    name=self.name, field='topic'))
-        self.key = '%s__%s' % (self.sensor_name, self.name)
-        self.logger = Doberman.utils.logger(db=self.db, name=self.key,
-                                            loglevel=kwargs['loglevel'])
+        self.key = f'{self.sensor_name}__{self.name}'
         self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
                                 retq=self.process_queue)
@@ -40,7 +39,7 @@ class Reading(threading.Thread):
             self.client = influxdb.InfluxDBClient(host=influx['host'], port=influx['port'])
 
     def run(self):
-        self.logger.debug('Starting')
+        self.logger.debug(f'{self.key} Starting')
         while not self.event.is_set():
             loop_top = time.time()
             self.update_config()
@@ -48,7 +47,7 @@ class Reading(threading.Thread):
                 self.Schedule()
                 self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug('Returning')
+        self.logger.debug(f'{self.key} Returning')
 
     def update_config(self):
         doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
