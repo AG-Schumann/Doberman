@@ -4,8 +4,8 @@ from pymongo import MongoClient
 import argparse
 import os
 import threading
-from functools import partial
 import datetime
+import pprint
 
 
 def main(mongo_client):
@@ -36,7 +36,8 @@ def main(mongo_client):
     kwargs = {'db': db}
     # TODO add checks for running systems
     if args.alarm:
-        ctor = partial(Doberman.AlarmMonitor, **kwargs)
+        ctor = Doberman.AlarmMonitor
+        kwargs['name'] = 'alarm_monitor'
     elif args.host:
         doc = db.get_host_setting(db.hostname)
         if doc['status'] == 'online':
@@ -44,19 +45,22 @@ def main(mongo_client):
                 print(f'Host monitor {db.hostname}  already online!')
                 return
             print(f'Host monitor {db.hostname} crashed?')
-        ctor = partial(Doberman.HostMonitor, **kwargs)
+        ctor = Doberman.HostMonitor
+        kwargs['name'] = db.hostname
     elif args.sensor:
-        kwargs['_name'] = args.sensor
+        ctor = Doberman.SensorMonitor
+        kwargs['name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
-        # check if sensor is already running, otherwise start it
-        else:
-            ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.status:
-        pass
-    else:
+        pprint.pprint(db.get_current_status())
         return
-    monitor = ctor()
+    else:
+        print('No action specified')
+        return
+    logger = Doberman.utils.get_logger(name=kwargs['name'], db=db)
+    kwargs['logger'] = logger
+    monitor = ctor(**kwargs)
     if threading.current_thread() is threading.main_thread():
         while not monitor.sh.event.is_set():
             monitor.event.wait(10)

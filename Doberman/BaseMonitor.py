@@ -11,10 +11,12 @@ class Monitor(object):
     A base monitor class
     """
 
-    def __init__(self, db=None, _name=None):
+    def __init__(self, db=None, name=None, logger=None):
         """
         """
         self.db = db
+        self.logger = logger
+        self.name = name
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
@@ -71,6 +73,7 @@ class Monitor(object):
         Called by the constructor. Allows subclasses to initialize stuff (most
         notably calls to Register)
         """
+        pass
 
     def shutdown(self):
         """
@@ -78,6 +81,7 @@ class Monitor(object):
         set to False before this is called, and all threads will be joined once
         this function returns
         """
+        pass
 
     def stop_thread(self, name):
         """
