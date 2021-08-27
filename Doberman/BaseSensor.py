@@ -84,15 +84,17 @@ class Sensor(object):
         access (ie, the isThisMe routine avoids this)
         """
         self.logger.debug('Readout scheduler starting')
-        while not self.event.is_set():
-            try:
-                command, retq = self.cmd_queue.get(timeout=0.001)
-                ret = self.send_recv(command)
-                self.cmd_queue.task_done()
-                if retq is not None:
-                    retq.put(ret)
-            except queue.Empty:
-                pass
+        with self.cv:
+            while not self.event.is_set():
+                self.cv.wait_for(lambda: (len(self.cmd_queue > 0) || self.event.is_set()))
+                if len(self.cmd_queue) > 0:
+                    command, (retq, retcv) = self.cmd_queue.pop(index=0)
+                    self.cmd_queue_lock.release()
+                    ret = self.send_recv(command)
+                    if retq is not None:
+                        with retcv:
+                            retq.put(ret)
+                            retcv.notify()
         self.logger.debug('Readout scheduler returning')
 
     def add_to_schedule(self, reading_name=None, command=None, retq=None):
@@ -110,9 +112,13 @@ class Sensor(object):
         if reading_name is not None:
             if retq is None:
                 return
-            self.cmd_queue.put((self.readings[reading_name], retq))
+            with self.cv:
+                self.cmd_queue.append((self.readings[reading_name], retq))
+                self.cv.notify()
         elif command is not None:
-            self.cmd_queue.put((command, None))
+            with self.cv:
+                self.cmd_queue.append((command, (None,None))
+                self.cv.notify()
         return
 
     def process_one_reading(self, name=None, data=None):
