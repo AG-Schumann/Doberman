@@ -59,6 +59,7 @@ def main(mongo_client):
         print('No action specified')
         return
     logger = Doberman.utils.get_logger(name=kwargs['name'], db=db)
+    db.logger = logger
     kwargs['logger'] = logger
     monitor = ctor(**kwargs)
     if threading.current_thread() is threading.main_thread():
