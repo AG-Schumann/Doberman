@@ -51,22 +51,17 @@ class Reading(threading.Thread):
     def update_child_config(self, config_doc):
         pass
 
-    def process(self):
+    def do_one_measurement(self):
         """
-        Receives the value from the sensor and makes sure that there actually is
-        something coming back
+        One measurement cycle
         """
+        ret = [] # we use a list because that passes by reference
         func_start = time.time()
-        pkg = None
-        while time.time() - func_start < self.readout_interval:
-            try:
-                pkg = self.process_queue.get(timeout=0.01)
-            except queue.Empty:
-                pass
-            else:
-                self.process_queue.task_done()
-                break
-        if pkg is None:
+        with self.cv:
+            self.schedule(reading_name=self.name, retq=(ret, self.cv))
+            self.cv.wait_for(lambda: len(ret) > 0 or self.event.is_set())
+        # TODO add a checkout about how long the above bits took
+        if len(ret) == 0:
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
