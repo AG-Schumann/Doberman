@@ -1,7 +1,6 @@
 import Doberman
 import time
 import queue
-from functools import partial
 import threading
 
 __all__ = 'Reading MultiReading'.split()
@@ -22,15 +21,15 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
+        config_doc = self.db.get_reading_setting(name=self.name)
         self.logger = kwargs.pop('logger')
-        self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
+        self.runmode = config_doc['runmode']
         self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
                                                                    name=self.name, field='topic'))
         self.key = f'{self.sensor_name}__{self.name}'
-        self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
-        self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
-                                retq=self.process_queue)
-        self.child_setup(self.db.get_sensor_setting(name=self.sensor_name))
+        self.sensor_process = kwargs['sensor'].process_one_reading
+        self.schedule = kwargs['sensor'].add_to_schedule
+        self.child_setup(config_doc)
         self.update_config()
 
     def run(self):
@@ -39,13 +38,13 @@ class Reading(threading.Thread):
             loop_top = time.time()
             self.update_config()
             if self.status == 'online':
-                self.Schedule()
-                self.process()
+                self.do_one_measurement()
             self.event.wait(loop_top + self.readout_interval - time.time())
         self.logger.debug(f'{self.key} Returning')
 
-    def update_config(self):
-        doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
+    def update_config(self, doc=None):
+        if doc is None:
+            doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
@@ -62,19 +61,23 @@ class Reading(threading.Thread):
         """
         One measurement cycle
         """
-        ret = [] # we use a list because that passes by reference
+        ret = {} # we use a dict because that passes by reference
         func_start = time.time()
         with self.cv:
             self.schedule(reading_name=self.name, retq=(ret, self.cv))
-            self.cv.wait_for(lambda: len(ret) > 0 or self.event.is_set())
-        # TODO add a checkout about how long the above bits took
+            if self.cv.wait_for(lambda: (len(ret) > 0 or self.event.is_set()), timeout=self.readout_interval):
+                # wait_for returns True unless the timeout expired
+                pass
+            else:
+                # the timeout expired, do something?
+                # TODO
         if len(ret) == 0:
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
-            value = self.sensor_process(data=ret[0]['data'])
+            value = self.sensor_process(data=ret['data'], name=self.name)
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.debug(f'Got a {type(e)} while processing \'{ret["data"]}\': {e}')
             value = None
         if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
                 value is None):
