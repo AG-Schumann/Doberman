@@ -1,7 +1,6 @@
 import Doberman
 import time
 import queue
-from functools import partial
 import threading
 import influxdb
 
@@ -23,17 +22,15 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
-        self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
-        self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
-                                                                   name=self.name, field='topic'))
+        config_doc = self.db.get_reading_setting(sensor=self.sensor_nane, name=self.name)
+        self.runmode = config_doc['runmode']
+        self.kafka = self.db.get_kafka(config_doc['topic'])
         self.key = '%s__%s' % (self.sensor_name, self.name)
         self.logger = Doberman.utils.logger(db=self.db, name=self.key,
                                             loglevel=kwargs['loglevel'])
-        self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
-        self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
-                                retq=self.process_queue)
-        self.child_setup(self.db.get_sensor_setting(name=self.sensor_name))
-        self.update_config()
+        self.sensor_process = kwargs['sensor'].process_one_reading
+        self.schedule = kwargs['sensor'].add_to_schedule
+        self.update_config(config_doc)
         if not self.db.has_kafka:
             influx = self.db.read_from_db('settings', 'experiment_config', cuts={'name': 'influx'},
                                           onlyone=True)
@@ -45,13 +42,13 @@ class Reading(threading.Thread):
             loop_top = time.time()
             self.update_config()
             if self.status == 'online':
-                self.Schedule()
-                self.process()
+                self.do_one_measurement()
             self.event.wait(loop_top + self.readout_interval - time.time())
         self.logger.debug('Returning')
 
-    def update_config(self):
-        doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
+    def update_config(self, doc=None):
+        if doc is None:
+            doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
@@ -67,19 +64,23 @@ class Reading(threading.Thread):
         """
         One measurement cycle
         """
-        ret = [] # we use a list because that passes by reference
+        ret = {} # we use a dict because that passes by reference
         func_start = time.time()
         with self.cv:
             self.schedule(reading_name=self.name, retq=(ret, self.cv))
-            self.cv.wait_for(lambda: len(ret) > 0 or self.event.is_set())
-        # TODO add a checkout about how long the above bits took
+            if self.cv.wait_for(lambda: (len(ret) > 0 or self.event.is_set()), timeout=self.readout_interval):
+                # wait_for returns True unless the timeout expired
+                pass
+            else:
+                # the timeout expired, do something?
+                # TODO
         if len(ret) == 0:
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
-            value = self.sensor_process(data=ret[0]['data'])
+            value = self.sensor_process(data=ret['data'], name=self.name)
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'Got a {type(e)} while processing \'{ret[0]["data"]}\': {e}')
+            self.logger.debug(f'Got a {type(e)} while processing \'{ret["data"]}\': {e}')
             value = None
         if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
                 value is None):
