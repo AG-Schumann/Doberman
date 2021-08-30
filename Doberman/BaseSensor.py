@@ -89,12 +89,12 @@ class Sensor(object):
             while not self.event.is_set():
                 self.cv.wait_for(lambda: (len(self.cmd_queue > 0) || self.event.is_set()))
                 if len(self.cmd_queue) > 0:
-                    command, (retq, retcv) = self.cmd_queue.pop(index=0)
+                    command, (retd, retcv) = self.cmd_queue.pop(0)
                     self.cmd_queue_lock.release()
                     ret = self.send_recv(command)
-                    if retq is not None:
+                    if retd:
+                        retd.update(ret)
                         with retcv:
-                            retq.put(ret)
                             retcv.notify()
         self.logger.debug('Readout scheduler returning')
 
@@ -106,7 +106,7 @@ class Sensor(object):
 
         :param reading_name: the name of the reading to schedule
         :param command: the command to issue to the sensor
-        :param retq: a queue to put the result for asynchronous processing.
+        :param retq: a dict to put the result for asynchronous processing.
             Required for reading_name != None
         :returns None
         """
@@ -167,6 +167,8 @@ class Sensor(object):
 
     def close(self):
         self.event.set()
+        with self.cv:
+            self.cv.notify_all()
         if hasattr(self, 'readout_thread'):
             self.readout_thread.join()
         self.shutdown()

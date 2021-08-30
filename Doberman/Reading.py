@@ -33,8 +33,7 @@ class Reading(threading.Thread):
             loop_top = time.time()
             self.update_config()
             if self.status == 'online':
-                self.sensor_schedule(reading_name=self.name)
-                self.process()
+                self.do_one_measurement()
             self.event.wait(loop_top + self.readout_interval - time.time())
         self.logger.debug(f'{self.name} Returning')
 
@@ -55,19 +54,23 @@ class Reading(threading.Thread):
         """
         One measurement cycle
         """
-        ret = [] # we use a list because that passes by reference
+        ret = {} # we use a dict because that passes by reference
         func_start = time.time()
         with self.cv:
             self.schedule(reading_name=self.name, retq=(ret, self.cv))
-            self.cv.wait_for(lambda: len(ret) > 0 or self.event.is_set())
-        # TODO add a checkout about how long the above bits took
+            if self.cv.wait_for(lambda: (len(ret) > 0 or self.event.is_set()), timeout=self.readout_interval):
+                # wait_for returns True unless the timeout expired
+                pass
+            else:
+                # the timeout expired, do something?
+                # TODO
         if len(ret) == 0:
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
             value = self.sensor_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.debug(f'Got a {type(e)} while processing \'{ret["data"]}\': {e}')
             value = None
         self.logger.debug(f'Measured {value}')
         if value is not None:
