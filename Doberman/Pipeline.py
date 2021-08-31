@@ -18,37 +18,38 @@ class Pipeline(object):
         """
         Generates the graph based on the input config, which looks like this:
         {
-            name: ([upstream node names], [downstream node names]),
+            name: (type, [upstream node names], [downstream node names]),
             name: ...
         }
+        'type' is the type of Node ('Node', 'MergeNode', etc), [node names] is a list of names of the immediate up- and down-stream nodes.
         We generate nodes in such an order that we can just loop over them in the order of their construction
         and guarantee that everything that this node depends on has already run this loop
         """
         while len(self.graph) != len(config):
             start_len = len(self.graph)
-            for k, (upstream, _) in config.items():
-                if k in self.graph:
+            for name, (node_type, upstream, _) in config.items():
+                if name in self.graph:
                     continue
                 if len(upstream) == 0:
                     # we found a source node
-                    self.graph[k] = SourceNode()
+                    self.graph[name] = SourceNode(name=name)
                 if all([u in self.graph for u in upstream]):
                     # all this node's requirements are created
-                    n = Node()
+                    n = Node() # TODO do this correctly with node_type
                     for u in upstream:
                         n.upstream_nodes.append(self.graph[n])
                     self.graph[k] = n
             if len(self.graph) == start_len:
                 # we didn't make any nodes this loop, we're probably stuck
                 raise ValueError('Can\'t construct graph!')
-        for k,(_, downstream) in config.items():
+        for k,(_, _, downstream) in config.items():
             for d in downstream:
                 self.graph[k].downstream_nodes.append(self.graph[d])
 
         self.reconfigure()
 
     def reconfigure(self):
-        doc = None
+        doc = None # TODO
         for node in self.graph.values():
             node.reconfigure(doc)
 
@@ -122,10 +123,12 @@ class MergeNode(Node):
     def get_package(self):
         return self.buffer
 
-    def process(self, packages):
-        new_package = {'time': 0}
+    def merge_time(self, packages):
         # TODO: average time? Take newest? Oldest?
-        new_package['time'] = sum(p.pop('time') for p in packages)/len(packages)
+        return sum(p.pop('time') for p in packages)/len(packages)
+
+    def process(self, packages):
+        new_package = {'time': self.merge_time(packages)}
         for common_key in set.intersection(set(p.keys() for p in packages)):
             new_package[common_key] = sum(p.pop(common_key) for p in packages)/len(packages)
         for p in packages:
@@ -133,6 +136,20 @@ class MergeNode(Node):
                 new_package[k] = v
         return new_package
 
+class MergeAndSumNode(MergeNode):
+    """
+    Similar to a merge node, but adds all the values together
+    """
+    def process(self, packages):
+        new_package = {'time': self.merge_time(packages)}
+        val = 0
+        for p in packages:
+            for n in self.upstream_nodes:
+                if n in p:
+                    val += p[n]
+                    break
+        new_package[self.name] = val
+        return new_package
 
 class ActionNode(Node):
     """
@@ -152,11 +169,11 @@ class IntegralNode(BufferNode):
     """
     def process(self, packages):
         integral = 0
-        xy = [(pkg['time'], pkg[self.value_key]) for pkg in packages]
-        for i, (t0,v0) in xy[:-1]:
-            t1,v1 = xy[i+1]
-            integral += (t1 - t0) * (v1 + v0)/2
-        return integral/(xy[-1][0] - xy[0][0])
+        for i in range(len(packages)-1):
+            t0, v0 = packages[i]['time'], packages[i][self.value_key]
+            t1, v1 = packages[i+1]['time'], packages[i][self.value_key]
+            integral += (t1 - t0) * (v1 + v0) * 0.5
+        return self.config.get('scale', 1.)*integral/(xy[-1][0] - xy[0][0])
 
 class DifferentialNode(BufferNode):
     """
@@ -171,7 +188,7 @@ class DifferentialNode(BufferNode):
         D = sum(tt*vv for (tt,vv) in zip(t,y))
         E = sum(y)
         F = sum(t)
-        return (D*C-E*F)/(B*C - F*F)
+        return self.config.get('scale', 1.)*(D*C-E*F)/(B*C - F*F)
 
 class TimeSinceNode(BufferNode):
     """
@@ -194,14 +211,11 @@ class Buffer(object):
     def append(self, obj):
         self._buf.append(obj)
         while len(self._buf) > self.length:
-            self._buf.pop(0)
+            self.pop_front()
         return
 
     def pop_front(self):
         return self._buf.pop(0)
-
-    def pop_back(self):
-        return self._buf.pop()
 
     def __getitem__(self, index):
         return self._buf[index]
