@@ -164,8 +164,10 @@ class SignalHandler(object):
 
 class DobermanLogger(logging.Handler):
     """
-    Custom logger for Doberman. DEBUG goes to disk, INFO and higher also to disk in own files,
-    WARNING and higher go to the database
+    Custom logger for Doberman. DEBUG goes to disk in one file, INFO and higher also goes to disk in another file,
+    WARNING and higher go to the database. The DEBUG files will get purged regularly because they'll be quite bulky,
+    while "important" info will remain in the long-term logfiles. Logfiles will get rotated daily with folder
+    structure YYYY/MM.DD and unique named files.
     """
     def __init__(self, db, name):
         logging.Handler.__init__(self)
@@ -180,7 +182,7 @@ class DobermanLogger(logging.Handler):
         self.flush_cycle = 0
 
     def rotate(self, when):
-        for f in cls.output_files.values():
+        for f in cls.files.values():
             if f is not None:
                 f.close()
         self.today = datetime.date.today()
@@ -201,20 +203,21 @@ class DobermanLogger(logging.Handler):
         """
         Returns a directory where you can put the day's logs. Creates the directories if they dont exist
         """
+        # TODO have the path be configurable somehow?
         p = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
         os.makedirs(p, exist_ok=True)
         return p
 
     def emit(self, record):
         msg_datetime = datetime.datetime.fromtimestamp(record.created)
-        msg_date = datetime.date(mgs_datetime.year, msg_datetime.month, msg_datetime.day)
+        msg_date = datetime.date(msg_datetime.year, msg_datetime.month, msg_datetime.day)
         m = self.format_message(msg_datetime, record.levelname, record.funcName, record.lineno, record.getMessage())
         with self.mutex:
             # we wrap anything hitting files or stdout with a mutex because logging happens from
-            # multiple threads
+            # multiple threads, and files aren't thread-safe
             if msg_date != self.today:
                 # it's a brand new day, and the sun is high...
-                self.rotate(msg_today)
+                self.rotate(msg_date)
             print(m)
             self.files.get(str(record.levelname).upper(), self.files['INFO']).write(m + '\n')
             self.flush_cycle += 1
