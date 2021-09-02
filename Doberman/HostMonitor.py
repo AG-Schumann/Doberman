@@ -90,6 +90,7 @@ class HostMonitor(Doberman.Monitor):
     def heartbeat(self):
         self.logger.debug("Heartbeat")
         self.db.update_heartbeat(host=self.hostname)
+        return
         host_cfg = self.db.get_host_setting()
         default = host_cfg['default']
         active = host_cfg['active']
