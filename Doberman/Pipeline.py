@@ -8,7 +8,7 @@ class Pipeline(object):
     """
     def __init__(self, *args, **kwargs):
         self.graph = {}
-        pass
+        self.logger = Doberman.utils.get_logger('Pipeline')
 
     def process_cycle(self):
         for node in self.graph.values():
@@ -57,20 +57,26 @@ class Node(object):
     """
     A generic graph node
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, name=None, input_var=None, logger=None, **kwargs):
         self.buffer = Buffer(1)
-        self.name = kwargs.pop('name')
+        self.name = name
+        self.input_var = input_var
+        self.output_var = kwargs.get('output_var', input_var)
+        self.logger = logger
         self.upstream_nodes = []
         self.downstream_nodes = []
 
     def _process_base(self):
         package = self.get_package()
+        self.logger.debug(f'Got package: {package}')
         package = self._process_child(package)
         ret = self.process(package)
-        if isinstance(ret, dict):
+        if ret is None:
+            pass
+        elif isinstance(ret, dict):
             package = ret
         else:
-            package[self.name] = ret
+            package[self.output_var] = ret
         self.send_downstream(package)
 
     def _process_child(self, package):
@@ -89,7 +95,13 @@ class Node(object):
     def receive_from_upstream(self, package):
         self.buffer.append(package)
 
-    def reconfigure(self, doc):
+    def _load_config(self, doc):
+        self.load_config(doc)
+
+    def load_config(self, doc):
+        """
+        Load whatever runtime values are necessary
+        """
         pass
 
     def process(self, package):
@@ -98,6 +110,17 @@ class Node(object):
         """
         raise NotImplementedError()
 
+class OperatorNode(Node):
+    """
+    This node does an operation on input
+    """
+    def load_config(self, doc):
+        op = doc['operation']
+
+
+    def process(self, package):
+        return self.func(package[self.var])
+
 class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or kafka or something
@@ -105,21 +128,22 @@ class SourceNode(Node):
     def get_package(self):
         pass
 
-class OutputNode(Node):
-    """
-    A node that doesn't send data back into the pipeline
-    """
-    def send_downstream(self, package):
+class KafkaSourceNode(Node):
+    def get_package(self):
         pass
 
-class MergeNode(Node):
+class InfluxSourceNode(Node):
+    def get_package(self):
+        pass
+
+class BufferNode(Node):
+    def load_config(self, config):
+        self.buffer.set_length(config['length'])
+
+class MergeNode(BufferNode):
     """
     Merges packages from two or more upstream nodes into one new package
     """
-    def __init__(self):
-        super().__init__()
-        self.buffer.set_length(len(self.upstream_nodes))
-
     def get_package(self):
         return self.buffer
 
@@ -136,6 +160,9 @@ class MergeNode(Node):
                 new_package[k] = v
         return new_package
 
+    def set_config(self, config):
+        pass
+
 class MergeAndSumNode(MergeNode):
     """
     Similar to a merge node, but adds all the values together
@@ -148,7 +175,7 @@ class MergeAndSumNode(MergeNode):
                 if n in p:
                     val += p[n]
                     break
-        new_package[self.name] = val
+        new_package[self.output_name] = val
         return new_package
 
 class ActionNode(Node):
@@ -157,38 +184,42 @@ class ActionNode(Node):
     """
     pass
 
-class BufferNode(Node):
-    def __init__(self):
-        super().__init__()
-        self.buffer.set_length(length)
-
 class IntegralNode(BufferNode):
     """
     Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
     Divides by the time interval at the end
     """
+    def load_config(self, config):
+        self.scale = config.get('scale', 1.)
+        self.buffer.set_length(config.get('length', len(self.buffer)))
+
     def process(self, packages):
         integral = 0
         for i in range(len(packages)-1):
-            t0, v0 = packages[i]['time'], packages[i][self.value_key]
-            t1, v1 = packages[i+1]['time'], packages[i][self.value_key]
+            t0, v0 = packages[i]['time'], packages[i][self.input_key]
+            t1, v1 = packages[i+1]['time'], packages[i][self.input_key]
             integral += (t1 - t0) * (v1 + v0) * 0.5
-        return self.config.get('scale', 1.)*integral/(xy[-1][0] - xy[0][0])
+        return self.scale*integral/(packages[-1]['time'] - packages[0]['time'])
 
 class DifferentialNode(BufferNode):
     """
-    Calculates the derivative of the specified value over the specified duration by a chi-square linear fit
+    Calculates the derivative of the specified value over the specified duration by a chi-square linear fit. DivideByZero error
+    is impossible as long as there are at least two values
     """
+    def load_config(self, config):
+        self.scale = config.get('scale', 1.)
+        self.buffer.set_length(config.get('length', len(self.buffer)))
+
     def process(self, packages):
         t_min = min(pkg['time'] for pkg in packages)
         t = [pkg['time']-t_min for pkg in packages] # subtract t_min to keep the numbers smaller - result doesn't change
-        y = [pkg[self.value_key] for pkg in packages]
+        y = [pkg[self.input_key] for pkg in packages]
         B = sum(v*v for v in t)
         C = len(packages)
         D = sum(tt*vv for (tt,vv) in zip(t,y))
         E = sum(y)
         F = sum(t)
-        return self.config.get('scale', 1.)*(D*C-E*F)/(B*C - F*F)
+        return self.scale*(D*C-E*F)/(B*C - F*F)
 
 class TimeSinceNode(BufferNode):
     """
