@@ -182,7 +182,7 @@ class MultiReading(Reading):
                     self.kafka(value=f'{n},{v:.6g}')
                 except Exception as e:
                     self.kafka(value=f'{n},{v}')
-                return
+            return
         data = [{'measurement': self.topic,
                  'time': int(time.time()* 1000000000),
                  'fields': dict(zip(self.all_names, values))
