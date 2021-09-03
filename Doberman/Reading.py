@@ -55,6 +55,7 @@ class Reading(threading.Thread):
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
+        self.topic = doc['topic']
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -153,10 +154,9 @@ class Reading(threading.Thread):
             except Exception as e:
                 self.kafka(value=f'{self.name},{value}')
             return
-        reading = self.db.get_reading_setting(self.sensor_name, self.name)
-        data = [{'measurement': reading['topic'],
+        data = [{'measurement': self.topic,
                  'time': int(time.time() * 1000000000),
-                 'fields': {reading['name']: value}
+                 'fields': {self.name: value}
                  }]
         self.client.write_points(data, database=self.db.experiment_name)
 
@@ -183,7 +183,7 @@ class MultiReading(Reading):
                 except Exception as e:
                     self.kafka(value=f'{n},{v}')
                 return
-        data = [{'measurement': reading['topic'],
+        data = [{'measurement': self.topic,
                  'time': int(time.time()* 1000000000),
                  'fields': dict(zip(self.all_names, values))
                  }]
