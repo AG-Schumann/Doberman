@@ -1,75 +1,99 @@
 import Doberman
-
+import requests
+import time
 
 
 class Pipeline(object):
     """
     A generic data-processing pipeline graph intended to replace Storm
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         self.graph = {}
-        self.logger = Doberman.utils.get_logger('Pipeline')
+        self.db = kwargs['db']
+        self.logger = kwargs['logger']
 
     def process_cycle(self):
+        timing = {}
         for node in self.graph.values():
+            t_start = time.time()
             node._process_base()
+            t_end = time.time()
+            timing[node.name] = (t_end-t_start)*1000
+        self.logger.debug('Processing time: total {sum(timing.values()):.3f} ms, individual {timing}')
 
     def build(self, config):
         """
         Generates the graph based on the input config, which looks like this:
         {
-            name: (type, [upstream node names], [downstream node names]),
+            name: {
+                "type: <node type>,
+                "upstream": [upstream node names],
+                "downstream": [downstream node names],
+                **kwargs
+            },
             name: ...
         }
-        'type' is the type of Node ('Node', 'MergeNode', etc), [node names] is a list of names of the immediate up- and down-stream nodes.
+        'type' is the type of Node ('Node', 'MergeNode', etc), [node names] is a list of names of the immediate neighbor nodes,
+        and kwargs is whatever that node needs for instantiation
         We generate nodes in such an order that we can just loop over them in the order of their construction
         and guarantee that everything that this node depends on has already run this loop
         """
-        while len(self.graph) != len(config):
+        pipeline_config = config['pipeline']['config']
+        self.logger.debug(f'Loading graph config, {len(pipeline_config)} nodes total')
+        downstream = {}
+        while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
-            for name, (node_type, upstream, _) in config.items():
+            for name, kwargs in pipeline_config.items():
                 if name in self.graph:
                     continue
-                if len(upstream) == 0:
-                    # we found a source node
-                    self.graph[name] = SourceNode(name=name)
-                if all([u in self.graph for u in upstream]):
+                upstream = kwargs.get('upstream', [])
+                if len(upstream) == 0 or all([u in self.graph for u in upstream]):
                     # all this node's requirements are created
-                    n = Node() # TODO do this correctly with node_type
-                    for u in upstream:
-                        n.upstream_nodes.append(self.graph[n])
+                    node_type = kwargs.pop('type')
+                    node_kwargs = {'name': name, 'logger': self.logger,
+                            'upstream': [self.graph[u] for u in kwargs.pop('upstream', [])]}
+                    downstream[name] = kwargs.pop('downstream', [])
+                    # at this point, the only things left in kwargs should be options the node needs for construction
+                    self.logger.debug(f'Kwargs for {name}: {kwargs}')
+                    node_kwargs.update(kwargs)
+                    n = getattr(Doberman, node_type)(**node_kwargs)
+                    n.load_config(config['node_config'].get(name, {}))
                     self.graph[k] = n
-            if len(self.graph) == start_len:
+            if (nodes_built := (len(self.graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
-                raise ValueError('Can\'t construct graph!')
-        for k,(_, _, downstream) in config.items():
-            for d in downstream:
-                self.graph[k].downstream_nodes.append(self.graph[d])
+                raise ValueError('Can\'t construct graph! Check config')
+            else:
+                self.logger.debug(f'Created {nodes_built} nodes this iter, {len(self.graph)}/{len(pipeline_config)} total')
+        for k,nodes in downstream.items():
+            self.graph[k].downstream_nodes = [self.graph[d] for d in nodes]
 
-        self.reconfigure()
-
-    def reconfigure(self):
-        doc = None # TODO
+    def reconfigure(self, doc):
         for node in self.graph.values():
-            node.reconfigure(doc)
+            if node.name in doc:
+                node.load_config(doc[node.name])
+
+    def run(self):
+        # TODO
+        pass
+
 
 class Node(object):
     """
     A generic graph node
     """
-    def __init__(self, name=None, input_var=None, logger=None, **kwargs):
-        self.buffer = Buffer(1)
+    def __init__(self, name=None, logger=None, **kwargs):
+        self.buffer = _Buffer(1)
         self.name = name
-        self.input_var = input_var
-        self.output_var = kwargs.get('output_var', input_var)
+        self.input_var = kwargs.pop('input_var', None)
+        self.output_var = kwargs.pop('output_var', self.input_var)
         self.logger = logger
-        self.upstream_nodes = []
+        self.upstream_nodes = kwargs.pop('upstream_nodes', [])
         self.downstream_nodes = []
+        self.config = {}
 
     def _process_base(self):
         package = self.get_package()
         self.logger.debug(f'Got package: {package}')
-        package = self._process_child(package)
         ret = self.process(package)
         if ret is None:
             pass
@@ -77,10 +101,8 @@ class Node(object):
             package = ret
         else:
             package[self.output_var] = ret
+        self.logger.debug(f'Sending downstream: {package}')
         self.send_downstream(package)
-
-    def _process_child(self, package):
-        return package
 
     def get_package(self):
         return self.buffer.pop_front()
@@ -95,31 +117,18 @@ class Node(object):
     def receive_from_upstream(self, package):
         self.buffer.append(package)
 
-    def _load_config(self, doc):
-        self.load_config(doc)
-
     def load_config(self, doc):
         """
         Load whatever runtime values are necessary
         """
-        pass
+        for k,v in doc.values():
+            self.config[k] = v
 
     def process(self, package):
         """
         A function for an end-user to implement to do something with the data package
         """
         raise NotImplementedError()
-
-class OperatorNode(Node):
-    """
-    This node does an operation on input
-    """
-    def load_config(self, doc):
-        op = doc['operation']
-
-
-    def process(self, package):
-        return self.func(package[self.var])
 
 class SourceNode(Node):
     """
@@ -128,24 +137,56 @@ class SourceNode(Node):
     def get_package(self):
         pass
 
-class KafkaSourceNode(Node):
-    def get_package(self):
-        pass
+class KafkaSourceNode(SourceNode):
+    pass
 
-class InfluxSourceNode(Node):
+class InfluxSourceNode(SourceNode):
+    """
+    Queries InfluxDB for the most recent value in some key
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.url = kwargs.pop('influx_url')
+        self.url_params = {'db': kwargs.pop('influx_db'), 'u': kwargs.pop('influx_username'), 'p': kwargs.pop('influx_password'),
+                'q':"SELECT {} FROM {} WHERE {} ORDER BY time DESC LIMIT 1"} # TODO
+
     def get_package(self):
-        pass
+        r = requests.get(self.url, params=self.url_params)
+        # TODO make sure status is 200
+        data = r.json()['results'][0]['series'][0] # oh god the formatting of this thing
+        date_str = data['values'][0][0]
+        # date_str looks like YYYY-mm-DDTHH:MM:SS.FFZ, which doesn't quite work
+        # so we strip the 'Z' and add an extra 0 so it ends with .FFF
+        t = datetime.datetime.fromisoformat(data_str[:-1] + '0').timestamp()
+        # TODO make sure t isn't too old
+        column_i = data['columns'].index(self.input_var)
+        return {'time': t, self.output_var: data['series'][0]['values'][0][column_i]}
 
 class BufferNode(Node):
-    def load_config(self, config):
-        self.buffer.set_length(config['length'])
+    def get_package(self):
+        return self.buffer
+
+class LowPassFilter(BufferNode):
+    """
+    Low-pass filters a value by taking the median of its buffer
+    """
+    def process(self, packages):
+        values = sorted([p[self.input_var] for p in packages])
+        l = len(values)
+        if l % 2 == 0:
+            # even length, we average the two adjacent to the middle
+            return (values[l//2] + values[l//2 + 1]) / 2
+        else:
+            # odd length
+            return values[l//2]
 
 class MergeNode(BufferNode):
     """
     Merges packages from two or more upstream nodes into one new package
     """
-    def get_package(self):
-        return self.buffer
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.buffer.set_length(len(self.upstream_nodes))
 
     def merge_time(self, packages):
         # TODO: average time? Take newest? Oldest?
@@ -160,75 +201,50 @@ class MergeNode(BufferNode):
                 new_package[k] = v
         return new_package
 
-    def set_config(self, config):
-        pass
-
-class MergeAndSumNode(MergeNode):
-    """
-    Similar to a merge node, but adds all the values together
-    """
-    def process(self, packages):
-        new_package = {'time': self.merge_time(packages)}
-        val = 0
-        for p in packages:
-            for n in self.upstream_nodes:
-                if n in p:
-                    val += p[n]
-                    break
-        new_package[self.output_name] = val
-        return new_package
-
-class ActionNode(Node):
-    """
-    This node makes a decision about its input and does something
-    """
-    pass
+    def load_config(self, config):
+        """
+        No configurable values for a MergeNode
+        """
+        return
 
 class IntegralNode(BufferNode):
     """
     Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
     Divides by the time interval at the end
     """
-    def load_config(self, config):
-        self.scale = config.get('scale', 1.)
-        self.buffer.set_length(config.get('length', len(self.buffer)))
-
     def process(self, packages):
         integral = 0
         for i in range(len(packages)-1):
-            t0, v0 = packages[i]['time'], packages[i][self.input_key]
-            t1, v1 = packages[i+1]['time'], packages[i][self.input_key]
+            t0, v0 = packages[i]['time'], packages[i][self.input_var]
+            t1, v1 = packages[i+1]['time'], packages[i][self.input_var]
             integral += (t1 - t0) * (v1 + v0) * 0.5
-        return self.scale*integral/(packages[-1]['time'] - packages[0]['time'])
+        return self.config.get('scale', 1.)*integral/(packages[-1]['time'] - packages[0]['time'])
 
 class DifferentialNode(BufferNode):
     """
     Calculates the derivative of the specified value over the specified duration by a chi-square linear fit. DivideByZero error
     is impossible as long as there are at least two values
     """
-    def load_config(self, config):
-        self.scale = config.get('scale', 1.)
-        self.buffer.set_length(config.get('length', len(self.buffer)))
-
     def process(self, packages):
         t_min = min(pkg['time'] for pkg in packages)
         t = [pkg['time']-t_min for pkg in packages] # subtract t_min to keep the numbers smaller - result doesn't change
-        y = [pkg[self.input_key] for pkg in packages]
+        y = [pkg[self.input_var] for pkg in packages]
         B = sum(v*v for v in t)
         C = len(packages)
         D = sum(tt*vv for (tt,vv) in zip(t,y))
         E = sum(y)
         F = sum(t)
-        return self.scale*(D*C-E*F)/(B*C - F*F)
+        return self.config.get('scale', 1.)*(D*C-E*F)/(B*C - F*F)
 
 class TimeSinceNode(BufferNode):
     """
     Checks to see if the desired value is within a range
     """
     def process(self, packages):
+        # TODO
         pass
 
-class Buffer(object):
+class _Buffer(object):
     """
     A custom semi-fixed-width buffer
     """
@@ -241,8 +257,8 @@ class Buffer(object):
 
     def append(self, obj):
         self._buf.append(obj)
-        while len(self._buf) > self.length:
-            self.pop_front()
+        if len(self._buf) > self.length:
+            self._buf = self._buf[-self.length:]
         return
 
     def pop_front(self):
