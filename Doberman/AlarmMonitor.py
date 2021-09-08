@@ -230,11 +230,14 @@ class AlarmMonitor(Doberman.Monitor):
         now = dtnow()
         shift = self.db.read_from_db('settings', 'shifts',
                 {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
+        if shift == None:
+            self.current_shifters = []
+            return
         new_shifters = shift['shifters']
         new_shifters.sort()
         shift_end = shift['end']
         if new_shifters != self.current_shifters and len(''.join(new_shifters)) != 0:
             doc = {'name': 'alarm_monitor', 'howbad': 1,
-                    'msg': f'There has been a change in the list of shifters. You are now on shift until {shift_end.ctime()}.Don\'t forget to turn your volume up.'}
+                    'msg': f'Shifter change: {', '.join(new_shifters)} are now on shift until {shift_end.ctime()}.'}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
