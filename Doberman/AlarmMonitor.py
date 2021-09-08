@@ -238,6 +238,6 @@ class AlarmMonitor(Doberman.Monitor):
         shift_end = shift['end']
         if new_shifters != self.current_shifters and len(''.join(new_shifters)) != 0:
             doc = {'name': 'alarm_monitor', 'howbad': 1,
-                    'msg': f'Shifter change: {', '.join(new_shifters)} are now on shift until {shift_end.ctime()}.'}
+                    'msg': f'Shifter change: {", ".join(new_shifters)} are now on shift until {shift_end.ctime()}.'}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
