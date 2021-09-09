@@ -266,16 +266,21 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
     """
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
-        alarm_level = -1
-        for i, (low, high) in enumerate(self.alarm_levels):
-            if any([low <= v <= high for v in values]):
-                # at least one value is in an acceptable range
-                pass
-            else:
-                alarm_level = max(i, alarm_level)
-        if alarm_level >= 0:
-            msg = f'Alarm for {} measurement {} ({desc}) - {values[-1]} is outside the specified range ({self.alarm_levels[alarm_level]})'
-            self.db.log_alarm() # TODO
+        level = -1
+        alarm_levels = self.config.get('alarm_levels', [])
+        try:
+            for i, (low, high) in enumerate(alarm_levels):
+                if any([low <= v <= high for v in values]):
+                    # at least one value is in an acceptable range
+                    pass
+                else:
+                    level = max(i, level)
+            if level >= 0 and self.config.get('active', False):
+                msg = f'Alarm for {} measurement {} ({desc}) - {values[-1]} is outside the specified range ({alarm_levels[level]})'
+                self.db.log_alarm() # TODO
+        except Exception as e:
+            self.logger.debug(f'Caught a {type(e)} while processing alarms: {e}')
+            self.logger.debug(f'Alarm levels: {alarm_levels}, values: {values}')
 
 class TimeSinceNode(BufferNode):
     """
