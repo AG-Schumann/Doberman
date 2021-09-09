@@ -1,6 +1,7 @@
 import Doberman
 import requests
 import time
+import itertools
 
 
 class Pipeline(object):
@@ -63,6 +64,8 @@ class Pipeline(object):
                     self.logger.debug(f'Kwargs for {name}: {kwargs}')
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
+                    if isinstance(n, AlarmNode):
+                        n.db = self.db
                     n.load_config(config['node_config'].get(name, {}))
                     self.graph[k] = n
             if (nodes_built := (len(self.graph) - start_len)) == 0:
@@ -227,7 +230,9 @@ class IntegralNode(BufferNode):
             t0, v0 = packages[i]['time'], packages[i][self.input_var]
             t1, v1 = packages[i+1]['time'], packages[i][self.input_var]
             integral += (t1 - t0) * (v1 + v0) * 0.5
-        return self.config.get('scale', 1.)*integral/(packages[-1]['time'] - packages[0]['time'])
+        integral = integral/(packages[-1]['time'] - packages[0]['time'])
+        a,b = self.config.get('transform', [1,0])
+        return a*integral + b
 
 class DifferentialNode(BufferNode):
     """
@@ -245,16 +250,20 @@ class DifferentialNode(BufferNode):
         D = sum(tt*vv for (tt,vv) in zip(t,y))
         E = sum(y)
         F = sum(t)
-        return self.config.get('scale', 1.)*(D*C-E*F)/(B*C - F*F)
+        slope = (D*C-E*F)/(B*C - F*F)
+        a,b = self.config.get('transform', [1,0])
+        return a*slope + b
 
-class SimpleAlarmNode(BufferNode):
+class AlarmNode:
+    """
+    An empty base class to handle database access
+    """
+    pass
+
+class SimpleAlarmNode(BufferNode, AlarmNode):
     """
     A simple alarm
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.db = kwargs.pop['db']
-
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
         alarm_level = -1
@@ -278,7 +287,7 @@ class TimeSinceNode(BufferNode):
 
 class _Buffer(object):
     """
-    A custom semi-fixed-width buffer
+    A custom semi-fixed-width buffer that keeps itself sorted
     """
     def __init__(self, length):
         self._buf = []
@@ -288,7 +297,29 @@ class _Buffer(object):
         return len(self._buf)
 
     def append(self, obj):
-        self._buf.append(obj)
+        """
+        Adds a new object to the queue, time-sorted
+        """
+        LARGE_NUMBER = 1e12  # you shouldn't get timestamps larger than this
+        if len(self._buf) == 0:
+            self._buf.append(obj)
+        elif len(self._buf) == 1:
+            if self._buf[0]['time'] >= obj['time']:
+                self._buf.insert(0, obj)
+            else:
+                self._buf.append(obj)
+        else:
+            idx = len(self._buf)//2
+            for i in itertools.count(2):
+                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
+                greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
+                if lesser <= obj['time'] <= greater:
+                    self._buf.insert(idx, obj)
+                    break
+                elif obj['time'] > greater:
+                    idx += max(1, len(self._buf)>>i)
+                elif obj['time'] < lesser:
+                    idx -= max(1, len(self._buf)>>i)
         if len(self._buf) > self.length:
             self._buf = self._buf[-self.length:]
         return
