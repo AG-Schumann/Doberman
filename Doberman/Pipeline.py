@@ -52,6 +52,12 @@ class Pipeline(object):
                     node_type = kwargs.pop('type')
                     node_kwargs = {'name': name, 'logger': self.logger,
                             'upstream': [self.graph[u] for u in kwargs.pop('upstream', [])]}
+                    if node_type == 'InfluxSourceNode':
+                        # TODO add db credentials and url
+                        node_kwargs['db'] = 'pancake'
+                        node_kwargs['influx_username'] = ''
+                        node_kwargs['influx_password'] = ''
+                        node_kwargs['influx_url'] = ''
                     downstream[name] = kwargs.pop('downstream', [])
                     # at this point, the only things left in kwargs should be options the node needs for construction
                     self.logger.debug(f'Kwargs for {name}: {kwargs}')
@@ -87,7 +93,7 @@ class Node(object):
         self.input_var = kwargs.pop('input_var', None)
         self.output_var = kwargs.pop('output_var', self.input_var)
         self.logger = logger
-        self.upstream_nodes = kwargs.pop('upstream_nodes', [])
+        self.upstream_nodes = kwargs.pop('upstream', [])
         self.downstream_nodes = []
         self.config = {}
 
@@ -122,7 +128,10 @@ class Node(object):
         Load whatever runtime values are necessary
         """
         for k,v in doc.values():
-            self.config[k] = v
+            if k == 'length' and isinstance(self, BufferNode):
+                self.buffer.set_length(v)
+            else:
+                self.config[k] = v
 
     def process(self, package):
         """
@@ -226,15 +235,38 @@ class DifferentialNode(BufferNode):
     is impossible as long as there are at least two values
     """
     def process(self, packages):
-        t_min = min(pkg['time'] for pkg in packages)
-        t = [pkg['time']-t_min for pkg in packages] # subtract t_min to keep the numbers smaller - result doesn't change
-        y = [pkg[self.input_var] for pkg in packages]
+        t_min = min(p['time'] for p in packages)
+        # we subtract t_min to keep the numbers smaller - result doesn't change and we avoid floating-point issues
+        # that might show up when we multiply large floats together
+        t = [p['time']-t_min for p in packages]
+        y = [p[self.input_var] for p in packages]
         B = sum(v*v for v in t)
         C = len(packages)
         D = sum(tt*vv for (tt,vv) in zip(t,y))
         E = sum(y)
         F = sum(t)
         return self.config.get('scale', 1.)*(D*C-E*F)/(B*C - F*F)
+
+class SimpleAlarmNode(BufferNode):
+    """
+    A simple alarm
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.db = kwargs.pop['db']
+
+    def process(self, packages):
+        values = [p[self.input_var] for p in packages]
+        alarm_level = -1
+        for i, (low, high) in enumerate(self.alarm_levels):
+            if any([low <= v <= high for v in values]):
+                # at least one value is in an acceptable range
+                pass
+            else:
+                alarm_level = max(i, alarm_level)
+        if alarm_level >= 0:
+            msg = f'Alarm for {} measurement {} ({desc}) - {values[-1]} is outside the specified range ({self.alarm_levels[alarm_level]})'
+            self.db.log_alarm() # TODO
 
 class TimeSinceNode(BufferNode):
     """
