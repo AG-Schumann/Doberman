@@ -1,6 +1,5 @@
-import datetime
+from datetime import datetime, timezone
 import time
-from dateutil.tz import tzlocal
 import re
 import requests
 import smtplib
@@ -9,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 
-dtnow = datetime.datetime.utcnow
+dtnow = datetime.utcnow
 
 __all__ = 'AlarmMonitor'.split()
 
@@ -45,7 +44,7 @@ class AlarmMonitor(Doberman.Monitor):
             return -1
         try:
             # Compose connection details and addresses
-            now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S')
             server_addr = connection_details['server']
             port = int(connection_details['port'])
             fromaddr = connection_details['fromaddr']
@@ -73,30 +72,11 @@ class AlarmMonitor(Doberman.Monitor):
                 recipients.extend(bcc)
             msg['Subject'] = subject
             if add_signature:
-                signature = ("\n\n----------\n"
-                             "Message created on %s by slow control. "
-                             "This is a automatic message. "
-                             % now)
+                signature = f"\n\n----------\nMessage created on {now} by slow control. This is a automatic message."
                 body = str(message) + signature
             else:
                 body = str(message)
             msg.attach(MIMEText(body, 'plain'))
-            # if available attach grafana plot of the last hour
-            try:
-                grafana_info = self.get_connection_details('grafana')
-                to = int(1000 * time.time())
-                fro = to - 3600000
-                timezone = datetime.datetime.now(tzlocal()).tzname()
-                reading_name = re.search('measurement (.*?):', str(message)).group(1)
-                for name in grafana_info['panel_map'].keys():
-                    if name in reading_name:
-                        panel_id = int(grafana_info['panel_map'][name])
-                        break
-                url = f'{grafana_info["url"]}&from={fro}&to={to}&tz={timezone}&panelId={panel_id}'
-                response = requests.get(url)
-                msg.attach(MIMEImage(response.content))
-            except Exception as e:
-                self.logger.info(f'Didn\'t attach grafana plot, error: {str(e)} ({type(e)})')
 
             # Connect and send
             if server_addr == 'localhost':  # From localhost
@@ -179,7 +159,8 @@ class AlarmMonitor(Doberman.Monitor):
             for (lvl,), msg_docs in messages.items():
                 message = ""
                 for msg_doc in msg_docs:
-                    message += f'{msg_doc["_id"].generation_time}: {msg_doc["msg"]} \n'
+                    message += f'{msg_doc["_id"].generation_time.astimezone(None).strftime("%b %-d %H:%M")}'
+                    message += f': {msg_doc["msg"]} \n'
                 self.send_message(lvl, message)
         return
 
@@ -199,11 +180,12 @@ class AlarmMonitor(Doberman.Monitor):
 
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
+                message = f'{self.db.experiment_name.upper()} {message}'
                 if self.send_sms(recipients, message) == -1:
                     self.logger.error('Could not send SMS')
                     return -4
             elif protocol == 'email':
-                subject = 'Doberman alarm level %i' % level
+                subject = f'{self.db.experiment_name.upper()} alarm (level {level})'
                 if self.send_email(toaddr=recipients, subject=subject,
                                    message=message) == -1:
                     self.logger.error('Could not send email!')
@@ -214,7 +196,7 @@ class AlarmMonitor(Doberman.Monitor):
     def check_heartbeats(self):
         hosts = self.db.read_from_db('settings', 'hosts',
                                      {'status': {'$ne': 'offline'}})
-        now = dtnow()
+        now = dtnow() 
         for host in hosts:
             if (now - host['heartbeat']).total_seconds() > 2 * host['heartbeat_timer']:
                 alarm_doc = {'name': 'alarm_monitor', 'howbad': 1,
@@ -235,9 +217,17 @@ class AlarmMonitor(Doberman.Monitor):
             return
         new_shifters = shift['shifters']
         new_shifters.sort()
-        shift_end = shift['end']
-        if new_shifters != self.current_shifters and len(''.join(new_shifters)) != 0:
-            doc = {'name': 'alarm_monitor', 'howbad': 1,
-                    'msg': f'Shifter change: {", ".join(new_shifters)} are now on shift until {shift_end.ctime()}.'}
+        if new_shifters != self.current_shifters:
+            if len(''.join(new_shifters)) == 0:
+                self.logger.info('No more allocated shifters.')
+                self.current_shifters = []
+                return
+            
+            end_time = shift['end'].replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%b %-d %H:%M')
+            shifters = list(filter(None, new_shifters))
+            msg = f'{", ".join(shifters)} '
+            msg += ('is ' if len(shifters)==1 else 'are ')
+            msg += f'now on shift until {end_time}.'
+            doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
