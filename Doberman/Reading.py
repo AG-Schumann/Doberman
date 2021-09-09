@@ -22,6 +22,7 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
+        self.runmode = self.db.GetReadingSetting(sensor=self.sensor_name, name=self.name, field='runmode')
         self.kafka = self.db.GetKafka(self.db.GetReadingSetting(sensor=self.sensor_name,
             name=self.name, field='topic'))
         self.key = '%s__%s' % (self.sensor_name, self.name)
@@ -106,9 +107,12 @@ class Reading(threading.Thread):
         if ((func_start - self.last_measurement_time) > 1.5*self.readout_interval or
                 value is None):
             self.late_counter += 1
-            if self.late_counter > 2:
-                self.db.LogAlarm({'msg' : f'Sensor {self.sensor_name} responding slowly? {self.late_counter}  measurements ' +
-                    'are late or missing', 'name' : self.key, 'howbad': 1})
+            if self.late_counter > 3:
+                msg= f'Sensor {self.sensor_name} responding slowly? {self.late_counter}  measurements are late or missing.'
+                if self.runmode == 'default':
+                    self.db.LogAlarm({'msg' : msg, 'name' : self.key, 'howbad': 1})
+                else:
+                    self.logger.info(msg)
                 self.late_counter = 0
         else:
             self.late_counter = max(0, self.late_counter-1)

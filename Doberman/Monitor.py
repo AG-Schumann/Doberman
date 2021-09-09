@@ -43,14 +43,6 @@ def main(mongo_client):
             db.experiment_name = 'testing'
         # check if sensor is already running, otherwise start it
         else:
-            doc = db.GetSensorSetting(args.sensor)
-            if doc['status'] == 'online':
-                if ((datetime.datetime.utcnow() - doc['heartbeat']).seconds < 
-                        2*db.GetHostSetting(field='heartbeat_timer')):
-                    print(f'Sensor monitor for {args.sensor} is already running')
-                    return
-                else:
-                    print(f'Sensor monitor for {args.sensor} crashed?')
             ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.status:
         doc = db.GetCurrentStatus()

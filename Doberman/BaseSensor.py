@@ -36,10 +36,10 @@ class Sensor(object):
     def BaseSetup(self):
         self.cmd_queue = queue.Queue()
         try:
+            self.event = threading.Event()
             self.SetupChild()
             self.Setup()
             time.sleep(0.2)
-            self.event = threading.Event()
             self.readout_thread = threading.Thread(target=self.ReadoutScheduler)
             self.readout_thread.start()
         except Exception as e:
