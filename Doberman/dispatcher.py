@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import re
 import datetime
 import time
@@ -7,28 +8,31 @@ import Doberman
 import os
 import socket
 from pymongo import MongoClient
+
 dtnow = datetime.datetime.utcnow
 
 __all__ = 'PrintHelp ProcessCommand'.split()
 
-def PrintHelp(db, name):
+
+def print_help(db, name):
     print('Accepted commands:')
     print('help [<plugin_name>]: help [for specific plugin]')
+    print('add <config_file>: add a sensor to the Database')
     print('start <plugin_name> [<runmode>]: starts a plugin [in the specified runmode]')
     print('stop <plugin_name>: stops a plugin')
     print('restart <plugin_name>: restarts a plugin')
     print()
     print('Available plugins:')
-    names = db.Distinct('settings','sensors','name')
+    names = db.distinct('settings', 'sensors', 'name')
     print(' | '.join(names))
     print()
     print('Plugin commands:')
-    print('<plugin_name> runmode <runmode> <reading>: changes the active runmode for the specified sensor\'s reading (\'all\' accepted)')
+    print('<plugin_name> runmode <runmode> [<reading>]: changes the active runmode for the specified sensor\'s reading (\'all\' accepted)')
     print()
     if name:
         print('Commands specific to %s:' % name)
-        path = db.readFromDatabase('common', 'hosts', {'hostname': socket.gethostname()},onlyone=True)['plugin_dir']
-        snsr_cls = Doberman.utils.FindPlugin(name, path)
+        path = db.read_from_db('common', 'hosts', {'hostname': socket.gethostname()}, onlyone=True)['plugin_dir']
+        snsr_cls = Doberman.utils.find_plugin(name, path)
         if not hasattr(snsr_cls, 'accepted_commands'):
             print('none')
         else:
@@ -38,56 +42,59 @@ def PrintHelp(db, name):
     print('Plugin name == "all" issues the command to applicable plugins. Context-aware.')
     print()
     print('Available runmodes:')
-    runmodes = db.Distinct('settings','runmodes','mode')
+    runmodes = db.distinct('settings', 'runmodes', 'mode')
     print(' | '.join(runmodes))
     print()
-    return
 
-def ProcessCommand(db, command_str, user=None):
+
+def process_command(db, command_str, user=None):
     """
     Does the regex matching for command input
-
+    :param db: instance of Database
     :param command_str: the string as received from the command line
-    :param external_user: a dict of info from the web interface
+    :param user: a dict of info from the web interface
     """
-    names = db.Distinct('settings','sensors','name')
+    names = db.distinct('settings', 'sensors', 'name')
     names_ = '|'.join(names + ['all'])
-    runmodes_ = '|'.join(db.Distinct('settings','runmodes','mode'))
+    runmodes_ = '|'.join(db.distinct('settings', 'runmodes', 'mode'))
     if command_str.startswith('help'):
         n = None
         if len(command_str) > len('help '):
             name = command_str[len('help '):]
             if name in names:
                 n = name
-        PrintHelp(db, n)
+        print_help(db, n)
         return
 
     patterns = [
-        '^(?P<command>start|stop|restart) (?P<name>%s)$' % (names_),
+        '^add (?P<file>)$',
+        '^(?P<command>start|stop|restart) (?P<name>%s)(?: (?P<runmode>%s))?$' % (names_, runmodes_),
+        '^(?:(?P<name>%s) )?(?P<command>sleep|wake)(?: (?P<duration>(?:[1-9][0-9]*[dhms])|(?:inf)))?$' % names_,
+        '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s)$' % (names_, runmodes_),
         '^(?:(?P<name>%s) )?(?P<command>runmode) (?P<runmode>%s) (?P<reading>[a-zA-Z0-9_\\-]+)$' % (names_, runmodes_),
         '^(?P<name>%s) (?P<command>.+)$' % names_,
     ]
     for pattern in patterns:
         m = re.search(pattern, command_str)
         if m:
-            StepTwo(db, m, user=user)
+            step_two(db, m, user=user)
             if user is not None:  # for non-CLI users
                 break
             time.sleep(3)
-            for log in db.readFromDatabase('logging', 'logs',
-                    cuts={'when':
-                        {'$gte': dtnow()-datetime.timedelta(seconds=3)}},
-                    sort=([('_id', -1)])):
+            for log in db.read_from_db('logging', 'logs',
+                                       cuts={'when': {'$gte': dtnow() - datetime.timedelta(seconds=3)}},
+                                       sort=([('_id', -1)])):
                 print('{when} | {level} | {name} | {msg}'.format(**log))
             break
     else:
         print('Command \'%s\' not understood' % command_str)
 
-def StepTwo(db, m, user=None):
+
+def step_two(db, m, user=None):
     """
     Takes the match object (m) from StepOne and figures out what it actually means
     """
-    
+
     command = m['command']
     try:
         name = str(m['name'])
@@ -95,65 +102,128 @@ def StepTwo(db, m, user=None):
         name = 'None'
     names = {'None' : ['doberman']}
     if name != 'None':
-        names.update({name : [name]})
-    online = db.Distinct('settings','sensors','name', {'status' : 'online'})
-    offline = db.Distinct('settings','sensors','name', {'status' : 'offline'})
-    asleep = db.Distinct('settings','sensors','name', {'status' : 'sleep'})
+        names.update({name: [name]})
+    online = db.distinct('settings', 'sensors', 'name', {'status': 'online'})
+    offline = db.distinct('settings', 'sensors', 'name', {'status': 'offline'})
+    asleep = db.distinct('settings', 'sensors', 'name', {'status': 'sleep'})
+    if command == 'add':
+        add_sensor(db, m['file'])
     if command in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
-        names.update({'all' : {
-            'start' : offline,
-            'stop' : online,
-            'restart' : online,
-            'sleep' : online,
-            'wake' : asleep,
-            'runmode' : online}[command]})
+        names.update({'all': {
+            'start': offline,
+            'stop': online,
+            'restart': online,
+            'sleep': online,
+            'wake': asleep,
+            'runmode': online}[command]})
     if command == 'start':
         for n in names[name]:
-            StepThree(db, db.hostname, 'start %s' % (n), user=user)
+            step_three(db, db.hostname, 'start %s' % (n), user=user)
     elif command == 'stop':
         for n in names[name]:
-            StepThree(db, n, 'stop', user=user)
+            step_three(db, n, 'stop', user=user)
     elif command == 'restart':
-        td = datetime.timedelta(seconds=1.1*Doberman.utils.heartbeat_timer)
+        td = datetime.timedelta(seconds=1.1 * Doberman.utils.heartbeat_timer)
         for n in names[name]:
-            StepThree(db, n, 'stop', user=user)
-            StepThree(db, db.hostname, 'start %s' % n, td, user=user)
+            step_three(db, n, 'stop', user=user)
+            step_three(db, n, 'start', td, user=user)
     elif command == 'runmode':
-        StepThree(db, name, 'runmode %s %s' % (m['runmode'], m['reading']), user=user)
-        #for n in names[name]:
-        #    StepThree(db, n, 'runmode %s' % m['runmode'], user=user)
+        for n in names[name]:
+            step_three(db, n, f'runmode {m["runmode"]}', user=user)
     else:
-        StepThree(db, name, command, user=user)
+        step_three(db, name, command, user=user)
 
-def StepThree(db, name, command, future=None, user=None):
+
+def step_three(db, name, command, future=None, user=None):
     """
     Puts a command into the database
 
+    :param db: the instance of Database
     :param name: the name of the entity the command is for
     :param command: the command to be issued
     :param future: a timedelta instance of how far into the future the
     command should be handled, default None
     :param user: the info about an external user
     """
-    command_doc = {'name' : name, 'command' : command, 'logged' : dtnow()}
+    command_doc = {'name': name, 'command': command, 'logged': dtnow()}
     if user is None:
         user = {
-                'client_addr' : '127.0.0.1',
-                'client_host' : 'localhost',
-                'client_name' : os.environ['USER']
-                }
+            'client_addr': '127.0.0.1',
+            'client_host': 'localhost',
+            'client_name': os.environ['USER']
+        }
     command_doc.update(user)
     if future is not None:
         command_doc['logged'] += future
-    db.insertIntoDatabase('logging','commands', command_doc)
+    db.insert_into_db('logging', 'commands', command_doc)
     print('Stored command "%s" for %s (%s)' % (command, name, dtnow()))
-    #print('Stored command "%s" for %s' % (command, name))
-    return
 
-def main(client):
+def add_sensor(db, file):
+    try:
+        with open(file) as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Couldn't find or interpret file '{f}'. Got an {type(e)} error: {e}")
+    try:
+        sensor_doc = {"name": data["name"],
+                      "address": data["address"],
+                      "readings": {}
+                      }
+        if "additional_params" in data:
+            sensor_doc["additional_params"] = data["additional_params"]
+        reading_docs = []
+        for reading in data["readings"]:
+            sensor_doc["readings"][reading] = reading["msg"]
+            reading_doc = {"description": data["readings"][reading]["description"],
+                           "name": reading,
+                           "readout_interval": data["readings"][reading]["readout_interval"],
+                           "sensor": data["name"],
+                           "runmode": "testing",
+                           "status": "offline",
+                           "topic": data["readings"][reading]["topic"],
+                           "alarms": [
+                               {
+                                   "type": "pid",
+                                   "enabled": "false",
+                                   "a": 0,
+                                   "b": 0,
+                                   "c": 0,
+                                   "dt_diff": 1,
+                                   "dt_int": 1,
+                                   "setpoint": 0,
+                                   "recurrence": 1,
+                                   "levels": [
+                                       [-1, 1]
+                                   ]
+                               },
+                               {
+                                   "type": "time_since",
+                                   "enabled": "false",
+                                   "lower_threshold": 0,
+                                   "upper_threshold": 0,
+                                   "max_duration": [1,]
+                               },
+                               {
+                                   "type": "simple",
+                                   "enabled": "false",
+                                   "setpoint": 0,
+                                   "levels": [
+                                       [-1, 1]
+                                   ]
+                               }
+                           ]
+                           }
+            reading_docs.append(reading_doc)
+    except KeyError as e:
+        print(f"Incomplete config file: {e}")
+    db.insert_into_db('settings', 'sensors', sensor_doc)
+    for reading_doc in reading_docs:
+        db.insert_into_db('settings', 'readings', reading_doc)
+def main(mongo_client):
     command = ' '.join(sys.argv[1:])
-    db = Doberman.Database(client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'])
-    ProcessCommand(db, command)
+    db = Doberman.Database(mongo_client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'])
+    process_command(db, command)
+
 
 if __name__ == '__main__':
     with MongoClient(os.environ['DOBERMAN_MONGO_URI']) as client:
@@ -161,4 +231,3 @@ if __name__ == '__main__':
             main(client)
         except Exception as e:
             print('Caught a %s: %s' % (type(e), e))
-

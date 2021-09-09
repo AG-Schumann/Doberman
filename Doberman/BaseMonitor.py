@@ -10,6 +10,7 @@ class Monitor(object):
     """
     A base monitor class
     """
+
     def __init__(self, db=None, _name=None, loglevel='INFO'):
         """
         """
@@ -17,49 +18,46 @@ class Monitor(object):
         if isinstance(self, Doberman.HostMonitor):
             self.name = db.hostname
         elif isinstance(self, Doberman.AlarmMonitor):
-            self.name='AlarmMonitor'
+            self.name = 'AlarmMonitor'
         elif isinstance(self, Doberman.SensorMonitor):
             self.name = _name
-        
-        self.logger = Doberman.utils.Logger(name=self.name, db=db, loglevel=loglevel)
+        self.logger = Doberman.utils.logger(name=self.name, db=db, loglevel=loglevel)
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
         self.loglevel = loglevel
         if threading.current_thread() is threading.main_thread():
             self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        self.Setup()
-        self.Register(obj=self.HandleCommands, period=1, name='handlecommands')
-        self.Register(obj=self.CheckThreads, period=30, name='checkthreads')
+        self.setup()
+        self.register(obj=self.handle_commands, period=1, name='handlecommands')
+        self.register(obj=self.check_threads, period=30, name='checkthreads')
 
     def __del__(self):
-        self.Close()
-        return
+        self.close()
 
     def __exit__(self):
-        self.Close()
-        return
+        self.close()
 
-    def Close(self):
+    def close(self):
         """
         Joins all running threads
         """
         self.event.set()
-        self.Shutdown()
+        self.shutdown()
         pop = []
-        for n,t in self.threads.items():
+        thread_numbers  = self.threads.keys()
+        for thread_number in thread_numbers:
             try:
-                t.event.set()
-                t.join()
-            except:
-                pass
+                self.threads[thread_number].event.set()
+                self.threads[thread_number].join()
+            except Exception as e:
+                self.logger.debug(f'Can\'t close {thread_number}-thread. {e}')
             else:
-                pop += [n]
+                pop += [thread_number]
         for p in pop:
             self.threads.pop(p)
-        return
 
-    def Register(self, name, obj, period=None, **kwargs):
+    def register(self, name, obj, period=None, **kwargs):
         self.logger.debug('Registering ' + name)
         if isinstance(obj, threading.Thread):
             # obj is a thread
@@ -75,33 +73,29 @@ class Monitor(object):
             t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event)
         t.start()
         self.threads[name] = t
-        return
 
-    def Setup(self, *args, **kwargs):
+    def setup(self, *args, **kwargs):
         """
         Called by the constructor. Allows subclasses to initialize stuff (most
         notably calls to Register)
         """
-        pass
 
-    def Shutdown(self):
+    def shutdown(self):
         """
         Called when the monitor begins its shutdown sequence. sh.run will have been
         set to False before this is called, and all threads will be joined once
         this function returns
         """
-        pass
 
-    def StopThread(self, name):
+    def stop_thread(self, name):
         """
         Stops a specific thread. Thread is removed from thread dictionary
         """
         self.threads[name].event.set()
         self.threads[name].join()
         del self.threads[name]
-        return
 
-    def CheckThreads(self):
+    def check_threads(self):
         """
         Checks to make sure all threads are running. Attempts to restart any
         that aren't
@@ -109,18 +103,17 @@ class Monitor(object):
         for n, t in list(self.threads.items()):
             if not t.is_alive():
                 try:
-                    self.logger.info('%s-thread died' % n)
-                    self.StopThread(n)
+                    self.logger.info(f'{n}-thread died')
+                    self.stop_thread(n)
                 except Exception as e:
-                    self.logger.error('%s-thread won\'t quit' % n)
-        return
+                    self.logger.error(f'{n}-thread won\'t quit: {e}')
 
-    def HandleCommands(self):
+    def handle_commands(self):
         """
         A function for base classes to implement to handle any commands
         this instance should address
         """
-        pass
+
 
 class FunctionHandler(threading.Thread):
     def __init__(self, func=None, logger=None, period=None, event=None):
@@ -144,4 +137,3 @@ class FunctionHandler(threading.Thread):
                 self.period = ret
             self.event.wait(loop_top + self.period - time.time())
         self.logger.debug('Returning')
-        return

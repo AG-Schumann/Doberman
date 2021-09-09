@@ -1,6 +1,4 @@
 import Doberman
-import threading
-from functools import partial
 
 __all__ = 'SensorMonitor'.split()
 
@@ -10,40 +8,40 @@ class SensorMonitor(Doberman.Monitor):
     A subclass to monitor an active sensor
     """
 
-    def Setup(self):
-        plugin_dir = self.db.GetHostSetting(field='plugin_dir')
-        self.sensor_ctor = Doberman.utils.FindPlugin(self.name, plugin_dir)
+    def setup(self):
+        plugin_dir = self.db.get_host_setting(field='plugin_dir')
+        self.sensor_ctor = Doberman.utils.find_plugin(self.name, plugin_dir)
         self.sensor = None
-        cfg_doc = self.db.GetSensorSetting(self.name)
-        self.OpenSensor()
+        cfg_doc = self.db.get_sensor_setting(self.name)
+        self.open_sensor()
         for rd in cfg_doc['readings'].keys():
             self.logger.debug('Constructing ' + rd)
-            reading_doc = self.db.GetReadingSetting(self.name, rd)
-            kwargs = {'sensor_name' : self.name, 'reading_name' : rd,
-                      'event' : self.event, 'db' : self.db, 'sensor' : self.sensor,
-                      'loglevel' : self.loglevel}
+            reading_doc = self.db.get_reading_setting(self.name, rd)
+            kwargs = {'sensor_name': self.name, 'reading_name': rd,
+                      'event': self.event, 'db': self.db, 'sensor': self.sensor,
+                      'loglevel': self.loglevel}
             if 'is_multi' in reading_doc:
                 reading = Doberman.MultiReading(**kwargs)
             elif 'pid' in reading_doc:
                 reading = Doberman.PIDReading(**kwargs)
             else:
                 reading = Doberman.Reading(**kwargs)
-            self.Register(rd, reading)
-        self.Register(name='heartbeat', obj=self.Heartbeat,
-                period=self.db.GetHostSetting(field='heartbeat_timer'))
-        self.db.SetHostSetting(addToSet={'active' : self.name})
-    
-    def Shutdown(self):
+            self.register(rd, reading)
+        self.register(name='heartbeat', obj=self.heartbeat,
+                      period=self.db.get_host_setting(field='heartbeat_timer'))
+        self.db.set_host_setting(addToSet={'active': self.name})
+
+    def shutdown(self):
         if self.sensor is None:
             return
         self.logger.info('Stopping sensor')
         self.sensor.event.set()
         self.sensor.close()
         self.sensor = None
-        self.db.SetHostSetting(pull={'active' : self.name})
+        self.db.set_host_setting(pull={'active': self.name})
         return
 
-    def OpenSensor(self, reopen=False):
+    def open_sensor(self, reopen=False):
         self.logger.debug('Connecting to sensor')
         if self.sensor is not None and not reopen:
             self.logger.debug('Already connected!')
@@ -53,58 +51,58 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.event.set()
             self.sensor.close()
         try:
-            self.sensor = self.sensor_ctor(self.db.GetSensorSetting(self.name),
-                    self.logger)
+            self.sensor = self.sensor_ctor(self.db.get_sensor_setting(self.name),
+                                           self.logger)
         except Exception as e:
             self.logger.error('Could not open sensor. Error: %s' % e)
             self.sensor = None
             raise
         return
 
-    def Heartbeat(self):
-        self.db.UpdateHeartbeat(sensor=self.name)
-        return self.db.GetHostSetting(field='heartbeat_timer')
+    def heartbeat(self):
+        self.db.update_heartbeat(sensor=self.name)
+        return self.db.get_host_setting(field='heartbeat_timer')
 
-    def HandleCommands(self):
-        doc = self.db.FindCommand(self.name)
+    def handle_commands(self):
+        doc = self.db.find_command(self.name)
         while doc is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
             if command.startswith('runmode'):
                 try:
                     _, runmode, reading = command.split()
-                except:
-                    self.logger.error('Bad runmode command')
+                except Exception as e:
+                    self.logger.error(f'Bad runmode command: {e}')
                 else:
                     if reading == 'all':
-                        for rd in self.db.GetSensorSetting(self.name, 'readings'):
-                            self.db.SetReadingSetting(sensor=self.name, name=rd,
-                                    field='runmode', value=runmode)
+                        for rd in self.db.get_sensor_setting(self.name, 'readings'):
+                            self.db.set_reading_setting(sensor=self.name, name=rd,
+                                                        field='runmode', value=runmode)
                     else:
-                        self.db.SetReadingSetting(sensor=self.name, name=reading,
-                                field='runmode', value=runmode)
+                        self.db.set_reading_setting(sensor=self.name, name=reading,
+                                                    field='runmode', value=runmode)
             elif command == 'reload readings':
-                self.sensor.setattr('readings',
-                        self.db.GetSensorSetting(self.name, field='readings'))
-                self.ReloadReadings()
+                setattr(self.sensor, 'readings',
+                                    self.db.get_sensor_setting(self.name, field='readings'))
+                self.reload_readings()
             elif command == 'stop':
                 self.event.set()
-                self.db.SetHostSetting(pull={'default' : self.name})
+                self.db.set_host_setting(pull={'default': self.name})
             elif self.sensor is not None:
-                self.sensor.ExecuteCommand(command=command)
+                self.sensor.execute_command(command=command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
-            doc = self.db.FindCommand(self.name)
+            doc = self.db.find_command(self.name)
 
-    def ReloadReadings(self):
-        readings_dict = self.db.GetSensorSetting(self.name, 'readings')
+    def reload_readings(self):
+        readings_dict = self.db.get_sensor_setting(self.name, 'readings')
         for reading_name in readings_dict.values():
             if reading_name in self.threads.keys():
-                self.StopThread(reading_name)
+                self.stop_thread(reading_name)
             self.readings[reading_name] = Doberman.Reading(self.name, reading_name,
-                    self.db)
-            self.Register(func=self.ScheduleReading, period=r.readout_interval,
-                    reading=r, name=r.name)
+                                                           self.db)
+            self.register(func=self.ScheduleReading, period=r.readout_interval,
+                          reading=r, name=r.name)
 
-    def BuildReading(self):
+    def build_reading(self):
         pass
