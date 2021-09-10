@@ -55,6 +55,7 @@ class Reading(threading.Thread):
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
+        self.topic = doc['topic']
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -84,7 +85,7 @@ class Reading(threading.Thread):
         try:
             value = self.sensor_process(data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
+            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
         if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
                 value is None):
@@ -101,29 +102,18 @@ class Reading(threading.Thread):
         self.last_measurement_time = func_start
         self.logger.debug(f'Measured {value}')
         if value is not None:
-            self.more_processing(value)
+            value = self.more_processing(value)
+            self.check_for_alarm(value)
+            self.send_upstream(value)
         return
 
     def more_processing(self, value):
         """
-        Does anything interesting with the value. This function is responsible for
-        pushing data upstream
+        Does something interesting with the value. Should return a value
         """
         if self.is_int:
             value = int(value)
-        if self.db.has_kafka:
-            try:
-                self.kafka(value=f'{self.name},{value:.6g}')
-            except Exception as e:
-                self.kafka(value=f'{self.name},{value}')
-            return
-        reading = self.db.get_reading_setting(self.sensor_name, self.name)
-        data = [{'measurement': reading['topic'],
-                 'time': int(time.time() * 1000000000),
-                 'fields': {reading['name']: value}
-                 }]
-        self.client.write_points(data, database=self.db.experiment_name)
-        self.check_for_alarm(value)
+        return value
 
     def check_for_alarm(self, value):
         """
@@ -152,7 +142,23 @@ class Reading(threading.Thread):
                                 self.recurrence_counter = 0
                             break
             except Exception as e:
-                self.logger.debug(f'Alarms not properly configured for {self.reading_name}: {e}')
+                self.logger.debug(f'Alarms not properly configured for {self.reading_name}: {type(e)}, {e}')
+
+    def send_upstream(self, value):
+        """
+        This function sends data upstream to wherever it should end up
+        """
+        if self.db.has_kafka:
+            try:
+                self.kafka(value=f'{self.name},{value:.6g}')
+            except Exception as e:
+                self.kafka(value=f'{self.name},{value}')
+            return
+        data = [{'measurement': self.topic,
+                 'time': int(time.time() * 1000000000),
+                 'fields': {self.name: value}
+                 }]
+        self.client.write_points(data, database=self.db.experiment_name)
 
 
 class MultiReading(Reading):
@@ -164,13 +170,21 @@ class MultiReading(Reading):
     def child_setup(self, doc):
         self.all_names = doc['multi']
 
-    def more_processing(self, value_arr):
-        try:
-            for n, v in zip(self.all_names, value_arr):
-                if self.is_int:
-                    v = int(v)
-                self.kafka(value=f'{n},{v:.6g}')
+    def more_processing(self, values):
+        if self.is_int:
+            return list(map(int, values))
+        return values
+
+    def send_upstream(self, values):
+        if self.db.has_kafka:
+            for n,v in zip(self.all_names, values):
+                try:
+                    self.kafka(value=f'{n},{v:.6g}')
+                except Exception as e:
+                    self.kafka(value=f'{n},{v}')
             return
-        except Exception as e:
-            self.logger.info(f'{type(e)}: {e}')
-            return
+        data = [{'measurement': self.topic,
+                 'time': int(time.time()* 1000000000),
+                 'fields': dict(zip(self.all_names, values))
+                 }]
+        self.client.write_points(data, database=self.db.experiment_name)
