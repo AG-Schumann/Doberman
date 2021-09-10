@@ -220,7 +220,6 @@ class AlarmMonitor(Doberman.Monitor):
         if new_shifters != self.current_shifters:
             if len(''.join(new_shifters)) == 0:
                 self.logger.info('No more allocated shifters.')
-                self.current_shifters = []
                 return
             
             end_time = shift['end'].replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%b %-d %H:%M')
