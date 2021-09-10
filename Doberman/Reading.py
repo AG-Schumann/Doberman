@@ -3,7 +3,6 @@ import time
 import queue
 from functools import partial
 import threading
-import influxdb
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -34,10 +33,6 @@ class Reading(threading.Thread):
                                 retq=self.process_queue)
         self.child_setup(self.db.get_sensor_setting(name=self.sensor_name))
         self.update_config()
-        if not self.db.has_kafka:
-            influx = self.db.read_from_db('settings', 'experiment_config', cuts={'name': 'influx'},
-                                          onlyone=True)
-            self.client = influxdb.InfluxDBClient(host=influx['host'], port=influx['port'])
 
     def run(self):
         self.logger.debug('Starting')
@@ -154,11 +149,7 @@ class Reading(threading.Thread):
             except Exception as e:
                 self.kafka(value=f'{self.name},{value}')
             return
-        data = [{'measurement': self.topic,
-                 'time': int(time.time() * 1000000000),
-                 'fields': {self.name: value}
-                 }]
-        self.client.write_points(data, database=self.db.experiment_name)
+        self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name}, fields={'value': value})
 
 
 class MultiReading(Reading):
@@ -183,8 +174,5 @@ class MultiReading(Reading):
                 except Exception as e:
                     self.kafka(value=f'{n},{v}')
             return
-        data = [{'measurement': self.topic,
-                 'time': int(time.time()* 1000000000),
-                 'fields': dict(zip(self.all_names, values))
-                 }]
-        self.client.write_points(data, database=self.db.experiment_name)
+        for n,v in zip(self.all_names, values):
+            self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n}, fields={'value': v})
