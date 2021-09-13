@@ -47,10 +47,7 @@ class HostMonitor(Doberman.Monitor):
         n_cpus = psutil.cpu_count()
         host = self.db.hostname
         load_1, load_5, load_15 = psutil.getloadavg()
-        fields = {}
-        fields['load_1'] = load_1/n_cpus
-        fields['load_5'] = load_5/n_cpus
-        fields['load_15'] = load_15/n_cpus
+        fields = {'load_1': load_1 / n_cpus, 'load_5': load_5 / n_cpus, 'load_15': load_15 / n_cpus}
         mem = psutil.virtual_memory()
         fields['mem_avail'] = mem.available/mem.total
         swap = psutil.swap_memory()
@@ -61,8 +58,9 @@ class HostMonitor(Doberman.Monitor):
                 if 'Package' in row.label:  # Fujitsu Intel core servers
                     socket = row.label[-1]  # max 10 sockets per machine
                     fields[f'cpu_{socket}_temp'] = row.current
-        elif 'bcm2835_thermal' in temp_dict.keys():  # Revolution Pi
-            fields['cpu_0_temp'] = temp_dict['bcm2835_thermal']['current']
+        elif len(temp_dict) == 1:
+            key = list(temp_dict.keys())[0]
+            fields['cpu_0_temp'] = temp_dict[key][0].current
         else:
             self.logger.debug(f'Couldn\'t read out CPU temperatures for {host}.')
         net_io = psutil.net_io_counters(True)
@@ -72,7 +70,7 @@ class HostMonitor(Doberman.Monitor):
             fields[f'{name}_recv'] = recv_kbytes/self.sysmon_timer
             sent_kbytes = (net_io[nic].bytes_sent - self.last_sent[nic]) >> 10
             self.last_sent[nic] = net_io[nic].bytes_sent
-            fields[f'{name}_sent'] = sent_mbytes/self.sysmon_timer
+            fields[f'{name}_sent'] = sent_kbytes/self.sysmon_timer
         disk_io = psutil.disk_io_counters(True)
         for disk, name in self.disks.items():
             read_kbytes = (disk_io[disk].read_bytes - self.last_read[disk]) >> 10

@@ -8,7 +8,6 @@ import requests
 
 try:
     from kafka import KafkaProducer
-
     has_kafka = True
 except ImportError:
     has_kafka = False
@@ -55,7 +54,7 @@ class Database(object):
             self.logger.debug(f"Could not import KafkaProducer. I will run in independent mode.")
             self.kafka = FakeKafka()
             self.has_kafka = False
-        influx_cfg = self.read_from_database('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
         self.influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
         self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
         self.influx_headers = influx_cfg['headers']
@@ -431,14 +430,14 @@ class Database(object):
         """
         data = f'{topic}'
         if tags is not None:
-            data += ',' + ','.join([f'{k}={v}' for k,v in tags.items()])
+            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
         data += ' '
         if fields is not None:
             data += ','.join([
-                f'{k}={v}i' if isinstance(v,int) else f'{k}={v}' for k,v in fields.items()
+                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
                 ])
         timestamp = timestamp or time.time()
-        data += ' {int(timestamp*self.influx_precision)}'
+        data += f' {int(timestamp*self.influx_precision)}'
         if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
             # something went wrong
             pass

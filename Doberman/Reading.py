@@ -137,7 +137,7 @@ class Reading(threading.Thread):
                                 self.recurrence_counter = 0
                             break
             except Exception as e:
-                self.logger.debug(f'Alarms not properly configured for {self.reading_name}: {type(e)}, {e}')
+                self.logger.debug(f'Alarms not properly configured for {self.name}: {type(e)}, {e}')
 
     def send_upstream(self, value):
         """
@@ -149,7 +149,8 @@ class Reading(threading.Thread):
             except Exception as e:
                 self.kafka(value=f'{self.name},{value}')
             return
-        self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name}, fields={'value': value})
+        self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
+                                fields={'value': value})
 
 
 class MultiReading(Reading):
@@ -168,11 +169,12 @@ class MultiReading(Reading):
 
     def send_upstream(self, values):
         if self.db.has_kafka:
-            for n,v in zip(self.all_names, values):
+            for n, v in zip(self.all_names, values):
                 try:
                     self.kafka(value=f'{n},{v:.6g}')
                 except Exception as e:
                     self.kafka(value=f'{n},{v}')
             return
-        for n,v in zip(self.all_names, values):
-            self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n}, fields={'value': v})
+        for n, v in zip(self.all_names, values):
+            self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n},
+                                    fields={'value': v})
