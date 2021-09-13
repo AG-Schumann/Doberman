@@ -410,14 +410,14 @@ class Database(object):
         """
         data = f'{topic}'
         if tags is not None:
-            data += ',' + ','.join([f'{k}={v}' for k,v in tags.items()])
+            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
         data += ' '
         if fields is not None:
             data += ','.join([
-                f'{k}={v}i' if isinstance(v,int) else f'{k}={v}' for k,v in fields.items()
+                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
                 ])
         timestamp = timestamp or time.time()
-        data += ' {int(timestamp*self.influx_precision)}'
+        data += f' {int(timestamp*self.influx_precision)}'
         if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
             # something went wrong
             pass
