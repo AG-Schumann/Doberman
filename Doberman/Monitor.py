@@ -14,6 +14,7 @@ def main(mongo_client):
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
+    group.add_argument('--pipeline', aciton='store_true', help='Start the pipeline monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
@@ -52,6 +53,11 @@ def main(mongo_client):
         kwargs['name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
+        # check if sensor is already running, otherwise start it
+        else:
+            ctor = partial(Doberman.SensorMonitor, **kwargs)
+    elif args.pipeline:
+        kwargs['name'] = 'pipeline_monitor'
     elif args.status:
         pprint.pprint(db.get_current_status())
         return

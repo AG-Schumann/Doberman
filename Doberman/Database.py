@@ -234,6 +234,21 @@ class Database(object):
             doc['logged'] = dtnow()
         self.insert_into_db('logging', 'commands', doc)
 
+    def get_pipeline(self, name):
+        """
+        Gets a pipeline config doc
+        :param name: the name of the pipeline
+        """
+        return self.read_from_db('settings', 'pipelines', {'name': name}, onlyone=True)
+
+    def set_pipeline_value(self, name, kvp):
+        """
+        Updates a pipeline config
+        :param name: the name of the pipeline
+        :kvp: a list of (key, value) pairs to set
+        """
+        return self.update_db('settings', 'pipelines', {'name': name}, {'$set': dict(kvp)})
+
     def get_message_protocols(self, level):
         """
         Gets message protocols for the specified alarm level. If none are found,
