@@ -64,7 +64,7 @@ class Monitor(object):
                 func = partial(obj, **kwargs)
             else:
                 func = obj
-            t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event)
+            t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event, name=name)
         t.start()
         self.threads[name] = t
 
@@ -87,9 +87,10 @@ class Monitor(object):
         """
         Stops a specific thread. Thread is removed from thread dictionary
         """
-        self.threads[name].event.set()
-        self.threads[name].join()
-        del self.threads[name]
+        if name in self.threads:
+            self.threads[name].event.set()
+            self.threads[name].join()
+            del self.threads[name]
 
     def check_threads(self):
         """
@@ -112,12 +113,13 @@ class Monitor(object):
 
 
 class FunctionHandler(threading.Thread):
-    def __init__(self, func=None, logger=None, period=None, event=None):
+    def __init__(self, func=None, logger=None, period=None, event=None, name=None):
         threading.Thread.__init__(self)
         self.event = event
         self.func = func
         self.logger = logger
         self.period = period
+        self.name = name
         if threading.current_thread() is threading.main_thread():
             self.sh = Doberman.utils.SignalHandler(logger, self.event)
 
@@ -128,6 +130,7 @@ class FunctionHandler(threading.Thread):
         self.logger.debug('Starting')
         while not self.event.is_set():
             loop_top = time.time()
+            self.logger.debug(f'Running {self.name}')
             ret = self.func()
             if isinstance(ret, (int, float)) and 0. < ret:
                 self.period = ret

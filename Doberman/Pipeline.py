@@ -12,15 +12,32 @@ class Pipeline(object):
         self.graph = {}
         self.db = kwargs['db']
         self.logger = kwargs['logger']
+        self.name = kwargs['name']
+        self.cycles = 0
 
     def process_cycle(self):
+        doc = self.db.get_pipeline(self.name)
+        self.reconfigure(doc['node_config'])
         timing = {}
+        self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         for node in self.graph.values():
             t_start = time.time()
-            node._process_base()
+            try:
+                node._process_base(doc['status']) # status == 1 is silent, 2 is active, 0 is off
+            except Exception as e:
+                msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
+                if self.cycles <= self.startup_cycles:
+                    # we expect errors during startup as buffers get filled
+                    self.logger.debug(msg)
+                else:
+                    self.logger.warning(msg)
+                break # probably shouldn't finish the cycle
             t_end = time.time()
             timing[node.name] = (t_end-t_start)*1000
-        self.logger.debug('Processing time: total {sum(timing.values()):.3f} ms, individual {timing}')
+        self.logger.debug(f'Processing time: total {sum(timing.values()):.3f} ms, individual {timing}')
+        self.cycles += 1
+        self.db.set_pipeline_value(self.name, [('heartbeat', Doberman.utils.dtnow(), 'cycles': self.cycles)])
+        return doc['pipeline']['period']
 
     def build(self, config):
         """
@@ -42,6 +59,11 @@ class Pipeline(object):
         pipeline_config = config['pipeline']['config']
         self.logger.debug(f'Loading graph config, {len(pipeline_config)} nodes total')
         downstream = {}
+        num_buffer_nodes = 0
+        longest_buffer = 0
+        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+￼       influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
+        influx_headers = influx_cfg['headers']
         while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
             for name, kwargs in pipeline_config.items():
@@ -58,7 +80,7 @@ class Pipeline(object):
                         node_kwargs['db'] = 'pancake'
                         node_kwargs['influx_username'] = ''
                         node_kwargs['influx_password'] = ''
-                        node_kwargs['influx_url'] = ''
+                        node_kwargs['influx_url'] = influx_url
                     downstream[name] = kwargs.pop('downstream', [])
                     # at this point, the only things left in kwargs should be options the node needs for construction
                     self.logger.debug(f'Kwargs for {name}: {kwargs}')
@@ -68,6 +90,9 @@ class Pipeline(object):
                         n.db = self.db
                     n.load_config(config['node_config'].get(name, {}))
                     self.graph[k] = n
+                    if isinstance(n, BufferNode):
+                        num_buffer_nodes += 1
+                        longest_buffer = max(longest_buffer, n.buffer.length)
             if (nodes_built := (len(self.graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 raise ValueError('Can\'t construct graph! Check config')
@@ -76,14 +101,13 @@ class Pipeline(object):
         for k,nodes in downstream.items():
             self.graph[k].downstream_nodes = [self.graph[d] for d in nodes]
 
+        self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
+        self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
+
     def reconfigure(self, doc):
         for node in self.graph.values():
             if node.name in doc:
                 node.load_config(doc[node.name])
-
-    def run(self):
-        # TODO
-        pass
 
 
 class Node(object):
@@ -99,8 +123,10 @@ class Node(object):
         self.upstream_nodes = kwargs.pop('upstream', [])
         self.downstream_nodes = []
         self.config = {}
+        self.is_silent = True
 
-    def _process_base(self):
+    def _process_base(self, status=1):
+        self.is_silent = status == 1
         package = self.get_package()
         self.logger.debug(f'Got package: {package}')
         ret = self.process(package)
@@ -144,13 +170,10 @@ class Node(object):
 
 class SourceNode(Node):
     """
-    A node that adds data into a pipeline, probably by querying a db or kafka or something
+    A node that adds data into a pipeline, probably by querying a db or something
     """
     def get_package(self):
         pass
-
-class KafkaSourceNode(SourceNode):
-    pass
 
 class InfluxSourceNode(SourceNode):
     """
@@ -160,7 +183,7 @@ class InfluxSourceNode(SourceNode):
         super().__init__(**kwargs)
         self.url = kwargs.pop('influx_url')
         self.url_params = {'db': kwargs.pop('influx_db'), 'u': kwargs.pop('influx_username'), 'p': kwargs.pop('influx_password'),
-                'q':"SELECT {} FROM {} WHERE {} ORDER BY time DESC LIMIT 1"} # TODO
+                'q':f"SELECT * FROM {kwargs[\'topic\']} WHERE reading='{self.input_var}' ORDER BY time DESC LIMIT 1"} # TODO
 
     def get_package(self):
         r = requests.get(self.url, params=self.url_params)
@@ -172,7 +195,9 @@ class InfluxSourceNode(SourceNode):
         t = datetime.datetime.fromisoformat(data_str[:-1] + '0').timestamp()
         # TODO make sure t isn't too old
         column_i = data['columns'].index(self.input_var)
-        return {'time': t, self.output_var: data['series'][0]['values'][0][column_i]}
+        val = data['values'][0][column_i]
+        self.logger.debug(f'{self.name} time {date_str} {t} value {val}')
+        return {'time': t, self.output_var: val}
 
 class BufferNode(Node):
     def get_package(self):
@@ -228,11 +253,11 @@ class IntegralNode(BufferNode):
         integral = 0
         for i in range(len(packages)-1):
             t0, v0 = packages[i]['time'], packages[i][self.input_var]
-            t1, v1 = packages[i+1]['time'], packages[i][self.input_var]
+            t1, v1 = packages[i+1]['time'], packages[i+1][self.input_var]
             integral += (t1 - t0) * (v1 + v0) * 0.5
         integral = integral/(packages[-1]['time'] - packages[0]['time'])
-        a,b = self.config.get('transform', [1,0])
-        return a*integral + b
+        xform = self.config.get('transform', [0,1])
+        return sum(a*integral**i for i,a in enumerate(xform))
 
 class DifferentialNode(BufferNode):
     """
@@ -251,8 +276,8 @@ class DifferentialNode(BufferNode):
         E = sum(y)
         F = sum(t)
         slope = (D*C-E*F)/(B*C - F*F)
-        a,b = self.config.get('transform', [1,0])
-        return a*slope + b
+        xform = self.config.get('transform', [0,1])
+        return sum(a*slope**i for i,a in enumerate(xform))
 
 class AlarmNode:
     """
@@ -275,7 +300,7 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
                     pass
                 else:
                     level = max(i, level)
-            if level >= 0 and self.config.get('active', False):
+            if level >= 0 and not self.is_silent:
                 msg = f'Alarm for {} measurement {} ({desc}) - {values[-1]} is outside the specified range ({alarm_levels[level]})'
                 self.db.log_alarm() # TODO
         except Exception as e:
