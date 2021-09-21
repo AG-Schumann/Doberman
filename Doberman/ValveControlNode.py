@@ -14,6 +14,10 @@ class ValveControlNode(Doberman.Node):
         high_level = self.config['liquid_level_high']
         min_fill_rate = self.config['min_fill_rate']
         max_fill_time = self.config['max_fill_time']
+        max_iso_vac = self.config.get('max_iso_vac', -1)
+        min_scale = self.config.get('min_scale', -1)
+        vac_is_good = max_iso_vac == -1 or package.get('iso_vac_pressure', 0) < max_iso_vac
+        scale_is_good = min_scale == -1 or package.get('scale_weight', 0) < min_scale
 
         if liquid_level < low_level:
             if valve_status == 0:
@@ -72,4 +76,6 @@ class ValveControlNode(Doberman.Node):
                 pass
 
     def control_valve(self, state):
+        if self.is_silent:
+            return
         pass

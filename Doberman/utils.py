@@ -13,7 +13,7 @@ import serial
 
 dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin Logger heartbeat_timer number_regex doberman_dir'.split()
+__all__ = 'dtnow FindPlugin Logger heartbeat_timer number_regex doberman_dir'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
