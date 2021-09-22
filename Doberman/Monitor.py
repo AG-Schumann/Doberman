@@ -14,7 +14,7 @@ def main(mongo_client):
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
-    group.add_argument('--pipeline', aciton='store_true', help='Start the pipeline monitor')
+    group.add_argument('--pipeline', action='store_true', help='Start the pipeline monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
@@ -58,6 +58,7 @@ def main(mongo_client):
             ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.pipeline:
         kwargs['name'] = 'pipeline_monitor'
+        ctor = partial(Doberman.PipelineMonitor, **kwargs)
     elif args.status:
         pprint.pprint(db.get_current_status())
         return
@@ -70,7 +71,7 @@ def main(mongo_client):
     monitor = ctor(**kwargs)
     if threading.current_thread() is threading.main_thread():
         while not monitor.sh.event.is_set():
-            monitor.event.wait(10)
+            monitor.event.wait(1)
     print('Shutting down')
     monitor.shutdown()
     print('Main returning')

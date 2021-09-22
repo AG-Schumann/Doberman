@@ -13,8 +13,7 @@ class PipelineMonitor(Doberman.Monitor):
         pass
 
     def start_pipeline(self, name):
-        doc = self.db.get_pipeline(name)
-        if doc is None:
+        if (doc := self.db.get_pipeline(name)) is None:
             self.logger.error(f'No pipeline named {name} found!')
             return -1
         p = Doberman.Pipeline(db=self.db, logger=self.logger, name=name)
@@ -32,7 +31,7 @@ class PipelineMonitor(Doberman.Monitor):
 
     def handle_commands(self):
         while (doc := self.db.find_command(self.name)) is not None:
-            self.logger.debug(f'Found command "{doc[\'command\']"')
+            self.logger.debug(f'Found command: {doc["command"]}')
             try:
                 if ' ' in doc['command']:
                     command, target = doc['command'].split()

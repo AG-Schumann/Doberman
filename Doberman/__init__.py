@@ -1,6 +1,6 @@
 
 
-__version__ = '5.1.0'
+__version__ = '5.2.0'
 
 from . import utils
 
@@ -11,5 +11,6 @@ from .Database import *
 from .AlarmMonitor import *
 from .HostMonitor import *
 from .SensorMonitor import *
+from .PipelineMonitor import *
 from .Reading import *
 from .Pipeline import *
