@@ -2,6 +2,12 @@ import Doberman
 import requests
 import time
 import itertools
+import enum
+
+class PipelineStatus(enum.Enum):
+    offline = 0
+    silent = 1
+    active = 2
 
 
 class Pipeline(object):
@@ -16,6 +22,9 @@ class Pipeline(object):
         self.cycles = 0
 
     def process_cycle(self):
+        """
+        This function gets Registered with the owning PipelineMonitor
+        """
         doc = self.db.get_pipeline(self.name)
         self.reconfigure(doc['node_config'])
         timing = {}
@@ -37,7 +46,7 @@ class Pipeline(object):
         self.logger.debug(f'Processing time: total {sum(timing.values()):.3f} ms, individual {timing}')
         self.cycles += 1
         self.db.set_pipeline_value(self.name, [('heartbeat', Doberman.utils.dtnow(), 'cycles': self.cycles)])
-        return doc['pipeline']['period']
+        return doc['period']
 
     def build(self, config):
         """
@@ -62,7 +71,7 @@ class Pipeline(object):
         num_buffer_nodes = 0
         longest_buffer = 0
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-￼       influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
+￼       influx_url = influx_cfg['url']
         influx_headers = influx_cfg['headers']
         while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
@@ -76,11 +85,11 @@ class Pipeline(object):
                     node_kwargs = {'name': name, 'logger': self.logger,
                             'upstream': [self.graph[u] for u in kwargs.pop('upstream', [])]}
                     if node_type == 'InfluxSourceNode':
-                        # TODO add db credentials and url
-                        node_kwargs['db'] = 'pancake'
-                        node_kwargs['influx_username'] = ''
-                        node_kwargs['influx_password'] = ''
-                        node_kwargs['influx_url'] = influx_url
+                        node_kwargs['influx_url'] = influx_url + '/query'
+                        node_kwargs['influx_headers'] = influx_headers
+                        node_kwargs['influx_org'] = influx_cfg['query_params']['org']
+                        node_kwargs['influx_bucket'] = influx_cfg['query_params']['bucket']
+                        node_kwargs['topic'] = self.db.get_reading_setting(name=kwargs['input_var'], field='topic')
                     downstream[name] = kwargs.pop('downstream', [])
                     # at this point, the only things left in kwargs should be options the node needs for construction
                     self.logger.debug(f'Kwargs for {name}: {kwargs}')
@@ -125,8 +134,9 @@ class Node(object):
         self.config = {}
         self.is_silent = True
 
-    def _process_base(self, status=1):
-        self.is_silent = status == 1
+    def _process_base(self, status):
+        status = PipelineStatus[status] if isinstance(status, str) else PipelineStatus(status)
+        self.is_silent = status == PipelineStatus.silent
         package = self.get_package()
         self.logger.debug(f'Got package: {package}')
         ret = self.process(package)
@@ -181,22 +191,34 @@ class InfluxSourceNode(SourceNode):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.url = kwargs.pop('influx_url')
-        self.url_params = {'db': kwargs.pop('influx_db'), 'u': kwargs.pop('influx_username'), 'p': kwargs.pop('influx_password'),
-                'q':f"SELECT * FROM {kwargs[\'topic\']} WHERE reading='{self.input_var}' ORDER BY time DESC LIMIT 1"} # TODO
+        self.req_url = kwargs.pop('influx_url')
+        self.req_headers = kwargs.pop('influx_headers')
+        self.req_params = {'org': kwargs.pop('influx_org')}
+        self.req_json = {'bucket': kwargs.pop('influx_bucket'), 'type': 'influxql',
+                'query': f"SELECT last(value) FROM {kwargs.pop('topic')} WHERE reading='{self.input_var}';"}
+        # note that the single quotes in the query are very important
 
     def get_package(self):
-        r = requests.get(self.url, params=self.url_params)
-        # TODO make sure status is 200
-        data = r.json()['results'][0]['series'][0] # oh god the formatting of this thing
-        date_str = data['values'][0][0]
-        # date_str looks like YYYY-mm-DDTHH:MM:SS.FFZ, which doesn't quite work
-        # so we strip the 'Z' and add an extra 0 so it ends with .FFF
-        t = datetime.datetime.fromisoformat(data_str[:-1] + '0').timestamp()
+        x = requests.get(self.req_url, params=self.url_params, headers=self.req_headers, json=self.req_json).json()
+        if 'code' in x:
+            raise ValueError(f'Didn\'t get any data: {x["message"]}')
+        data = x['results'][0]['series'][0] # oh god the formatting of this thing
+        if len(data['values'][0]) == 2: # new schema
+            date_str, val = data['values'][0]
+        else:
+            i = [i for i,v in enumerate(data['values'][0]) if v is not None][1]
+            date_str, val = data['values'][0][0], data['values'][0][i]
+        # date_str looks like YYYY-mm-DDTHH:MM:SS.FFFZ, which doesn't quite work so we strip the 'Z'
+        # also sometimes there are only 2 digits of milliseconds, which also doesn't work
+        not_ms, ms = date_str.split('.')
+        if len(ms) != 4: # 4 is magic number: 3 milliseconds and Z
+            ms = ms[:-1] + '0'*(4-len(ms))
+        else:
+            # just strip the Z
+            ms = ms[:-1]
+        t = datetime.datetime.fromisoformat(f'{not_ms}.{ms}')
         # TODO make sure t isn't too old
-        column_i = data['columns'].index(self.input_var)
-        val = data['values'][0][column_i]
-        self.logger.debug(f'{self.name} time {date_str} {t} value {val}')
+        self.logger.debug(f'{self.name} time {date_str} value {val}')
         return {'time': t, self.output_var: val}
 
 class BufferNode(Node):
@@ -212,7 +234,7 @@ class LowPassFilter(BufferNode):
         l = len(values)
         if l % 2 == 0:
             # even length, we average the two adjacent to the middle
-            return (values[l//2] + values[l//2 + 1]) / 2
+            return (values[l//2 - 1] + values[l//2]) / 2
         else:
             # odd length
             return values[l//2]

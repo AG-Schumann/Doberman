@@ -54,7 +54,7 @@ class Database(object):
             self.kafka = FakeKafka()
             self.has_kafka = False
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
+        self.influx_url = influx_cfg['url'] + '/write?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
         self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
         self.influx_headers = influx_cfg['headers']
 
@@ -355,13 +355,12 @@ class Database(object):
         """
         Gets the document from one reading
 
-        :param sensor: the name of the sensor
+        :param sensor: the name of the sensor (ignored)
         :param name: the name of the reading
         :param field: the specific field to return
         :returns: reading document
         """
-        doc = self.read_from_db('settings', 'readings',
-                                cuts={'sensor': sensor, 'name': name}, onlyone=True)
+        doc = self.read_from_db('settings', 'readings', cuts={'name': name}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
