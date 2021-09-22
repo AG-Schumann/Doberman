@@ -19,7 +19,7 @@ class Sensor(object):
     _msg_start = ''
     _msg_end = ''
 
-    def __init__(self, opts, logger):
+    def __init__(self, opts, logger, event):
         """
         opts is the document from the database
         """
@@ -32,6 +32,7 @@ class Sensor(object):
                 setattr(self, k, v)
         self.readings = opts['readings']
         self.logger = logger
+        self.event = event
         self.set_parameters()
         self.base_setup()
 
@@ -41,7 +42,6 @@ class Sensor(object):
             self.setup_child()
             self.setup()
             time.sleep(0.2)
-            self.event = threading.Event()
             self.readout_thread = threading.Thread(target=self.readout_scheduler)
             self.readout_thread.start()
         except Exception as e:
@@ -55,18 +55,21 @@ class Sensor(object):
         A function for a child class to implement with anything that should happen
         before shutdown, such as closing an active hardware connection
         """
+        pass
 
     def set_parameters(self):
         """
         A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
+        pass
 
     def setup(self):
         """
         If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
+        pass
 
     def setup_child(self):
         """
@@ -74,6 +77,7 @@ class Sensor(object):
         to be done before handing off to the user's code (such as opening a
         hardware connection)
         """
+        pass
 
     def readout_scheduler(self):
         """
@@ -87,6 +91,7 @@ class Sensor(object):
         while not self.event.is_set():
             try:
                 command, retq = self.cmd_queue.get(timeout=0.001)
+                self.logger.debug(f'Executing {command}')
                 ret = self.send_recv(command)
                 self.cmd_queue.task_done()
                 if retq is not None:
@@ -110,8 +115,10 @@ class Sensor(object):
         if reading_name is not None:
             if retq is None:
                 return
+            self.logger.debug(f'Scheduling {self.readings[reading_name]}')
             self.cmd_queue.put((self.readings[reading_name], retq))
         elif command is not None:
+            self.logger.debug(f'Scheduling {command}')
             self.cmd_queue.put((command, None))
         return
 
@@ -153,7 +160,7 @@ class Sensor(object):
                 continue
             self.add_to_schedule(command=func(m))
             return
-        self.logger.error("Did not understand command '%s'" % command)
+        self.logger.error(f"Did not understand command '{command}'")
 
     def close(self):
         self.event.set()
@@ -204,6 +211,9 @@ class SerialSensor(Sensor):
         self._device.stopbits = serial.STOPBITS_ONE
         self._device.timeout = 0  # nonblocking mode
         self._device.write_timeout = 1
+        if not hasattr(self, 'msg_sleep'):
+            # so we can more easily change this later
+            self.msg_sleep = 1.0
 
         if self.tty == '0':
             raise ValueError('No tty port specified!')
@@ -233,7 +243,7 @@ class SerialSensor(Sensor):
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(1.0)
+            time.sleep(self.msg_sleep)
             if device.in_waiting:
                 s = device.read(device.in_waiting)
                 ret['data'] = s

@@ -17,9 +17,8 @@ class SensorMonitor(Doberman.Monitor):
         for rd in cfg_doc['readings'].keys():
             self.logger.debug('Constructing ' + rd)
             reading_doc = self.db.get_reading_setting(self.name, rd)
-            kwargs = {'sensor_name': self.name, 'reading_name': rd,
-                      'event': self.event, 'db': self.db, 'sensor': self.sensor,
-                      'loglevel': self.loglevel}
+            kwargs = {'sensor_name': self.name, 'reading_name': rd, 'logger': self.logger,
+                      'event': self.event, 'db': self.db, 'sensor': self.sensor}
             if 'is_multi' in reading_doc:
                 reading = Doberman.MultiReading(**kwargs)
             elif 'pid' in reading_doc:
@@ -52,9 +51,9 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.close()
         try:
             self.sensor = self.sensor_ctor(self.db.get_sensor_setting(self.name),
-                                           self.logger)
+                                           self.logger, self.event)
         except Exception as e:
-            self.logger.error('Could not open sensor. Error: %s' % e)
+            self.logger.error(f'Could not open sensor. Error: {e} ({type(e)}')
             self.sensor = None
             raise
         return
