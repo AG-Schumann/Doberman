@@ -53,12 +53,9 @@ def main(mongo_client):
         kwargs['name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
-        # check if sensor is already running, otherwise start it
-        else:
-            ctor = partial(Doberman.SensorMonitor, **kwargs)
     elif args.pipeline:
         kwargs['name'] = 'pipeline_monitor'
-        ctor = partial(Doberman.PipelineMonitor, **kwargs)
+        ctor = Doberman.PipelineMonitor
     elif args.status:
         pprint.pprint(db.get_current_status())
         return
