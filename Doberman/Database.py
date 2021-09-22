@@ -33,9 +33,8 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, mongo_client, loglevel='INFO', experiment_name=None):
+    def __init__(self, mongo_client, experiment_name=None):
         self.client = mongo_client
-        self.logger = Doberman.utils.logger(name='Database', db=self, loglevel=loglevel)
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         if has_kafka:
@@ -44,13 +43,13 @@ class Database(object):
             try:
                 self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
                                            value_serializer=partial(bytes, encoding='utf-8'))
-                self.logger.debug(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
+                print(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
             except Exception as e:
-                self.logger.debug(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
+                print(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
                 self.kafka = FakeKafka()
                 self.has_kafka = False
         else:
-            self.logger.debug(f"Could not import KafkaProducer. I will run in independent mode.")
+            print(f"Could not import KafkaProducer. I will run in independent mode.")
             self.kafka = FakeKafka()
             self.has_kafka = False
 
