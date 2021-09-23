@@ -65,14 +65,12 @@ class Pipeline(object):
         We generate nodes in such an order that we can just loop over them in the order of their construction
         and guarantee that everything that this node depends on has already run this loop
         """
-        pipeline_config = config['pipeline']['config']
+        pipeline_config = config['pipeline']
         self.logger.debug(f'Loading graph config, {len(pipeline_config)} nodes total')
         downstream = {}
         num_buffer_nodes = 0
         longest_buffer = 0
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-￼       influx_url = influx_cfg['url']
-        influx_headers = influx_cfg['headers']
         while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
             for name, kwargs in pipeline_config.items():
@@ -85,11 +83,9 @@ class Pipeline(object):
                     node_kwargs = {'name': name, 'logger': self.logger,
                             'upstream': [self.graph[u] for u in kwargs.pop('upstream', [])]}
                     if node_type == 'InfluxSourceNode':
-                        node_kwargs['influx_url'] = influx_url + '/query'
-                        node_kwargs['influx_headers'] = influx_headers
-                        node_kwargs['influx_org'] = influx_cfg['query_params']['org']
-                        node_kwargs['influx_bucket'] = influx_cfg['query_params']['bucket']
-                        node_kwargs['topic'] = self.db.get_reading_setting(name=kwargs['input_var'], field='topic')
+                        reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
+                        node_kwargs.update(InfluxSourceNode.make_kwargs(kwargs['input_var'],
+                            reading_doc['topic'], kwargs.pop('influx_version', 2), influx_cfg)
                     downstream[name] = kwargs.pop('downstream', [])
                     # at this point, the only things left in kwargs should be options the node needs for construction
                     self.logger.debug(f'Kwargs for {name}: {kwargs}')
@@ -102,7 +98,8 @@ class Pipeline(object):
                     if isinstance(n, BufferNode):
                         num_buffer_nodes += 1
                         longest_buffer = max(longest_buffer, n.buffer.length)
-            if (nodes_built := (len(self.graph) - start_len)) == 0:
+            nodes_built = len(self.graph) - start_len
+            if nodes_built == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 raise ValueError('Can\'t construct graph! Check config')
             else:
@@ -133,6 +130,7 @@ class Node(object):
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
+        self.logger.debug(f'{name} constructor')
 
     def _process_base(self, status):
         status = PipelineStatus[status] if isinstance(status, str) else PipelineStatus(status)
@@ -191,23 +189,42 @@ class InfluxSourceNode(SourceNode):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.req_url = kwargs.pop('influx_url')
-        self.req_headers = kwargs.pop('influx_headers')
-        self.req_params = {'org': kwargs.pop('influx_org')}
-        self.req_json = {'bucket': kwargs.pop('influx_bucket'), 'type': 'influxql',
-                'query': f"SELECT last(value) FROM {kwargs.pop('topic')} WHERE reading='{self.input_var}';"}
-        # note that the single quotes in the query are very important
+        self.req_url = kwargs.pop('url')
+        self.req_headers = kwargs.pop('headers')
+        self.req_json = kwargs.pop('json')
+
+    @staticmethod
+    def make_kwargs(name, topic, version, config_doc):
+        """
+        How we actually make the request changes depending on what version of influx you use
+        :param name: the name of the reading
+        :param topic: the reading's topic
+        :param version: 1 or 2, which API version influx uses
+        :param config_doc: the influx document from experiment_config
+        :return: the kwargs to pass up to the constructor
+        """
+        query = f'SELECT last(value) FROM {topic} WHERE reading=\'{name}\';'
+        # note that the single quotes in the query around {name} are very important
+        url = config_doc['url'] + '/query'
+        if version == 1:
+            url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}'
+            headers = {}
+            json = {'q': query}
+        elif version == 2:
+            url += f'org={config_doc["org"]}'
+            headers = {'Authorization': f'Token {config_doc["auth_token"]}'}
+            json = {'bucket': config_doc['bucket'], 'type': 'influxql', 'query': query}
+        else:
+            raise ValueError("Invalid version specified: must be 1 or 2")
+
+        return {'url': url, 'headers': headers, 'json': json}
 
     def get_package(self):
-        x = requests.get(self.req_url, params=self.url_params, headers=self.req_headers, json=self.req_json).json()
+        x = requests.get(self.req_url, headers=self.req_headers, json=self.req_json).json()
         if 'code' in x:
             raise ValueError(f'Didn\'t get any data: {x["message"]}')
         data = x['results'][0]['series'][0] # oh god the formatting of this thing
-        if len(data['values'][0]) == 2: # new schema
-            date_str, val = data['values'][0]
-        else:
-            i = [i for i,v in enumerate(data['values'][0]) if v is not None][1]
-            date_str, val = data['values'][0][0], data['values'][0][i]
+        date_str, val = data['values'][0]
         # date_str looks like YYYY-mm-DDTHH:MM:SS.FFFZ, which doesn't quite work so we strip the 'Z'
         # also sometimes there are only 2 digits of milliseconds, which also doesn't work
         not_ms, ms = date_str.split('.')
@@ -300,6 +317,15 @@ class DifferentialNode(BufferNode):
         slope = (D*C-E*F)/(B*C - F*F)
         xform = self.config.get('transform', [0,1])
         return sum(a*slope**i for i,a in enumerate(xform))
+
+class PolynomialNode(Node):
+    """
+    Does a polynomial transformation on a value
+    """
+    def process(self, package):
+        xform = self.config.get('transform', [0,1])
+        return sum(a*package[self.input_var]**i for i,a in enumerate(xform))
+
 
 class AlarmNode:
     """
