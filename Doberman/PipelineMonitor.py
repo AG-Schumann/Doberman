@@ -1,5 +1,6 @@
 import Doberman
 
+__all__ = 'PipelineMonitor'.split()
 
 class PipelineMonitor(Doberman.Monitor):
     """
@@ -13,7 +14,8 @@ class PipelineMonitor(Doberman.Monitor):
         pass
 
     def start_pipeline(self, name):
-        if (doc := self.db.get_pipeline(name)) is None:
+        doc = self.db.get_pipeline(name)
+        if doc is None:
             self.logger.error(f'No pipeline named {name} found!')
             return -1
         p = Doberman.Pipeline(db=self.db, logger=self.logger, name=name)
@@ -30,7 +32,8 @@ class PipelineMonitor(Doberman.Monitor):
         del self.pipelines[name]
 
     def handle_commands(self):
-        while (doc := self.db.find_command(self.name)) is not None:
+        doc = self.db.find_command(self.name)
+        while doc is not None:
             self.logger.debug(f'Found command: {doc["command"]}')
             try:
                 if ' ' in doc['command']:
@@ -51,5 +54,5 @@ class PipelineMonitor(Doberman.Monitor):
                         return
             except Exception as e:
                 self.logger.error(f'Received malformed command: {doc["command"]}')
-                continue
+            doc = self.db.find_command(self.name)
 
