@@ -3,6 +3,9 @@ import requests
 import time
 import itertools
 import enum
+import datetime
+
+__all__ = 'Pipeline'.split()
 
 class PipelineStatus(enum.Enum):
     offline = 0
@@ -20,6 +23,7 @@ class Pipeline(object):
         self.logger = kwargs['logger']
         self.name = kwargs['name']
         self.cycles = 0
+        self.last_error = -1
 
     def process_cycle(self):
         """
@@ -32,20 +36,23 @@ class Pipeline(object):
         for node in self.graph.values():
             t_start = time.time()
             try:
-                node._process_base(doc['status']) # status == 1 is silent, 2 is active, 0 is off
+                status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
+                node._process_base(status) # status == 1 is silent, 2 is active, 0 is off
             except Exception as e:
+                self.last_error = self.cycles
                 msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
                 if self.cycles <= self.startup_cycles:
                     # we expect errors during startup as buffers get filled
                     self.logger.debug(msg)
                 else:
                     self.logger.warning(msg)
-                break # probably shouldn't finish the cycle
+                break # probably shouldn't finish the cycle if something errored
             t_end = time.time()
             timing[node.name] = (t_end-t_start)*1000
-        self.logger.debug(f'Processing time: total {sum(timing.values()):.3f} ms, individual {timing}')
+        total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
+        self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
-        self.db.set_pipeline_value(self.name, [('heartbeat', Doberman.utils.dtnow(), 'cycles': self.cycles)])
+        self.db.set_pipeline_value(self.name, [('heartbeat', Doberman.utils.dtnow()), ('cycles', self.cycles), ('error', self.last_error)])
         return doc['period']
 
     def build(self, config):
@@ -70,7 +77,7 @@ class Pipeline(object):
         downstream = {}
         num_buffer_nodes = 0
         longest_buffer = 0
-        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        influx_cfg = self.db.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
         while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
             for name, kwargs in pipeline_config.items():
@@ -79,29 +86,34 @@ class Pipeline(object):
                 upstream = kwargs.get('upstream', [])
                 if len(upstream) == 0 or all([u in self.graph for u in upstream]):
                     # all this node's requirements are created
-                    node_type = kwargs.pop('type')
-                    node_kwargs = {'name': name, 'logger': self.logger,
-                            'upstream': [self.graph[u] for u in kwargs.pop('upstream', [])]}
-                    if node_type == 'InfluxSourceNode':
-                        reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        node_kwargs.update(InfluxSourceNode.make_kwargs(kwargs['input_var'],
-                            reading_doc['topic'], kwargs.pop('influx_version', 2), influx_cfg)
-                    downstream[name] = kwargs.pop('downstream', [])
-                    # at this point, the only things left in kwargs should be options the node needs for construction
-                    self.logger.debug(f'Kwargs for {name}: {kwargs}')
+                    node_type = kwargs['type']
+                    node_kwargs = {
+                            'type': kwargs['type']
+                            'name': name,
+                            'logger': self.logger,
+                            'upstream': [self.graph[u] for u in upstream]}
+                    downstream[name] = kwargs.get('downstream', [])
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
+                    if isinstance(n, InfluxSourceNode):
+                        reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
+                        n.setup(reading_doc['topic'], influx_cfg)
+                    if isinstance(n, InfluxSinkNode):
+                        n.setup(db=self.db, topic=val)
                     if isinstance(n, AlarmNode):
-                        n.db = self.db
+                        doc = self.db.get_reading_setting(name=kwargs['input_var'])
+                        n.setup(description = doc['description'], log_alarm=self.db.log_alarm)
                     n.load_config(config['node_config'].get(name, {}))
-                    self.graph[k] = n
+                    self.graph[name] = n
                     if isinstance(n, BufferNode):
                         num_buffer_nodes += 1
                         longest_buffer = max(longest_buffer, n.buffer.length)
             nodes_built = len(self.graph) - start_len
             if nodes_built == 0:
                 # we didn't make any nodes this loop, we're probably stuck
-                raise ValueError('Can\'t construct graph! Check config')
+                self.logger.debug(f'Created {list(self.graph.keys())}')
+                self.logger.debug(f'Didn\'t create {list(set(pipeline_config.keys())-set(self.graph.keys()))}')
+                raise ValueError('Can\'t construct graph! Check config and logs')
             else:
                 self.logger.debug(f'Created {nodes_built} nodes this iter, {len(self.graph)}/{len(pipeline_config)} total')
         for k,nodes in downstream.items():
@@ -132,19 +144,28 @@ class Node(object):
         self.is_silent = True
         self.logger.debug(f'{name} constructor')
 
+    def setup(self, **kwargs):
+        """
+        Allows a child class to do some setup
+        """
+        pass
+
     def _process_base(self, status):
+        self.logger.debug(f'{self.name} processing')
         status = PipelineStatus[status] if isinstance(status, str) else PipelineStatus(status)
         self.is_silent = status == PipelineStatus.silent
-        package = self.get_package()
-        self.logger.debug(f'Got package: {package}')
+        package = self.get_package() # TODO discuss this wrt BufferNodes
+        self.logger.debug(f'{self.name} input {package}')
         ret = self.process(package)
+        self.logger.debug(f'{self.name} output {ret}')
         if ret is None:
             pass
         elif isinstance(ret, dict):
             package = ret
         else:
+            if isinstance(self, BufferNode):
+                package = package[-1]
             package[self.output_var] = ret
-        self.logger.debug(f'Sending downstream: {package}')
         self.send_downstream(package)
 
     def get_package(self):
@@ -164,7 +185,7 @@ class Node(object):
         """
         Load whatever runtime values are necessary
         """
-        for k,v in doc.values():
+        for k,v in doc.items():
             if k == 'length' and isinstance(self, BufferNode):
                 self.buffer.set_length(v)
             else:
@@ -180,36 +201,33 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
-    def get_package(self):
-        pass
+    def process(self):
+        return None
 
 class InfluxSourceNode(SourceNode):
     """
     Queries InfluxDB for the most recent value in some key
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.req_url = kwargs.pop('url')
-        self.req_headers = kwargs.pop('headers')
-        self.req_json = kwargs.pop('json')
-
-    @staticmethod
-    def make_kwargs(name, topic, version, config_doc):
+    def setup(self, topic, config_doc):
         """
-        How we actually make the request changes depending on what version of influx you use
-        :param name: the name of the reading
+        How we actually make the request changes depending on what version of influx and schema is used
         :param topic: the reading's topic
-        :param version: 1 or 2, which API version influx uses
         :param config_doc: the influx document from experiment_config
-        :return: the kwargs to pass up to the constructor
+        :return: none
         """
-        query = f'SELECT last(value) FROM {topic} WHERE reading=\'{name}\';'
-        # note that the single quotes in the query around {name} are very important
-        url = config_doc['url'] + '/query'
-        if version == 1:
-            url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}'
+        if config_doc.get('schema', 'new') == 'old':
+            variable = self.input_var
+            where = ''
+        else:
+            variable = 'value'
+            # note that the single quotes around {name} are very important
+            where = f"WHERE reading='{self.input_var}'"
+        query = f'SELECT last({variable}) FROM {topic} {where};'
+        url = config_doc['url'] + '/query?'
+        if (version := config_doc.get('version', 2)) == 1:
+            url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}&q={query}'
             headers = {}
-            json = {'q': query}
+            json = {}
         elif version == 2:
             url += f'org={config_doc["org"]}'
             headers = {'Authorization': f'Token {config_doc["auth_token"]}'}
@@ -217,13 +235,17 @@ class InfluxSourceNode(SourceNode):
         else:
             raise ValueError("Invalid version specified: must be 1 or 2")
 
-        return {'url': url, 'headers': headers, 'json': json}
+        self.req_url = url
+        self.req_headers = headers
+        self.req_json = json
+        self.last_time = ''
 
     def get_package(self):
         x = requests.get(self.req_url, headers=self.req_headers, json=self.req_json).json()
-        if 'code' in x:
-            raise ValueError(f'Didn\'t get any data: {x["message"]}')
-        data = x['results'][0]['series'][0] # oh god the formatting of this thing
+        try:
+            data = x['results'][0]['series'][0] # oh god the formatting of this thing
+        except Exception as e:
+            raise ValueError(f'Error parsing data: {x}')
         date_str, val = data['values'][0]
         # date_str looks like YYYY-mm-DDTHH:MM:SS.FFFZ, which doesn't quite work so we strip the 'Z'
         # also sometimes there are only 2 digits of milliseconds, which also doesn't work
@@ -233,14 +255,17 @@ class InfluxSourceNode(SourceNode):
         else:
             # just strip the Z
             ms = ms[:-1]
-        t = datetime.datetime.fromisoformat(f'{not_ms}.{ms}')
-        # TODO make sure t isn't too old
+        if self.last_time == f'{not_ms}.{ms}':
+            raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
+        self.last_time = f'{not_ms}.{ms}'
+        t = datetime.datetime.fromisoformat(f'{not_ms}.{ms}').timestamp()
         self.logger.debug(f'{self.name} time {date_str} value {val}')
         return {'time': t, self.output_var: val}
 
 class BufferNode(Node):
     def get_package(self):
-        return self.buffer
+        # deep copy because the MergeNode will change its input
+        return list(map(dict, self.buffer))
 
 class LowPassFilter(BufferNode):
     """
@@ -260,8 +285,7 @@ class MergeNode(BufferNode):
     """
     Merges packages from two or more upstream nodes into one new package
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def setup(self, **kwargs):
         self.buffer.set_length(len(self.upstream_nodes))
 
     def merge_time(self, packages):
@@ -270,8 +294,12 @@ class MergeNode(BufferNode):
 
     def process(self, packages):
         new_package = {'time': self.merge_time(packages)}
-        for common_key in set.intersection(set(p.keys() for p in packages)):
-            new_package[common_key] = sum(p.pop(common_key) for p in packages)/len(packages)
+        common_keys = set(packages[0].keys())
+        for p in packages[1:]:
+            common_keys &= set(p.keys())
+        for key in common_keys:
+            # average other common keys
+            new_package[key] = sum(p.pop(key) for p in packages)/len(packages)
         for p in packages:
             for k,v in p.items():
                 new_package[k] = v
@@ -294,17 +322,16 @@ class IntegralNode(BufferNode):
             t0, v0 = packages[i]['time'], packages[i][self.input_var]
             t1, v1 = packages[i+1]['time'], packages[i+1][self.input_var]
             integral += (t1 - t0) * (v1 + v0) * 0.5
-        integral = integral/(packages[-1]['time'] - packages[0]['time'])
-        xform = self.config.get('transform', [0,1])
-        return sum(a*integral**i for i,a in enumerate(xform))
+        integral = integral/(packages[0]['time'] - packages[-1]['time'])
+        return integral
 
-class DifferentialNode(BufferNode):
+class DerivativeNode(BufferNode):
     """
     Calculates the derivative of the specified value over the specified duration by a chi-square linear fit. DivideByZero error
     is impossible as long as there are at least two values
     """
     def process(self, packages):
-        t_min = min(p['time'] for p in packages)
+        t_min = packages[0]['time']
         # we subtract t_min to keep the numbers smaller - result doesn't change and we avoid floating-point issues
         # that might show up when we multiply large floats together
         t = [p['time']-t_min for p in packages]
@@ -315,8 +342,7 @@ class DifferentialNode(BufferNode):
         E = sum(y)
         F = sum(t)
         slope = (D*C-E*F)/(B*C - F*F)
-        xform = self.config.get('transform', [0,1])
-        return sum(a*slope**i for i,a in enumerate(xform))
+        return slope
 
 class PolynomialNode(Node):
     """
@@ -326,6 +352,17 @@ class PolynomialNode(Node):
         xform = self.config.get('transform', [0,1])
         return sum(a*package[self.input_var]**i for i,a in enumerate(xform))
 
+class InfluxSinkNode(Node):
+    """
+    Puts a value back into influx
+    """
+    def setup(self, db=None, topic=None):
+        self.write_to_influx = db.write_to_influx
+        self.topic = topic
+
+    def process(self, package):
+        self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
+                                fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class AlarmNode:
     """
@@ -337,6 +374,10 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
     """
     A simple alarm
     """
+    def setup(self, description=None, log_alarm=None):
+        self.description = description
+        self.log_alarm = log_alarm
+
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
         level = -1
@@ -348,9 +389,17 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
                     pass
                 else:
                     level = max(i, level)
-            if level >= 0 and not self.is_silent:
-                msg = f'Alarm for {} measurement {} ({desc}) - {values[-1]} is outside the specified range ({alarm_levels[level]})'
-                self.db.log_alarm() # TODO
+            if level >= 0:
+                msg = (f'Alarm for {self.description} ({self.input_var} - {values[-1]}) '
+                       f'is outside the specified range ({alarm_levels[level]}) for level {level}')
+                if not self.is_silent:
+                    doc = {
+                            'msg': msg,
+                            'name': self.input_var,
+                            'howbad': level,
+                        }
+                    self.log_alarm(doc)
+                self.logger.error(msg)
         except Exception as e:
             self.logger.debug(f'Caught a {type(e)} while processing alarms: {e}')
             self.logger.debug(f'Alarm levels: {alarm_levels}, values: {values}')
@@ -413,3 +462,6 @@ class _Buffer(object):
 
     def __iter__(self):
         return self._buf.__iter__()
+
+    def __str__(self):
+        return str(list(map(str, self._buf)))

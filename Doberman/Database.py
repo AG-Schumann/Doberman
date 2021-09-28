@@ -53,10 +53,12 @@ class Database(object):
             print(f"Could not import KafkaProducer. I will run in independent mode.")
             self.kafka = FakeKafka()
             self.has_kafka = False
-        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '/write?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
-        self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
-        self.influx_headers = influx_cfg['headers']
+        cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        self.influx_cfg = {
+            'url': cfg['url'] + '/write?' + '&'.join([f'{k}={cfg[k]}' for k in ['org', 'bucket', 'precison'])
+            'precision': dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[cfg['precision']]
+            'headers': {'Authorization': f'Token {influx_cfg["token"]}'}
+            }
 
     def close(self):
         self.kafka.close()
@@ -438,20 +440,21 @@ class Database(object):
         for more info. The URL and access credentials are stored in the database and cached for use
         :param topic: the named named type of measurement (temperature, pressure, etc)
         :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
-        :param fields: a dict of field names and values, usually 'value'
+        :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
+        if topic is None or fields is None:
+            raise ValueError('Missing required fields for influx insertion')
         data = f'{topic}'
         if tags is not None:
             data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
         data += ' '
-        if fields is not None:
-            data += ','.join([
-                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
-                ])
+        data += ','.join([
+            f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
+            ])
         timestamp = timestamp or time.time()
-        data += f' {int(timestamp*self.influx_precision)}'
-        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
+        data += f' {int(timestamp*self.influx_cfg["precision"])}'
+        if requests.post(self.influx_cfg['url'], headers=self.influx_cfg['headers'], data=data).status_code != 200:
             # something went wrong
             pass
 
