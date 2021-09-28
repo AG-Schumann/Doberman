@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 import Doberman
 from pymongo import MongoClient
 import argparse
@@ -14,7 +14,7 @@ def main(mongo_client):
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
-    group.add_argument('--pipeline', action='store_true', help='Start the pipeline monitor')
+    group.add_argument('--pipeline', help='Start a pipeline')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
@@ -54,7 +54,7 @@ def main(mongo_client):
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
     elif args.pipeline:
-        kwargs['name'] = 'pipeline_monitor'
+        kwargs['name'] = 'pipeline_' + args.pipeline
         ctor = Doberman.PipelineMonitor
     elif args.status:
         pprint.pprint(db.get_current_status())
