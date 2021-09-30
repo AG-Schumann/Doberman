@@ -18,9 +18,17 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
-        self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
-        self.influx_headers = influx_cfg['headers']
+        self.influx_url = influx_cfg['url'] + '?'
+        if influx_cfg['version'] == 1:
+            self.influx_url += f'u={influx_cfg["username"]}&p={influx_cfg["password"]}&db={influx_cfg["org"]}'
+            self.influx_headers = {}
+        elif influx_cfg['version'] == 2:
+            self.influx_url += (f'org={influx_cfg["org"]}&precision={influx_cfg["precision"]}'
+                                f'&bucket={influx_cfg["bucket"]}')
+            self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
+        else:
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
+        self.influx_precision = int(dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['precision']])
 
     def close(self):
         pass
