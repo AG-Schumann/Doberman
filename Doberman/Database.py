@@ -1,32 +1,11 @@
 import Doberman
 import datetime
 from socket import getfqdn
-from functools import partial
 import time
 import requests
 
 
-try:
-    from kafka import KafkaProducer
-    has_kafka = True
-except ImportError:
-    has_kafka = False
-
-dtnow = datetime.datetime.utcnow
-
 __all__ = 'Database'.split()
-
-
-class FakeKafka(object):
-    """
-    Something for testing on platforms without the Kafka driver
-    """
-
-    def send(self, *args, **kwargs):
-        pass
-
-    def close(self, *args, **kwargs):
-        pass
 
 
 class Database(object):
@@ -38,28 +17,13 @@ class Database(object):
         self.client = mongo_client
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
-        if has_kafka:
-            self.has_kafka = True
-            kafka_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'kafka'}, onlyone=True)
-            try:
-                self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
-                                           value_serializer=partial(bytes, encoding='utf-8'))
-                print(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
-            except Exception as e:
-                print(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
-                self.kafka = FakeKafka()
-                self.has_kafka = False
-        else:
-            print(f"Could not import KafkaProducer. I will run in independent mode.")
-            self.kafka = FakeKafka()
-            self.has_kafka = False
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
         self.influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
         self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
         self.influx_headers = influx_cfg['headers']
 
     def close(self):
-        self.kafka.close()
+        pass
 
     def __del__(self):
         self.close()
@@ -411,12 +375,6 @@ class Database(object):
         for host in hosts:
             monitored.extend(self.get_host_setting(host, 'default'))
         return list(set(all_sensors) - set(monitored))
-
-    def get_kafka(self, topic):
-        """
-        Returns a setup kafka producer to whoever wants it
-        """
-        return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
