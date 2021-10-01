@@ -182,9 +182,10 @@ class Database(object):
         """
         now = dtnow()
         doc = self.find_one_and_update('logging', 'commands',
-                                       cuts={'name': name,
-                                             'acknowledged': {'$exists': 0},
-                                             'logged': {'$lte': now}},
+                # the order of terms in the query is important
+                                       cuts={'acknowledged': 0,
+                                             'logged': {'$lte': now},
+                                             'name': name},
                                        updates={'$set': {'acknowledged': now}},
                                        sort=[('logged', 1)])
         if doc and 'by' in doc and doc['by'] == 'feedback':
@@ -196,6 +197,7 @@ class Database(object):
         """
         if 'logged' not in doc:
             doc['logged'] = dtnow()
+        doc['acknowledged'] = 0
         self.insert_into_db('logging', 'commands', doc)
 
     def get_message_protocols(self, level):
