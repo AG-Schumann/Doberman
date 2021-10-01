@@ -63,8 +63,7 @@ class SensorMonitor(Doberman.Monitor):
         return self.db.get_host_setting(field='heartbeat_timer')
 
     def handle_commands(self):
-        doc = self.db.find_command(self.name)
-        while doc is not None:
+        while (doc := self.db.find_command(self.name)) is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
             if command.startswith('runmode'):
@@ -88,10 +87,9 @@ class SensorMonitor(Doberman.Monitor):
                 self.event.set()
                 self.db.set_host_setting(pull={'default': self.name})
             elif self.sensor is not None:
-                self.sensor.execute_command(command=command)
+                self.sensor._execute_command(command=command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
-            doc = self.db.find_command(self.name)
 
     def reload_readings(self):
         readings_dict = self.db.get_sensor_setting(self.name, 'readings')
@@ -103,5 +101,3 @@ class SensorMonitor(Doberman.Monitor):
             self.register(func=self.ScheduleReading, period=r.readout_interval,
                           reading=r, name=r.name)
 
-    def build_reading(self):
-        pass

@@ -146,21 +146,23 @@ class Sensor(object):
         """
         raise NotImplementedError()
 
-    def execute_command(self, command):
+    def _execute_command(self, command):
         """
         Allows Doberman to issue commands to the sensor (change setpoints, valve
         positions, etc)
         """
-        if not hasattr(self, 'command_patterns'):
-            self.logger.error("I don't accept specific commands")
-            return
-        for pattern, func in self.command_patterns:
-            m = pattern.search(command)
-            if not m:
-                continue
-            self.add_to_schedule(command=func(m))
-            return
-        self.logger.error(f"Did not understand command '{command}'")
+        try:
+            cmd = self.execute_command(command)
+        except Exception as e:
+            self.logger.info(f'Tried to process command "{command}", got a {type(e)}: {e}')
+        if cmd is not None:
+            self.add_to_schedule(command=cmd)
+
+    def execute_command(self, command):
+        """
+        Implemented by a child class
+        """
+        pass
 
     def close(self):
         self.event.set()
