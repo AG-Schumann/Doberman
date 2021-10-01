@@ -1,7 +1,7 @@
 import Doberman
-import datetime
 
-class ValveControlNode(Doberman.Node):
+
+class ValveControlNode(Doberman.ControlNode):
     """
     A logic node to control a nitrogen level valve, based on a levelmeter and a control valve
     """
@@ -22,10 +22,13 @@ class ValveControlNode(Doberman.Node):
         if liquid_level < low_level:
             if valve_status == 0:
                 # valve is closed, level is too low
-                # open the valve
-                self.control_valve(1)
-                self.valve_opened = package['time']
-                self.logger.info('Scheduling valve opening')
+                if vac_is_good and scale_is_good:
+                    # open the valve
+                    self.set_output(1)
+                    self.valve_opened = package['time']
+                    self.logger.info('Scheduling valve opening')
+                else:
+                    self.logger.info('Would love to open the valve but either the scale or vac are bad')
             else:
                 # valve is open, check to see for how long
                 if hasattr(self, 'valve_opened'):
@@ -56,26 +59,22 @@ class ValveControlNode(Doberman.Node):
                             pass
                         else:
                             fill_pct = (liquid_level - low_level)/(high_level - low_level)
-                            self.logger.debug(f'Valve has been open for {int(dt//60)}m{int(dt)%60}s, filling at {fill_rate:.1f} ({fill_pct:.1f}%)')
+                            self.logger.debug(f'Valve has been open for {int(dt//60)}m{int(dt%60)}s, filling at {fill_rate:.1f} ({fill_pct:.1f}%)')
                 else:
                     # we don't have a self.valve_opened, valve was probably opened by something else
                     # TODO how to handle?
                     pass
             else:
-                # valve is closed
+                # valve is closed, we're in "normal" conditions
                 pass
 
         else:
             # liquid level > high
             if valve_status == 1:
                 # reached FULL
-                self.control_valve(0)
+                self.set_output(0)
                 self.logger.info('Scheduling valve closing')
             else:
                 # valve is closed
                 pass
 
-    def control_valve(self, state):
-        if self.is_silent:
-            return
-        pass
