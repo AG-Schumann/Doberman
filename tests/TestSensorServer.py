@@ -4,6 +4,12 @@ import socket
 import threading
 import math
 
+def rand():
+    '''
+    Most of the time we want something evenly distributed about 0. This returns [-1,1]
+    '''
+    return 2*random.random()-1
+
 class TestSensorBackend(object):
 
     def __init__(self):
@@ -29,11 +35,11 @@ class TestSensorBackend(object):
             then = now
             if random.random() < whoops_prob:
                 shitstorm_end = now + datetime.timedelta(seconds = 1000*random.random())
-                print('Oh shit ' + now.isoformat())
+                print('Oh shit ' + now.isoformat() + ' ' + shitstorm_end.isoformat())
             t_out = self.outside_temp(now)
             q_in = k_cond*(t_out - self.t_in) + k_rad*(t_out**4 - self.t_in**4) + self.q_add
             if now < shitstorm_end:
-                q_in += 0.3*math.cos(now.timestamp())
+                q_in += 0.3*rand()
             q_out = self.q_out
             dq = (q_in - q_out) * dt
 
@@ -48,13 +54,13 @@ class TestSensorBackend(object):
         added on top for good measure
         """
         if quantity == 't_in':
-            noise = 0.01 * (random.random()-0.5)  # 10 mK
+            noise = 0.01 * rand()  # 10 mK
             return f'{self.t_in + noise:.3f}'
         if quantity == 'q_add':
-            noise = 0.99 + 0.02 * random.random()  # 1%
+            noise = 1 + 0.01 * rand()  # 1%
             return f'{self.q_add * noise:.2f}'
         if quantity == 't_amb':
-            noise = 0.2 * (random.random()-0.5) # 0.2 K
+            noise = 0.2 * rand() # 0.2 K
             now = datetime.datetime.utcnow()
             return f'{self.outside_temp(now) + noise:.1f}'
 
