@@ -102,7 +102,10 @@ class Pipeline(object):
                         n.setup(db=self.db, topic=val)
                     if isinstance(n, AlarmNode):
                         doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        n.setup(description = doc['description'], log_alarm=self.db.log_alarm)
+                        n.description = doc['description']
+                        n._log_alarm = self.db.log_alarm
+                    if isinstance(n, ControlNode):
+                        n.setup(log_command=self.db.log_command)
                     n.load_config(config['node_config'].get(name, {}))
                     self.graph[name] = n
                     if isinstance(n, BufferNode):
@@ -314,26 +317,27 @@ class MergeNode(BufferNode):
 class IntegralNode(BufferNode):
     """
     Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
-    Divides by the time interval at the end
+    Divides by the time interval at the end. Supports a 't_offset' config value, which is some time offset
+    from the end of the buffer.
     """
     def process(self, packages):
-        integral = 0
-        for i in range(len(packages)-1):
-            t0, v0 = packages[i]['time'], packages[i][self.input_var]
-            t1, v1 = packages[i+1]['time'], packages[i+1][self.input_var]
-            integral += (t1 - t0) * (v1 + v0) * 0.5
-        integral = integral/(packages[0]['time'] - packages[-1]['time'])
+        offset = self.config.get('t_offset', 0)
+        t = [p['time'] for p in packages]
+        v = [p[self.input_var] for p in packages]
+        integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 for i in range(1, len(packages)-offset))
+        integral /= (t[0] - t[-1-offset])
         return integral
 
 class DerivativeNode(BufferNode):
     """
-    Calculates the derivative of the specified value over the specified duration by a chi-square linear fit. DivideByZero error
-    is impossible as long as there are at least two values
+    Calculates the derivative of the specified value over the specified duration by a chi-square linear fit to
+    minimize the impact of noise. DivideByZero error is impossible as long as there are at least two values in
+    the buffer
     """
     def process(self, packages):
         t_min = packages[0]['time']
-        # we subtract t_min to keep the numbers smaller - result doesn't change and we avoid floating-point issues
-        # that might show up when we multiply large floats together
+        # we subtract t_min to keep the numbers smaller - result doesn't change and we avoid floating-point
+        # issues that can show up when we multiply large floats together
         t = [p['time']-t_min for p in packages]
         y = [p[self.input_var] for p in packages]
         B = sum(v*v for v in t)
@@ -361,14 +365,28 @@ class InfluxSinkNode(Node):
         self.topic = topic
 
     def process(self, package):
-        self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
+        if not self.is_silent:
+            self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
                                 fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class AlarmNode:
     """
     An empty base class to handle database access
     """
-    pass
+    def log_alarm(self, msg, name, level):
+        if not self.is_silent:
+            self._log_alarm({'msg': msg, 'name': name, 'level': level})
+        else:
+            self.logger.error(msg)
+
+class ControlNode(Node):
+    """
+    Another empty base class to handle different database access
+    """
+    def set_output(self, value):
+        if not self.is_silent:
+            self._log_command({'name': self.control_target, 'acknowledged': 0,
+                command: f'set {self.control_value} {value}'})
 
 class SimpleAlarmNode(BufferNode, AlarmNode):
     """
@@ -392,14 +410,7 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
             if level >= 0:
                 msg = (f'Alarm for {self.description} ({self.input_var} - {values[-1]}) '
                        f'is outside the specified range ({alarm_levels[level]}) for level {level}')
-                if not self.is_silent:
-                    doc = {
-                            'msg': msg,
-                            'name': self.input_var,
-                            'howbad': level,
-                        }
-                    self.log_alarm(doc)
-                self.logger.error(msg)
+                self.log_alarm(msg=msg, name=self.input_var, level=howbad)
         except Exception as e:
             self.logger.debug(f'Caught a {type(e)} while processing alarms: {e}')
             self.logger.debug(f'Alarm levels: {alarm_levels}, values: {values}')
