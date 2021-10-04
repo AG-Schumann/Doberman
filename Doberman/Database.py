@@ -4,7 +4,6 @@ from socket import getfqdn
 import time
 import requests
 
-
 __all__ = 'Database'.split()
 
 
@@ -18,9 +17,17 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
-        self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
-        self.influx_headers = influx_cfg['headers']
+        self.influx_url = influx_cfg['url'] + '?'
+        if influx_cfg['version'] == 1:
+            self.influx_url += f'u={influx_cfg["username"]}&p={influx_cfg["password"]}&db={influx_cfg["org"]}'
+            self.influx_headers = {}
+        elif influx_cfg['version'] == 2:
+            self.influx_url += (f'org={influx_cfg["org"]}&precision={influx_cfg["precision"]}'
+                                f'&bucket={influx_cfg["bucket"]}')
+            self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
+        else:
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
+        self.influx_precision = int(dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['precision']])
 
     def close(self):
         pass
@@ -377,6 +384,52 @@ class Database(object):
         for host in hosts:
             monitored.extend(self.get_host_setting(host, 'default'))
         return list(set(all_sensors) - set(monitored))
+
+    def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
+        """
+        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
+        for more info. The URL and access credentials are stored in the database and cached for use
+        :param topic: the named named type of measurement (temperature, pressure, etc)
+        :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
+        :param fields: a dict of field names and values, usually 'value'
+        :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
+        """
+        data = f'{topic}'
+        if tags is not None:
+            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
+        data += ' '
+        if fields is not None:
+            data += ','.join([
+                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
+                ])
+        timestamp = timestamp or time.time()
+        data += f' {int(timestamp*self.influx_precision)}'
+        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
+            # something went wrong
+            pass
+
+    def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
+        """
+        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
+        for more info. The URL and access credentials are stored in the database and cached for use
+        :param topic: the named named type of measurement (temperature, pressure, etc)
+        :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
+        :param fields: a dict of field names and values, usually 'value'
+        :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
+        """
+        data = f'{topic}'
+        if tags is not None:
+            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
+        data += ' '
+        if fields is not None:
+            data += ','.join([
+                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
+                ])
+        timestamp = timestamp or time.time()
+        data += f' {int(timestamp*self.influx_precision)}'
+        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
+            # something went wrong
+            pass
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
