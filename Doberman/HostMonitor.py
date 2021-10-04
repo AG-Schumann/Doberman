@@ -17,7 +17,6 @@ class HostMonitor(Doberman.Monitor):
 
     def setup(self):
         self.hostname = getfqdn()
-        self.kafka = self.db.get_kafka("sysmon")
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         cfg = self.db.get_host_setting()
         self.db.set_host_setting(self.hostname, set={'status': 'online'})

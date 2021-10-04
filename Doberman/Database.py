@@ -1,32 +1,10 @@
 import Doberman
 import datetime
 from socket import getfqdn
-from functools import partial
 import time
 import requests
 
-
-try:
-    from kafka import KafkaProducer
-    has_kafka = True
-except ImportError:
-    has_kafka = False
-
-dtnow = datetime.datetime.utcnow
-
 __all__ = 'Database'.split()
-
-
-class FakeKafka(object):
-    """
-    Something for testing on platforms without the Kafka driver
-    """
-
-    def send(self, *args, **kwargs):
-        pass
-
-    def close(self, *args, **kwargs):
-        pass
 
 
 class Database(object):
@@ -38,30 +16,23 @@ class Database(object):
         self.client = mongo_client
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
-        if has_kafka:
-            self.has_kafka = True
-            kafka_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'kafka'}, onlyone=True)
-            try:
-                self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
-                                           value_serializer=partial(bytes, encoding='utf-8'))
-                print(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
-            except Exception as e:
-                print(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
-                self.kafka = FakeKafka()
-                self.has_kafka = False
+        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        self.influx_url = influx_cfg['url'] + '/write?'
+        if influx_cfg['version'] == 1:
+            query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
+                    ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
+            self.influx_headers = {}
+        elif influx_cfg['version'] == 2:
+            query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
+                    ('bucket', influx_cfg['bucket'])]
+            self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
-            print(f"Could not import KafkaProducer. I will run in independent mode.")
-            self.kafka = FakeKafka()
-            self.has_kafka = False
-        cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_cfg = {
-            'url': cfg['url'] + '/write?' + '&'.join([f'{k}={cfg[k]}' for k in ['org', 'bucket', 'precison'])
-            'precision': dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[cfg['precision']]
-            'headers': {'Authorization': f'Token {influx_cfg["token"]}'}
-            }
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
+        self.influx_url += '&'.join([f'{k}={v}' for k, v in query_params])
+        self.influx_precision = int(dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['precision']])
 
     def close(self):
-        self.kafka.close()
+        pass
 
     def __del__(self):
         self.close()
@@ -220,9 +191,10 @@ class Database(object):
         """
         now = dtnow()
         doc = self.find_one_and_update('logging', 'commands',
-                                       cuts={'name': name,
-                                             'acknowledged': {'$exists': 0},
-                                             'logged': {'$lte': now}},
+                # the order of terms in the query is important
+                                       cuts={'acknowledged': 0,
+                                             'logged': {'$lte': now},
+                                             'name': name},
                                        updates={'$set': {'acknowledged': now}},
                                        sort=[('logged', 1)])
         if doc and 'by' in doc and doc['by'] == 'feedback':
@@ -234,6 +206,7 @@ class Database(object):
         """
         if 'logged' not in doc:
             doc['logged'] = dtnow()
+        doc['acknowledged'] = 0
         self.insert_into_db('logging', 'commands', doc)
 
     def get_pipeline(self, name):
@@ -428,12 +401,6 @@ class Database(object):
             monitored.extend(self.get_host_setting(host, 'default'))
         return list(set(all_sensors) - set(monitored))
 
-    def get_kafka(self, topic):
-        """
-        Returns a setup kafka producer to whoever wants it
-        """
-        return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
-
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
         Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
@@ -445,7 +412,7 @@ class Database(object):
         """
         if topic is None or fields is None:
             raise ValueError('Missing required fields for influx insertion')
-        data = f'{topic}'
+        data = f'{topic}' if self.experiment_name != 'testing' else 'testing'
         if tags is not None:
             data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
         data += ' '
@@ -453,7 +420,7 @@ class Database(object):
             f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
             ])
         timestamp = timestamp or time.time()
-        data += f' {int(timestamp*self.influx_cfg["precision"])}'
+        data += f' {int(timestamp*self.influx_precision)}'
         if requests.post(self.influx_cfg['url'], headers=self.influx_cfg['headers'], data=data).status_code != 200:
             # something went wrong
             pass
