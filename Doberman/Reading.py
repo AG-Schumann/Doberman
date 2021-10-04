@@ -24,8 +24,6 @@ class Reading(threading.Thread):
         self.name = kwargs['reading_name']
         self.logger = kwargs.pop('logger')
         self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
-        self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
-                                                                   name=self.name, field='topic'))
         self.key = f'{self.sensor_name}__{self.name}'
         self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
@@ -111,7 +109,7 @@ class Reading(threading.Thread):
 
     def check_for_alarm(self, value):
         """
-        If Kafka is not used this checks the reading for alarms and logs it to the database
+        This checks the reading for alarms and logs it to the database
         """
         reading = self.db.get_reading_setting(self.sensor_name, self.name)
         if reading['runmode'] == 'default':
@@ -142,12 +140,6 @@ class Reading(threading.Thread):
         """
         This function sends data upstream to wherever it should end up
         """
-        if self.db.has_kafka:
-            try:
-                self.kafka(value=f'{self.name},{value:.6g}')
-            except Exception as e:
-                self.kafka(value=f'{self.name},{value}')
-            return
         self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
                                 fields={'value': value})
 
@@ -167,13 +159,6 @@ class MultiReading(Reading):
         return values
 
     def send_upstream(self, values):
-        if self.db.has_kafka:
-            for n, v in zip(self.all_names, values):
-                try:
-                    self.kafka(value=f'{n},{v:.6g}')
-                except Exception as e:
-                    self.kafka(value=f'{n},{v}')
-            return
         for n, v in zip(self.all_names, values):
             self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n},
                                     fields={'value': v})
