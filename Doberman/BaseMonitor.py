@@ -91,6 +91,8 @@ class Monitor(object):
             self.threads[name].event.set()
             self.threads[name].join()
             del self.threads[name]
+        else:
+            self.logger.info(f'Asked to stop thread {name}, but it isn\'t in the dict')
 
     def check_threads(self):
         """
