@@ -20,8 +20,9 @@ class AlarmMonitor(Doberman.Monitor):
 
     def setup(self):
         now = dtnow()
-        self.current_shifters = self.db.read_from_db('settings', 'shifts', 
-                {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)['shifters']
+        self.current_shifters = self.db.read_from_db('settings', 'shifts',
+                                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
+                                                     onlyone=True)['shifters']
         self.current_shifters.sort()
         self.register(obj=self.check_heartbeats, period=30, name='heartbeat')
         self.register(obj=self.check_for_alarms, period=5, name='alarmcheck')
@@ -72,7 +73,7 @@ class AlarmMonitor(Doberman.Monitor):
                 recipients.extend(bcc)
             msg['Subject'] = subject
             if add_signature:
-                signature = f"\n\n----------\nMessage created on {now} by slow control. This is a automatic message."
+                signature = f'\n\n----------\nMessage created on {now} by Doberman slow control.'
                 body = str(message) + signature
             else:
                 body = str(message)
@@ -88,10 +89,10 @@ class AlarmMonitor(Doberman.Monitor):
                 server.login(fromaddr, password)
                 server.sendmail(fromaddr, recipients, msg.as_string())
                 server.quit()
-            self.logger.info("Mail (Subject:%s) sent" % (str(subject)))
+            self.logger.info(f'Mail (Subject:{subject}) sent')
         except Exception as e:
-            self.logger.warning("Could not send mail, error: %s (%s)." % (str(e), type(e)))
-        return 0
+            self.logger.warning(f'Could not send mail: {e} ({type(e)})')
+            return 0
 
     def send_sms(self, phone_number, message):
         """
@@ -109,7 +110,7 @@ class AlarmMonitor(Doberman.Monitor):
             contactaddr = connection_details['contactaddr']
             # fromaddr = connection_details['fromaddr']
             if not phone_number:
-                self.logger.warning("No phone number given. Can not send SMS.")
+                self.logger.warning('No phone number given. Can not send SMS.')
                 return 0
             # Server has different type request for 1 or several numbers.
             if len(phone_number) == 1:
@@ -122,9 +123,9 @@ class AlarmMonitor(Doberman.Monitor):
             subject = ''
             # Long SMS (>160 characters) cost more and are shortened
             if len(message) > 155:
-                self.logger.warning("SMS message exceets limit of 160 "
-                                    "characters (%s characters). Message will "
-                                    "be cut off." % str(len(message)))
+                self.logger.warning('SMS message exceeds limit of 160 characters '
+                                    f'({len(message)} characters). '
+                                    'Message will be cut off.')
                 message = message[:155]
             cc = None
             if self.send_email(toaddr=toaddr,
@@ -132,12 +133,11 @@ class AlarmMonitor(Doberman.Monitor):
                                message=message,
                                cc=cc, bcc=bcc,
                                add_signature=False) == -1:
-                self.logger.error("Could not send SMS! "
-                                  "Email to SMS not working.")
+                self.logger.error('Could not send SMS! Email to SMS not working.')
                 return -1
 
         except Exception as e:
-            self.logger.error("Could not send sms, error: %s (%s)." % (e, type(e)))
+            self.logger.error(f'Could not send SMS: {e}, {type(e)}')
             return -1
         return 0
 
@@ -157,10 +157,10 @@ class AlarmMonitor(Doberman.Monitor):
         if messages:
             self.logger.warning(f'Found alarms!')
             for (lvl,), msg_docs in messages.items():
-                message = ""
+                message = ''
                 for msg_doc in msg_docs:
-                    message += f'{msg_doc["_id"].generation_time.astimezone(None).strftime("%b %-d %H:%M")}'
-                    message += f': {msg_doc["msg"]} \n'
+                    time_str = msg_doc['_id'].generation_time.astimezone(None).strftime('%b %-d %H:%M')
+                    message += f'{time_str}: {msg_doc["msg"]} \n'
                 self.send_message(lvl, message)
         return
 
@@ -174,10 +174,9 @@ class AlarmMonitor(Doberman.Monitor):
         if hasattr(self, 'last_message_time') and self.last_message_time is not None:
             dt = (now - self.last_message_time).total_seconds() / 60
             if dt < message_time:
-                self.logger.warning(
-                    f'Sent a message too recently ({dt:.0f} minutes). Message timer at {message_time:.0f}')
+                self.logger.warning(f'Sent a message too recently ({dt:.0f} minutes). '
+                                    f'Message timer at {message_time:.0f}')
                 return -3
-
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
                 message = f'{self.db.experiment_name.upper()} {message}'
@@ -196,13 +195,12 @@ class AlarmMonitor(Doberman.Monitor):
     def check_heartbeats(self):
         hosts = self.db.read_from_db('settings', 'hosts',
                                      {'status': {'$ne': 'offline'}})
-        now = dtnow() 
+        now = dtnow()
         for host in hosts:
             if (now - host['heartbeat']).total_seconds() > 2 * host['heartbeat_timer']:
                 alarm_doc = {'name': 'alarm_monitor', 'howbad': 1,
-                             'msg': 'Host "%s" hasn\'t heartbeated recently' % host['hostname']}
+                             'msg': f'Host {host["hostname"]} has no recent heartbeat'}
                 self.db.log_alarm(alarm_doc)
-
 
     def check_shifters(self):
         """
@@ -211,8 +209,8 @@ class AlarmMonitor(Doberman.Monitor):
 
         now = dtnow()
         shift = self.db.read_from_db('settings', 'shifts',
-                {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
-        if shift == None:
+                                     {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
+        if shift is None:
             self.current_shifters = []
             return
         new_shifters = shift['shifters']
@@ -221,12 +219,12 @@ class AlarmMonitor(Doberman.Monitor):
             if len(''.join(new_shifters)) == 0:
                 self.logger.info('No more allocated shifters.')
                 return
-            
-            end_time = shift['end'].replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%b %-d %H:%M')
+
+            end_time = shift['end'].replace(tzinfo=timezone.utc).astimezone(tz=None)
             shifters = list(filter(None, new_shifters))
             msg = f'{", ".join(shifters)} '
-            msg += ('is ' if len(shifters)==1 else 'are ')
-            msg += f'now on shift until {end_time}.'
+            msg += ('is ' if len(shifters) == 1 else 'are ')
+            msg += f'now on shift until {end_time.strftime("%b %-d %H:%M")}.'
             doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
