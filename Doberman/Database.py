@@ -216,6 +216,18 @@ class Database(object):
         """
         return self.read_from_db('settings', 'pipelines', {'name': name}, onlyone=True)
 
+    def get_alarm_pipelines(self, inactive=False):
+        """
+        Returns a list of names of pipelines.
+        :param inactive: bool, include currently inactive pipelines in the return
+        :yields: names of pipelines
+        """
+        query = {'name': {'$regex': 'alarm'}, 'status': {'$in': ['active', 'silent']}}
+        if inactive:
+            del query['status']
+        for doc in self.read_from_db('settings', 'pipelines', query):
+            yield doc['name']
+
     def set_pipeline_value(self, name, kvp):
         """
         Updates a pipeline config
