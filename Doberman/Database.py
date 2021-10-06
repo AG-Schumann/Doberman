@@ -6,6 +6,7 @@ import requests
 
 __all__ = 'Database'.split()
 
+dtnow = Doberman.utils.dtnow
 
 class Database(object):
     """
