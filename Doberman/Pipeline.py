@@ -403,7 +403,7 @@ class EvalNode(Node):
 
     def process(self, package):
         v = [package[i] for i in self.input_var]
-        c = list(self.config.values())
+        c = self.config.get('c', [])
         return eval(self.operation)
 
 class SensorRespondingAlarm(InfluxSourceNode, AlarmNode):

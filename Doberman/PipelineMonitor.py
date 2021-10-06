@@ -11,7 +11,7 @@ class PipelineMonitor(Doberman.Monitor):
 
     def setup(self):
         self.pipelines = {}
-        if self.name == 'alarm_pipeline':
+        if self.name == 'pl_alarm':
             for name in self.db.get_alarm_pipelines():
                 self.start_pipeline(name)
         else:
@@ -40,13 +40,13 @@ class PipelineMonitor(Doberman.Monitor):
             try:
                 command = doc['command']
                 if command == 'pipelinectl_start':
-                    _, name = command.split(' ')[1]
+                    _, name = command.split(' ')
                     self.start_pipeline(name)
                 elif command == 'pipelinectl_stop':
-                    _, name = command.split(' ')[1]
+                    _, name = command.split(' ')
                     self.stop_pipeline(name)
                 elif command == 'pipelinectl_restart':
-                    _, name = command.split(' ')[1]
+                    _, name = command.split(' ')
                     self.stop_pipeline(name)
                     self.start_pipeline(name)
                 elif command == 'stop':
