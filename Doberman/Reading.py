@@ -127,8 +127,8 @@ class Reading(threading.Thread):
                         else:
                             self.recurrence_counter += 1
                             if self.recurrence_counter >= recurrence:
-                                msg = f'Alarm for {reading["topic"]} measurement {self.name}: {value} is outside ' \
-                                      + f'alarm range ({setpoint + lo}, {setpoint + hi})'
+                                msg = f'{reading["description"]}: {value} is outside ' \
+                                      + f'range ({setpoint + lo}, {setpoint + hi})'
                                 self.logger.warning(msg)
                                 self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
                                 self.recurrence_counter = 0
