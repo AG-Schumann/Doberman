@@ -54,10 +54,7 @@ def main(mongo_client):
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
     elif args.pipeline:
-        if args.pipeline == 'alarm':
-            kwargs['name'] = 'alarm_pipeline'
-        else:
-            kwargs['name'] = args.pipeline
+        kwargs['name'] = f'pl_{args.pipeline}'
         ctor = Doberman.PipelineMonitor
     elif args.status:
         pprint.pprint(db.get_current_status())
