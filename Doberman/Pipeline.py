@@ -125,6 +125,11 @@ class Pipeline(object):
 
     def reconfigure(self, doc):
         for node in self.graph.values():
+            if isinstance(node, AlarmNode):
+                rd = self.db.get_reading_setting(name=node.input_var)
+                if node.name not in doc:
+                    doc[node.name] = {}
+                doc[node.name].update(alarms=rd['alarm'], readout_interval=rd['readout_interval'])
             if node.name in doc:
                 node.load_config(doc[node.name])
 
@@ -216,6 +221,7 @@ class InfluxSourceNode(SourceNode):
         :param config_doc: the influx document from experiment_config
         :return: none
         """
+        super().setup(**kwargs)
         config_doc = kwargs['config_doc']
         topic = kwargs['topic']
         if config_doc.get('schema', 'new') == 'old':
@@ -228,13 +234,13 @@ class InfluxSourceNode(SourceNode):
             where = f"WHERE reading='{self.input_var}'"
         query = f'SELECT last({variable}) FROM {topic} {where};'
         url = config_doc['url'] + '/query?'
+        headers = {'Accept': 'application/csv'}
         if (version := config_doc.get('version', 2)) == 1:
             url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}&q={query}'
-            headers = {'Accept': 'application/csv'}
             json = {}
         elif version == 2:
             url += f'org={config_doc["org"]}'
-            headers = {'Authorization': f'Token {config_doc["auth_token"]}', 'Accept': 'application/csv'}
+            headers.update({'Authorization': f'Token {config_doc["auth_token"]}'})
             json = {'bucket': config_doc['bucket'], 'type': 'influxql', 'query': query}
         else:
             raise ValueError("Invalid version specified: must be 1 or 2")
@@ -284,6 +290,7 @@ class MergeNode(BufferNode):
     Merges packages from two or more upstream nodes into one new package
     """
     def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.buffer.set_length(len(self.upstream_nodes))
 
     def merge_time(self, packages):
@@ -356,6 +363,7 @@ class InfluxSinkNode(Node):
     Puts a value back into influx
     """
     def setup(self, **kwargs)
+        super().setup(**kwargs)
         self.topic = kwargs['topic']
         self.write_to_influx = kwargs['write_to_influx']
 
@@ -364,26 +372,12 @@ class InfluxSinkNode(Node):
             self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
                                 fields={'value': package[self.input_var]}, timestamp=package['time'])
 
-class AlarmNode(Node):
-    """
-    An empty base class to handle database access
-    """
-    def setup(self, **kwargs):
-        self.description = kwargs['description']
-        self.sensor = kwargs['sensor']
-        self._log_alarm = kwargs['log_alarm']
-
-    def log_alarm(self, msg, level):
-        if not self.is_silent:
-            self._log_alarm({'msg': msg, 'name': self.input_var, 'level': level})
-        else:
-            self.logger.error(msg)
-
 class ControlNode(Node):
     """
     Another empty base class to handle different database access
     """
     def setup(self, **kwargs)
+        super().setup(**kwargs)
         self._log_command = kwargs['log_command']
         self.control_target = kwargs['control_target']
         self.control_value = kwargs['control_value']
@@ -399,12 +393,29 @@ class EvalNode(Node):
     An evil node that executes an arbitrary operation specified by the user
     """
     def setup(self, **kwargs):
+        super().setup(**kwargs)
         self.operation = kwargs['operation']
 
     def process(self, package):
         v = [package[i] for i in self.input_var]
         c = self.config.get('c', [])
         return eval(self.operation)
+
+class AlarmNode(Node):
+    """
+    An empty base class to handle database access
+    """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.description = kwargs['description']
+        self.sensor = kwargs['sensor']
+        self._log_alarm = kwargs['log_alarm']
+
+    def log_alarm(self, msg):
+        if not self.is_silent:
+            self._log_alarm({'msg': msg, 'name': self.input_var})
+        else:
+            self.logger.error(msg)
 
 class SensorRespondingAlarm(InfluxSourceNode, AlarmNode):
     """
@@ -414,14 +425,13 @@ class SensorRespondingAlarm(InfluxSourceNode, AlarmNode):
         try:
             return super().get_package()
         except ValueError as e:
-            self.log_alarm(level=1, msg=(f'Is {self.sensor} responding correctly? We haven\'t gotten a new value'
-                                         f' very recently'))
+            self.log_alarm(f"Is {self.sensor} responding correctly? We haven't gotten a new value recently")
             raise
 
     def process(self, package):
         if (now := time.time()) - package['time'] > 2*self.config['readout_interval']:
-            self.log_alarm(level=1,
-                    msg=(f'Is {self.sensor} responding correctly? A value for {self.input_var} is '
+            self.log_alarm(
+                    (f'Is {self.sensor} responding correctly? A value for {self.input_var} is '
                          f'{now-package["time"]:.1f}s late rather than {self.config["readout_interval"]}'))
 
 class SimpleAlarmNode(BufferNode, AlarmNode):
@@ -430,22 +440,14 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
     """
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
-        level = -1
-        alarm_levels = self.config.get('alarm_levels', [])
-        try:
-            for i, (low, high) in enumerate(alarm_levels):
-                if any([low <= v <= high for v in values]):
-                    # at least one value is in an acceptable range
-                    pass
-                else:
-                    level = max(i, level)
-            if level >= 0:
-                msg = (f'Alarm for {self.description} ({self.input_var} - {values[-1]}) '
-                       f'is outside the specified range ({alarm_levels[level]}) for level {level}')
-                self.log_alarm(msg=msg, level=howbad)
-        except Exception as e:
-            self.logger.debug(f'Caught a {type(e)} while processing alarms: {e}')
-            self.logger.debug(f'Alarm levels: {alarm_levels}, values: {values}')
+        low, high = self.config['alarm']
+        if any([low <= v <= high for v in values]):
+            # at least one value is in an acceptable range
+            pass
+        else:
+            msg = (f'Alarm for {self.description} ({self.input_var}) - {values[-1]} '
+                   f'is outside the allowed range ({low},{high})')
+            self.log_alarm(msg)
 
 class TimeSinceNode(BufferNode):
     """
