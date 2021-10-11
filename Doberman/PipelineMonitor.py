@@ -49,6 +49,12 @@ class PipelineMonitor(Doberman.Monitor):
                     _, name = command.split(' ')
                     self.stop_pipeline(name)
                     self.start_pipeline(name)
+                elif command == 'pipelinectl_silent':
+                    _, name = command.split(' ')
+                    self.db.set_pipeline_value(name, [('status', 'silent')])
+                elif command == 'pipelinectl_active':
+                    _, name = command.split(' ')
+                    self.db.set_pipeline_value(name, [('status', 'active')])
                 elif command == 'stop':
                     self.sh.event.set()
                     return
