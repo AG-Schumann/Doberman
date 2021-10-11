@@ -107,41 +107,13 @@ class Reading(threading.Thread):
             value = int(value)
         return value
 
-    def check_for_alarm(self, value):
-        """
-        This checks the reading for alarms and logs it to the database
-        """
-        reading = self.db.get_reading_setting(self.sensor_name, self.name)
-        if reading['runmode'] == 'default':
-            alarms = reading['alarms']
-            try:
-                simple_alarm = list(filter(lambda alarm: alarm['type'] == 'simple', alarms))[0]
-                if simple_alarm['enabled'] == 'true':
-                    setpoint = simple_alarm['setpoint']
-                    recurrence = simple_alarm['recurrence']
-                    levels = simple_alarm['levels']
-                    for i, level in reversed(list(enumerate(levels))):
-                        lo, hi = level
-                        if lo <= value - setpoint <= hi:
-                            self.recurrence_counter = 0
-                        else:
-                            self.recurrence_counter += 1
-                            if self.recurrence_counter >= recurrence:
-                                msg = f'{reading["description"]}: {value} is outside ' \
-                                      + f'range ({setpoint + lo}, {setpoint + hi})'
-                                self.logger.warning(msg)
-                                self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
-                                self.recurrence_counter = 0
-                            break
-            except Exception as e:
-                self.logger.debug(f'Alarms not properly configured for {self.name}: {type(e)}, {e}')
-
     def send_upstream(self, value):
         """
         This function sends data upstream to wherever it should end up
         """
+        doc = self.db.find_alarms(self.name)
         self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
-                                fields={'value': value})
+                fields={'value': value, 'alarm_low': low, 'alarm_high': high})
 
 
 class MultiReading(Reading):
