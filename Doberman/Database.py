@@ -409,51 +409,9 @@ class Database(object):
             # something went wrong
             pass
 
-    def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
-        """
-        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
-        for more info. The URL and access credentials are stored in the database and cached for use
-        :param topic: the named named type of measurement (temperature, pressure, etc)
-        :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
-        :param fields: a dict of field names and values, usually 'value'
-        :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
-        """
-        data = f'{topic}'
-        if tags is not None:
-            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
-        data += ' '
-        if fields is not None:
-            data += ','.join([
-                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
-                ])
-        timestamp = timestamp or time.time()
-        data += f' {int(timestamp*self.influx_precision)}'
-        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
-            # something went wrong
-            pass
-
-    def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
-        """
-        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
-        for more info. The URL and access credentials are stored in the database and cached for use
-        :param topic: the named named type of measurement (temperature, pressure, etc)
-        :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
-        :param fields: a dict of field names and values, usually 'value'
-        :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
-        """
-        data = f'{topic}'
-        if tags is not None:
-            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
-        data += ' '
-        if fields is not None:
-            data += ','.join([
-                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
-                ])
-        timestamp = timestamp or time.time()
-        data += f' {int(timestamp*self.influx_precision)}'
-        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
-            # something went wrong
-            pass
+    def find_alarms(self, reading_name):
+        for doc in self.read_from_db('settings', 'pipelines', {'depends_on': reading_name}):
+            pass # TODO finish
 
     def get_current_status(self):
         """
