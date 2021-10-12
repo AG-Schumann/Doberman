@@ -98,7 +98,7 @@ class Reading(threading.Thread):
         """
         This function sends data upstream to wherever it should end up
         """
-        low, high = self.alarm is len(self.alarm) else (None, None)
+        low, high = self.alarm if len(self.alarm) == 2 else (None, None)
         self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
                 fields={'value': value, 'alarm_low': low, 'alarm_high': high})
 
