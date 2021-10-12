@@ -32,7 +32,7 @@ class Reading(threading.Thread):
         self.update_config()
 
     def run(self):
-        self.logger.debug(f'{self.key} Starting')
+        self.logger.debug(f'{self.name} Starting')
         while not self.event.is_set():
             loop_top = time.time()
             self.update_config()
@@ -40,7 +40,7 @@ class Reading(threading.Thread):
                 self.Schedule()
                 self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug(f'{self.key} Returning')
+        self.logger.debug(f'{self.name} Returning')
 
     def update_config(self):
         doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
@@ -48,6 +48,7 @@ class Reading(threading.Thread):
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
         self.topic = doc['topic']
+        self.alarm = doc.get('alarm', [])
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -79,23 +80,9 @@ class Reading(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
-        if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
-                value is None):
-            self.late_counter += 1
-            if self.late_counter > 2:
-                msg = f'Sensor {self.sensor_name} responding slowly? {self.late_counter} measurements are late or missing'
-                if self.runmode == 'default':
-                    self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': 1})
-                else:
-                    self.logger.info(msg)
-                self.late_counter = 0
-        else:
-            self.late_counter = max(0, self.late_counter - 1)
-        self.last_measurement_time = func_start
         self.logger.debug(f'Measured {value}')
         if value is not None:
             value = self.more_processing(value)
-            self.check_for_alarm(value)
             self.send_upstream(value)
         return
 
@@ -111,7 +98,7 @@ class Reading(threading.Thread):
         """
         This function sends data upstream to wherever it should end up
         """
-        doc = self.db.find_alarms(self.name)
+        low, high = self.alarm is len(self.alarm) else (None, None)
         self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
                 fields={'value': value, 'alarm_low': low, 'alarm_high': high})
 
