@@ -92,17 +92,27 @@ class Pipeline(object):
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
+                    setup_kwargs = {}
                     if isinstance(n, InfluxSourceNode):
                         reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        n.setup(topic=reading_doc['topic'], config_doc=influx_cfg)
+                        setup_kwargs['topic'] = reading_doc['topic']
+                        setup_kwargs['config_doc'] = influx_cfg
                     if isinstance(n, InfluxSinkNode):
-                        n.setup(write_to_influx=self.db.write_to_influx)
+                        setup_kwargs['write_to_influx'] = self.db.write_to_influx
+                    if isinstance(n, BufferNode):
+                        setup_kwargs['strict_length'] = kwargs.get('strict', False)
                     if isinstance(n, AlarmNode):
                         doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        n.setup(description=doc['description'], log_alarm=self.db.log_alarm, sensor=doc['sensor'])
+                        setup_kwargs['description'] = doc['description']
+                        setup_kwargs['log_alarm'] = self.db.log_alarm
+                        setup_kwargs['sensor'] = doc['sensor']
+                        setup_kwargs['strict_length'] = True
                     if isinstance(n, ControlNode):
-                        n.setup(log_command=self.db.log_command, control_target=kwargs['control_target'],
-                                control_value=kwargs['control_value'])
+                        setup_kwargs['log_command'] = self.db.log_command
+                        setup_kwargs['control_target'] = kwargs['control_target']
+                        setup_kwargs['control_value'] = kwargs['control_value']
+                    if setup_kwargs:
+                        n.setup(**kwargs)
                     n.load_config(config['node_config'].get(name, {}))
                     self.graph.append(n)
                     if isinstance(n, BufferNode):
@@ -267,7 +277,13 @@ class InfluxSourceNode(SourceNode):
         return {'time': timestamp/self.precision, self.output_var: val}
 
 class BufferNode(Node):
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.strict = kwargs.get('strict_length', False)
+
     def get_package(self):
+        if self.strict and len(self.buffer) != self.buffer.length:
+            raise ValueError(f'{self.name} is not full')
         # deep copy because the MergeNode will change its input
         return list(map(dict, self.buffer))
 
