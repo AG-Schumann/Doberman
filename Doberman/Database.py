@@ -409,10 +409,6 @@ class Database(object):
             # something went wrong
             pass
 
-    def find_alarms(self, reading_name):
-        for doc in self.read_from_db('settings', 'pipelines', {'depends_on': reading_name}):
-            pass # TODO finish
-
     def get_current_status(self):
         """
         Gives a snapshot of the current system status
