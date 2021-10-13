@@ -122,7 +122,7 @@ class Pipeline(object):
             if (nodes_built := len(self.graph) - start_len) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 self.logger.debug(f'Created {list(self.graph.keys())}')
-                self.logger.debug(f'Didn\'t create {list(set(pipeline_config.keys())-set(self.graph.keys()))}')
+                self.logger.debug(f'Didn\'t create {list(set(d["name"] for d in pipeline_config)-set(self.graph.keys()))}')
                 raise ValueError('Can\'t construct graph! Check config and logs')
             else:
                 self.logger.debug(f'Created {nodes_built} nodes this iter, {len(self.graph)}/{len(pipeline_config)} total')
@@ -139,7 +139,11 @@ class Pipeline(object):
                 rd = self.db.get_reading_setting(name=node.input_var)
                 if node.name not in doc:
                     doc[node.name] = {}
-                doc[node.name].update(alarms=rd['alarm'], readout_interval=rd['readout_interval'])
+                doc[node.name].update(alarm_thresholds=rd['alarm'], readout_interval=rd['readout_interval'])
+            if isinstance(node, SimpleAlarmNode):
+                if node.name not in doc:
+                    doc[node.name] = {}
+                doc[node.name].update(length=rd['alarm_recurrence'])
             if node.name in doc:
                 node.load_config(doc[node.name])
 
@@ -456,7 +460,7 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
     """
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
-        low, high = self.config['alarm']
+        low, high = self.config['alarm_thresholds']
         if any([low <= v <= high for v in values]):
             # at least one value is in an acceptable range
             pass
