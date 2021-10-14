@@ -3,7 +3,8 @@ import Doberman
 
 class ValveControlNode(Doberman.ControlNode):
     """
-    A logic node to control a nitrogen level valve, based on a levelmeter and a control valve
+    A logic node to control a nitrogen level valve, based on a levelmeter and a control valve,
+    with optional inhibits from a vacuum or a scale
     """
     def process(self, package):
         liquid_level = package['liquid_level']
@@ -28,7 +29,7 @@ class ValveControlNode(Doberman.ControlNode):
                     self.valve_opened = package['time']
                     self.logger.info('Scheduling valve opening')
                 else:
-                    self.logger.info('Would love to open the valve but either the scale or vac are bad')
+                    self.logger.info('Would love to open the valve but either the scale or vac is out of range')
             else:
                 # valve is open, check to see for how long
                 if hasattr(self, 'valve_opened'):
