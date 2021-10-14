@@ -52,8 +52,12 @@ class Pipeline(object):
         total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
         self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
-        self.db.set_pipeline_value(self.name, [('heartbeat', Doberman.utils.dtnow()), ('cycles', self.cycles), ('error', self.last_error)])
-        return doc['period']
+        self.db.set_pipeline_value(self.name, 
+                [('heartbeat', Doberman.utils.dtnow()),
+                    ('cycles', self.cycles),
+                    ('error', self.last_error),
+                    ('rate', sum(timing.values()))])
+        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on)
 
     def build(self, config):
         """
@@ -76,6 +80,7 @@ class Pipeline(object):
         num_buffer_nodes = 0
         longest_buffer = 0
         influx_cfg = self.db.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        self.depends_on = config['depends_on']
         while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
             for kwargs in pipeline_config:
@@ -139,7 +144,7 @@ class Pipeline(object):
                 rd = self.db.get_reading_setting(name=node.input_var)
                 if node.name not in doc:
                     doc[node.name] = {}
-                doc[node.name].update(alarm_thresholds=rd['alarm'], readout_interval=rd['readout_interval'])
+                doc[node.name].update(alarm_thresholds=rd['alarm_threshold'], readout_interval=rd['readout_interval'])
             if isinstance(node, SimpleAlarmNode):
                 if node.name not in doc:
                     doc[node.name] = {}
