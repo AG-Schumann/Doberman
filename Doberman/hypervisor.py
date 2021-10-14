@@ -33,7 +33,7 @@ def Hypervisor(Doberman.Monitor):
 
     def run_over_ssh(self, address, command):
         """
-        Runs a command over ssh
+        Runs a command over ssh, stdout/err will go to the debug logs
         :param address: user@host
         :param command: the command to run. Will be wrapped in double-quotes, a la ssh user@host "command"
         :returns: return code of ssh
@@ -51,12 +51,19 @@ def Hypervisor(Doberman.Monitor):
         self.db.set_host_setting(addToSet={'active': sensor})
         return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_sensor.sh {sensor}")
 
+    def start_pipeline(self, pipeline):
+        host = 'localhost'
+        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_pipeline.sh {pipeline}')
+
     def handle_commands(self):
         while (doc := self.db.find_command("hypervisor")) is not None:
             cmd = doc['command']
             if cmd.startswith('start'):
-                _, sensor = cmd.split(' ', maxsplit=1)
-                self.start_sensor(sensor)
+                _, target = cmd.split(' ', maxsplit=1)
+                if target[:2] == 'pl': # this is a pipeline
+                    self.start_pipeline(target)
+                else:
+                    self.start_sensor(sensor)
             elif cmd.startswith('manage'):
                 _, sensor = cmd.split(' ', maxsplit=1)
                 self.log.info(f'Hypervisor now managing {sensor}')
