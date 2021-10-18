@@ -7,20 +7,21 @@ def Hypervisor(Doberman.Monitor):
     A tool to monitor and restart processes when necessary
     """
     def setup(self):
-        self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        self.register(obj=self.hypervise, period=val, name='hypervise')
+        self.config = self.db.read_from_db('settings', 'experiment_config', {'name': 'hypervisor'}, onlyone=True)
+        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
+        self.register(obj=self.heartbeat, period=60, name='remote_heartbeat')
 
     def hypervise(self):
         self.logger.debug('Hypervising')
-        host_config = self.db.get_host_setting()
-        for sensor in host_config['default']:
+        self.config = self.db.read_from_db('settings', 'experiment_config', {'name': 'hypervisor'}, onlyone=True)
+        for sensor in self.config['processes']['managed']:
             last_hb = self.db.get_heartbeat(sensor=sensor)
-            if sensor not in host_config['active']:
+            if sensor not in self.config['processes']['active']:
                 # sensor isn't running and it's supposed to be
                 if self.start_sensor(sensor):
                     pass
             else:
-                if (dt := (now()-last_hb).total_seconds()) > val:
+                if (dt := (Doberman.utils.dtnow()-last_hb).total_seconds()) > val:
                     # host hasn't heartbeated recently
                     self.logger.warning(f'{sensor} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
                     if self.start_sensor(sensor):
@@ -31,14 +32,22 @@ def Hypervisor(Doberman.Monitor):
 
         return host_config['heartbeat_timer']
 
-    def run_over_ssh(self, address, command):
+    def heartbeat(self):
+        address, port = self.config['remote_heartbeat']
+        self.run_over_ssh(self.config['remote_heartbeat_address'], r'date +%s > /scratch/remote_hb', port=self.config.get('remote_heartbeat_port', 22))
+
+    def run_over_ssh(self, address, command, port=22):
         """
         Runs a command over ssh, stdout/err will go to the debug logs
         :param address: user@host
         :param command: the command to run. Will be wrapped in double-quotes, a la ssh user@host "command"
         :returns: return code of ssh
         """
-        cp = subprocess.run(['ssh', address, f'"{command}"'], capture_output=True)
+        cmd = ['ssh', address, f'"{command}"']
+        if port != 22:
+            cmd.insert(1, '-p')
+            cmd.insert(2, f'{port}')
+        cp = subprocess.run(cmd, capture_output=True)
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
@@ -49,11 +58,11 @@ def Hypervisor(Doberman.Monitor):
         doc = self.db.get_sensor_setting(sensor=sensor)
         host = doc['host']
         self.db.set_host_setting(addToSet={'active': sensor})
-        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_sensor.sh {sensor}")
+        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh sensor {sensor}")
 
     def start_pipeline(self, pipeline):
         host = 'localhost'
-        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_pipeline.sh {pipeline}')
+        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh pipeline {pipeline}')
 
     def handle_commands(self):
         while (doc := self.db.find_command("hypervisor")) is not None:

@@ -15,8 +15,8 @@ class Monitor(object):
         """
         """
         self.db = db
-        if isinstance(self, Doberman.HostMonitor):
-            self.name = db.hostname
+        if isinstance(self, Doberman.Hypervisor):
+            self.name = 'Hypervisor'
         elif isinstance(self, Doberman.AlarmMonitor):
             self.name = 'AlarmMonitor'
         elif isinstance(self, Doberman.SensorMonitor):
