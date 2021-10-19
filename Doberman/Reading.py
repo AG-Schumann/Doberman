@@ -3,7 +3,6 @@ import time
 import queue
 from functools import partial
 import threading
-import influxdb
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -23,24 +22,17 @@ class Reading(threading.Thread):
         self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
+        self.logger = kwargs.pop('logger')
         self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
-        self.kafka = self.db.get_kafka(self.db.get_reading_setting(sensor=self.sensor_name,
-                                                                   name=self.name, field='topic'))
-        self.key = '%s__%s' % (self.sensor_name, self.name)
-        self.logger = Doberman.utils.logger(db=self.db, name=self.key,
-                                            loglevel=kwargs['loglevel'])
+        self.key = f'{self.sensor_name}__{self.name}'
         self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
                                 retq=self.process_queue)
         self.child_setup(self.db.get_sensor_setting(name=self.sensor_name))
         self.update_config()
-        if not self.db.has_kafka:
-            influx = self.db.read_from_db('settings', 'experiment_config', cuts={'name': 'influx'},
-                                          onlyone=True)
-            self.client = influxdb.InfluxDBClient(host=influx['host'], port=influx['port'])
 
     def run(self):
-        self.logger.debug('Starting')
+        self.logger.debug(f'{self.key} Starting')
         while not self.event.is_set():
             loop_top = time.time()
             self.update_config()
@@ -48,13 +40,14 @@ class Reading(threading.Thread):
                 self.Schedule()
                 self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug('Returning')
+        self.logger.debug(f'{self.key} Returning')
 
     def update_config(self):
         doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
+        self.topic = doc['topic']
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -84,7 +77,7 @@ class Reading(threading.Thread):
         try:
             value = self.sensor_process(data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug('Got a %s while processing \'%s\': %s' % (type(e), pkg['data'], e))
+            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
         if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
                 value is None):
@@ -101,33 +94,22 @@ class Reading(threading.Thread):
         self.last_measurement_time = func_start
         self.logger.debug(f'Measured {value}')
         if value is not None:
-            self.more_processing(value)
+            value = self.more_processing(value)
+            self.check_for_alarm(value)
+            self.send_upstream(value)
         return
 
     def more_processing(self, value):
         """
-        Does anything interesting with the value. This function is responsible for
-        pushing data upstream
+        Does something interesting with the value. Should return a value
         """
         if self.is_int:
             value = int(value)
-        if self.db.has_kafka:
-            try:
-                self.kafka(value=f'{self.name},{value:.6g}')
-            except Exception as e:
-                self.kafka(value=f'{self.name},{value}')
-            return
-        reading = self.db.get_reading_setting(self.sensor_name, self.name)
-        data = [{'measurement': reading['topic'],
-                 'time': int(time.time() * 1000000000),
-                 'fields': {reading['name']: value}
-                 }]
-        self.client.write_points(data, database=self.db.experiment_name)
-        self.check_for_alarm(value)
+        return value
 
     def check_for_alarm(self, value):
         """
-        If Kafka is not used this checks the reading for alarms and logs it to the database
+        This checks the reading for alarms and logs it to the database
         """
         reading = self.db.get_reading_setting(self.sensor_name, self.name)
         if reading['runmode'] == 'default':
@@ -145,14 +127,21 @@ class Reading(threading.Thread):
                         else:
                             self.recurrence_counter += 1
                             if self.recurrence_counter >= recurrence:
-                                msg = f'Alarm for {reading["topic"]} measurement {self.name}: {value} is outside ' \
-                                      + f'alarm range ({setpoint + lo}, {setpoint + hi})'
+                                msg = f'{reading["description"]}: {value} is outside ' \
+                                      + f'range ({setpoint + lo}, {setpoint + hi})'
                                 self.logger.warning(msg)
                                 self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
                                 self.recurrence_counter = 0
                             break
             except Exception as e:
-                self.logger.debug(f'Alarms not properly configured for {self.reading_name}: {e}')
+                self.logger.debug(f'Alarms not properly configured for {self.name}: {type(e)}, {e}')
+
+    def send_upstream(self, value):
+        """
+        This function sends data upstream to wherever it should end up
+        """
+        self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
+                                fields={'value': value})
 
 
 class MultiReading(Reading):
@@ -164,13 +153,12 @@ class MultiReading(Reading):
     def child_setup(self, doc):
         self.all_names = doc['multi']
 
-    def more_processing(self, value_arr):
-        try:
-            for n, v in zip(self.all_names, value_arr):
-                if self.is_int:
-                    v = int(v)
-                self.kafka(value=f'{n},{v:.6g}')
-            return
-        except Exception as e:
-            self.logger.info(f'{type(e)}: {e}')
-            return
+    def more_processing(self, values):
+        if self.is_int:
+            return list(map(int, values))
+        return values
+
+    def send_upstream(self, values):
+        for n, v in zip(self.all_names, values):
+            self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n},
+                                    fields={'value': v})

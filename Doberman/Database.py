@@ -1,61 +1,37 @@
 import Doberman
 import datetime
 from socket import getfqdn
-from functools import partial
 import time
-
-try:
-    from kafka import KafkaProducer
-
-    has_kafka = True
-except ImportError:
-    has_kafka = False
-
-dtnow = datetime.datetime.utcnow
+import requests
 
 __all__ = 'Database'.split()
 
-
-class FakeKafka(object):
-    """
-    Something for testing on platforms without the Kafka driver
-    """
-
-    def send(self, *args, **kwargs):
-        pass
-
-    def close(self, *args, **kwargs):
-        pass
-
+dtnow = Doberman.utils.dtnow
 
 class Database(object):
     """
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, mongo_client, loglevel='INFO', experiment_name=None):
+    def __init__(self, mongo_client, experiment_name=None):
         self.client = mongo_client
-        self.logger = Doberman.utils.logger(name='Database', db=self, loglevel=loglevel)
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
-        if has_kafka:
-            self.has_kafka = True
-            kafka_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'kafka'}, onlyone=True)
-            try:
-                self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
-                                           value_serializer=partial(bytes, encoding='utf-8'))
-                self.logger.debug(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
-            except Exception as e:
-                self.logger.debug(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
-                self.kafka = FakeKafka()
-                self.has_kafka = False
+        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        self.influx_url = influx_cfg['url'] + '?'
+        if influx_cfg['version'] == 1:
+            self.influx_url += f'u={influx_cfg["username"]}&p={influx_cfg["password"]}&db={influx_cfg["org"]}'
+            self.influx_headers = {}
+        elif influx_cfg['version'] == 2:
+            self.influx_url += (f'org={influx_cfg["org"]}&precision={influx_cfg["precision"]}'
+                                f'&bucket={influx_cfg["bucket"]}')
+            self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
-            self.logger.debug(f"Could not import KafkaProducer. I will run in independent mode.")
-            self.kafka = FakeKafka()
-            self.has_kafka = False
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
+        self.influx_precision = int(dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['precision']])
 
     def close(self):
-        self.kafka.close()
+        pass
 
     def __del__(self):
         self.close()
@@ -214,9 +190,10 @@ class Database(object):
         """
         now = dtnow()
         doc = self.find_one_and_update('logging', 'commands',
-                                       cuts={'name': name,
-                                             'acknowledged': {'$exists': 0},
-                                             'logged': {'$lte': now}},
+                # the order of terms in the query is important
+                                       cuts={'acknowledged': 0,
+                                             'logged': {'$lte': now},
+                                             'name': name},
                                        updates={'$set': {'acknowledged': now}},
                                        sort=[('logged', 1)])
         if doc and 'by' in doc and doc['by'] == 'feedback':
@@ -228,6 +205,7 @@ class Database(object):
         """
         if 'logged' not in doc:
             doc['logged'] = dtnow()
+        doc['acknowledged'] = 0
         self.insert_into_db('logging', 'commands', doc)
 
     def get_message_protocols(self, level):
@@ -256,39 +234,41 @@ class Database(object):
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
-        protocols = self.get_message_protocols(level)
-        ret = {k: [] for k in protocols}
-        now = datetime.datetime.now()  # no UTC here, we want local time
-        shifters = self.read_from_db('settings', 'shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                     onlyone=True)['shifters']
-        for doc in self.read_from_db('settings', 'contacts',
-                                     {'name': {'$in': shifters}}):
-            for p in protocols:
-                ret[p].append(doc[p])
-        return ret
+        if level == 'ohshit':
+            # shit shit fire ze missiles!
+            protocols = set()
+            for doc in self.read_from_db('settings', 'alarm_config', {'level': {'$gte': 0}}):
+                protocols |= set(doc['protocols'])
+            ret = {k: [] for k in protocols}
+            for doc in self.read_from_db('settings', 'contacts'):
+                for p in protocols:
+                    try:
+                        ret[p].append(doc[p])
+                    except:
+                        pass
+            return ret
+        else
+            protocols = self.get_message_protocols(level)
+            ret = {k: [] for k in protocols}
+            now = datetime.datetime.now()  # no UTC here, we want local time
+            shifters = self.read_from_db('settings', 'shifts',
+                                         {'start': {'$lte': now}, 'end': {'$gte': now}},
+                                         onlyone=True)['shifters']
+            for doc in self.read_from_db('settings', 'contacts',
+                                         {'name': {'$in': shifters}}):
+                for p in protocols:
+                    ret[p].append(doc[p])
+            return ret
 
-    def get_heartbeat(self, host=None, sensor=None):
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        doc = self.read_from_db('settings', coll, cuts=cuts, onlyone=True)
+    def get_heartbeat(self, sensor=None):
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)
         return doc['heartbeat']
 
-    def update_heartbeat(self, host=None, sensor=None):
+    def update_heartbeat(self, sensor=None):
         """
         Heartbeats the specified sensor or host
         """
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        self.update_db('settings', coll, cuts=cuts,
+        self.update_db('settings', coll, cuts={'name': sensor},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
@@ -296,6 +276,7 @@ class Database(object):
         """
         Adds the alarm to the history.
         """
+        document['acknowledged'] = 0
         if self.insert_into_db('logging', 'alarm_history', document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
@@ -408,11 +389,28 @@ class Database(object):
             monitored.extend(self.get_host_setting(host, 'default'))
         return list(set(all_sensors) - set(monitored))
 
-    def get_kafka(self, topic):
+    def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
-        Returns a setup kafka producer to whoever wants it
+        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
+        for more info. The URL and access credentials are stored in the database and cached for use
+        :param topic: the named named type of measurement (temperature, pressure, etc)
+        :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
+        :param fields: a dict of field names and values, usually 'value'
+        :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
-        return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
+        data = f'{topic}'
+        if tags is not None:
+            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
+        data += ' '
+        if fields is not None:
+            data += ','.join([
+                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
+                ])
+        timestamp = timestamp or time.time()
+        data += f' {int(timestamp*self.influx_precision)}'
+        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
+            # something went wrong
+            pass
 
     def get_current_status(self):
         """

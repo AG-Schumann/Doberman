@@ -17,9 +17,8 @@ class SensorMonitor(Doberman.Monitor):
         for rd in cfg_doc['readings'].keys():
             self.logger.debug('Constructing ' + rd)
             reading_doc = self.db.get_reading_setting(self.name, rd)
-            kwargs = {'sensor_name': self.name, 'reading_name': rd,
-                      'event': self.event, 'db': self.db, 'sensor': self.sensor,
-                      'loglevel': self.loglevel}
+            kwargs = {'sensor_name': self.name, 'reading_name': rd, 'logger': self.logger,
+                      'event': self.event, 'db': self.db, 'sensor': self.sensor}
             if 'is_multi' in reading_doc:
                 reading = Doberman.MultiReading(**kwargs)
             elif 'pid' in reading_doc:
@@ -52,9 +51,9 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.close()
         try:
             self.sensor = self.sensor_ctor(self.db.get_sensor_setting(self.name),
-                                           self.logger)
+                                           self.logger, self.event)
         except Exception as e:
-            self.logger.error('Could not open sensor. Error: %s' % e)
+            self.logger.error(f'Could not open sensor. Error: {e} ({type(e)}')
             self.sensor = None
             raise
         return
@@ -64,8 +63,7 @@ class SensorMonitor(Doberman.Monitor):
         return self.db.get_host_setting(field='heartbeat_timer')
 
     def handle_commands(self):
-        doc = self.db.find_command(self.name)
-        while doc is not None:
+        while (doc := self.db.find_command(self.name)) is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
             if command.startswith('runmode'):
@@ -89,10 +87,9 @@ class SensorMonitor(Doberman.Monitor):
                 self.event.set()
                 self.db.set_host_setting(pull={'default': self.name})
             elif self.sensor is not None:
-                self.sensor.execute_command(command=command)
+                self.sensor._execute_command(command=command)
             else:
                 self.logger.error(f"Command '{command}' not accepted")
-            doc = self.db.find_command(self.name)
 
     def reload_readings(self):
         readings_dict = self.db.get_sensor_setting(self.name, 'readings')
@@ -104,5 +101,3 @@ class SensorMonitor(Doberman.Monitor):
             self.register(func=self.ScheduleReading, period=r.readout_interval,
                           reading=r, name=r.name)
 
-    def build_reading(self):
-        pass

@@ -33,6 +33,7 @@ def Hypervisor(Doberman.Monitor):
         return host_config['heartbeat_timer']
 
     def heartbeat(self):
+        self.heartbeat
         address, port = self.config['remote_heartbeat']
         self.run_over_ssh(self.config['remote_heartbeat_address'], r'date +%s > /scratch/remote_hb', port=self.config.get('remote_heartbeat_port', 22))
 
