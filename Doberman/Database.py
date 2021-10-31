@@ -135,6 +135,18 @@ class Database(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
+    def get_experiment_config(self, name, field=None):
+        """
+        Gets an experiment config document
+        :param name: the name of the document
+        :param field: a specific field
+        :returns: The whole document if field = None, either just the field
+        """
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if field:
+            return doc[field]
+        return doc
+
     def delete_alarm(self, reading_name, alarm_type):
         """
         Delete alarm of specific type from a reading

@@ -60,7 +60,7 @@ class SensorMonitor(Doberman.Monitor):
 
     def heartbeat(self):
         self.db.update_heartbeat(sensor=self.name)
-        return self.db.get_host_setting(field='heartbeat_timer')
+        return self.db.get_experiment_config(name='hypervisor', field='period')
 
     def handle_commands(self):
         while (doc := self.db.find_command(self.name)) is not None:
@@ -85,7 +85,7 @@ class SensorMonitor(Doberman.Monitor):
                 self.reload_readings()
             elif command == 'stop':
                 self.event.set()
-                self.db.set_host_setting(pull={'default': self.name})
+                self.db.update_db('settings', 'experiment_config', {'name': 'hypervisor'}, {'$pull': {'processes.active': self.name, 'processes.managed': self.name}})
             elif self.sensor is not None:
                 self.sensor._execute_command(command=command)
             else:
