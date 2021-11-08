@@ -24,7 +24,6 @@ class Reading(threading.Thread):
         self.name = kwargs['reading_name']
         self.logger = kwargs.pop('logger')
         self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
-        self.key = f'{self.sensor_name}__{self.name}'
         self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
                                 retq=self.process_queue)
@@ -48,7 +47,7 @@ class Reading(threading.Thread):
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
         self.topic = doc['topic']
-        self.alarm = doc.get('alarm', [])
+        self.alarm = doc.get('alarm_thresholds', [])
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -100,7 +99,7 @@ class Reading(threading.Thread):
         """
         low, high = self.alarm if len(self.alarm) == 2 else (None, None)
         self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
-                fields={'value': value, 'alarm_low': low, 'alarm_high': high})
+                                fields={'value': value, 'alarm_low': low, 'alarm_high': high})
 
 
 class MultiReading(Reading):
