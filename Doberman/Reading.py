@@ -111,6 +111,10 @@ class MultiReading(Reading):
     def child_setup(self, doc):
         self.all_names = doc['multi']
 
+    def update_child_config(self, doc):
+        self.all_names = doc['multi']
+        self.alarms = {n: self.db.get_reading_setting(name=n, field='alarm_thresholds') for n in self.all_names}
+
     def more_processing(self, values):
         if self.is_int:
             return list(map(int, values))
@@ -118,5 +122,6 @@ class MultiReading(Reading):
 
     def send_upstream(self, values):
         for n, v in zip(self.all_names, values):
+            low, high = self.alarms[n] if n in self.alarms and len(self.alarms[n]) == 2 else (None, None)
             self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n},
-                                    fields={'value': v})
+                    fields={'value': v, 'alarm_low': low, 'alarm_high': high})
