@@ -39,7 +39,7 @@ class Monitor(object):
         self.event.set()
         self.shutdown()
         pop = []
-        thread_numbers  = self.threads.keys()
+        thread_numbers = self.threads.keys()
         for thread_number in thread_numbers:
             try:
                 self.threads[thread_number].event.set()
@@ -73,7 +73,6 @@ class Monitor(object):
         Called by the constructor. Allows subclasses to initialize stuff (most
         notably calls to Register)
         """
-        pass
 
     def shutdown(self):
         """
@@ -81,7 +80,6 @@ class Monitor(object):
         set to False before this is called, and all threads will be joined once
         this function returns
         """
-        pass
 
     def stop_thread(self, name):
         """

@@ -52,7 +52,6 @@ class ValveControlNode(Doberman.ControlNode):
                         # filling too long!
                         # TODO something reasonable
                         self.logger.fatal(f'Valve has been open for {dt/60:.1f} minutes without reaching full, something wrong?')
-                        pass
                     else:
                         if fill_rate < min_fill_rate and dt > some_value:
                             # filling too slowly! Something fishy
@@ -78,4 +77,3 @@ class ValveControlNode(Doberman.ControlNode):
             else:
                 # valve is closed
                 pass
-

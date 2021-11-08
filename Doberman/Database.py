@@ -8,6 +8,7 @@ __all__ = 'Database'.split()
 
 dtnow = Doberman.utils.dtnow
 
+
 class Database(object):
     """
     Class to handle interfacing with the Doberman database
@@ -21,16 +22,16 @@ class Database(object):
         self.influx_url = influx_cfg['url'] + '/write?'
         if influx_cfg['version'] == 1:
             query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
-                    ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
+                            ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
             self.influx_headers = {}
         elif influx_cfg['version'] == 2:
             query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
-                    ('bucket', influx_cfg['bucket'])]
+                            ('bucket', influx_cfg['bucket'])]
             self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
             raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
         self.influx_url += '&'.join([f'{k}={v}' for k, v in query_params])
-        self.influx_precision = int(dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['precision']])
+        self.influx_precision = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
 
     def close(self):
         pass
@@ -192,7 +193,7 @@ class Database(object):
         """
         now = dtnow()
         doc = self.find_one_and_update('logging', 'commands',
-                # the order of terms in the query is important
+                                       # the order of terms in the query is important
                                        cuts={'acknowledged': 0,
                                              'logged': {'$lte': now},
                                              'name': name},
@@ -233,7 +234,7 @@ class Database(object):
         """
         Updates a pipeline config
         :param name: the name of the pipeline
-        :kvp: a list of (key, value) pairs to set
+        :param kvp: a list of (key, value) pairs to set
         """
         return self.update_db('settings', 'pipelines', {'name': name}, {'$set': dict(kvp)})
 
@@ -416,7 +417,8 @@ class Database(object):
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
-        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
+        Writes the specified data to Influx. See
+        https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
         for more info. The URL and access credentials are stored in the database and cached for use
         :param topic: the named named type of measurement (temperature, pressure, etc)
         :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
@@ -431,9 +433,9 @@ class Database(object):
         data += ' '
         data += ','.join([
             f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
-            ])
+        ])
         timestamp = timestamp or time.time()
-        data += f' {int(timestamp*self.influx_precision)}'
+        data += f' {int(timestamp * self.influx_precision)}'
         if requests.post(self.influx_cfg['url'], headers=self.influx_cfg['headers'], data=data).status_code != 200:
             # something went wrong
             pass
@@ -471,6 +473,6 @@ class Database(object):
                         if reading_doc['status'] == 'online':
                             status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] \
                                 = reading_doc['runmode']
-                except TypeError as e:
+                except TypeError:
                     pass
         return status

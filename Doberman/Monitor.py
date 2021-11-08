@@ -31,8 +31,8 @@ def main(mongo_client):
             print(err_msg)
             return
     if len(db_kwargs['experiment_name']) == 0:
-            print(err_msg)
-            return
+        print(err_msg)
+        return
     db = Doberman.Database(**db_kwargs)
     kwargs = {'db': db}
     # TODO add checks for running systems

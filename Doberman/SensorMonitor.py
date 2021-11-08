@@ -100,4 +100,3 @@ class SensorMonitor(Doberman.Monitor):
                                                            self.db)
             self.register(func=self.ScheduleReading, period=r.readout_interval,
                           reading=r, name=r.name)
-
