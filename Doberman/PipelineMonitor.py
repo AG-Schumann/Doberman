@@ -60,4 +60,3 @@ class PipelineMonitor(Doberman.Monitor):
                     return
             except Exception as e:
                 self.logger.error(f'Received malformed command: {doc["command"]}')
-

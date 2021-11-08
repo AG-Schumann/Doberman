@@ -153,6 +153,7 @@ def step_three(db, name, command, future=None, user=None):
         command_doc['logged'] += future
     db.insert_into_db('logging', 'commands', command_doc)
 
+
 def add_sensor(db, file):
     try:
         with open(file) as f:
@@ -196,7 +197,7 @@ def add_sensor(db, file):
                                    "enabled": "false",
                                    "lower_threshold": 0,
                                    "upper_threshold": 0,
-                                   "max_duration": [1,]
+                                   "max_duration": [1, ]
                                },
                                {
                                    "type": "simple",
@@ -214,6 +215,8 @@ def add_sensor(db, file):
     db.insert_into_db('settings', 'sensors', sensor_doc)
     for reading_doc in reading_docs:
         db.insert_into_db('settings', 'readings', reading_doc)
+
+
 def main(mongo_client):
     command = ' '.join(sys.argv[1:])
     db = Doberman.Database(mongo_client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'])

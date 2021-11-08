@@ -48,7 +48,7 @@ class HostMonitor(Doberman.Monitor):
         load_1, load_5, load_15 = psutil.getloadavg()
         fields = {'load_1': load_1 / n_cpus, 'load_5': load_5 / n_cpus, 'load_15': load_15 / n_cpus}
         mem = psutil.virtual_memory()
-        fields['mem_avail'] = mem.available/mem.total
+        fields['mem_avail'] = mem.available / mem.total
         swap = psutil.swap_memory()
         fields['swap_used'] = swap.percent
         temp_dict = psutil.sensors_temperatures()
@@ -66,18 +66,18 @@ class HostMonitor(Doberman.Monitor):
         for nic, name in self.nics.items():
             recv_kbytes = (net_io[nic].bytes_recv - self.last_recv[nic]) >> 10
             self.last_recv[nic] = net_io[nic].bytes_recv
-            fields[f'{name}_recv'] = recv_kbytes/self.sysmon_timer
+            fields[f'{name}_recv'] = recv_kbytes / self.sysmon_timer
             sent_kbytes = (net_io[nic].bytes_sent - self.last_sent[nic]) >> 10
             self.last_sent[nic] = net_io[nic].bytes_sent
-            fields[f'{name}_sent'] = sent_kbytes/self.sysmon_timer
+            fields[f'{name}_sent'] = sent_kbytes / self.sysmon_timer
         disk_io = psutil.disk_io_counters(True)
         for disk, name in self.disks.items():
             read_kbytes = (disk_io[disk].read_bytes - self.last_read[disk]) >> 10
             self.last_read[disk] = disk_io[disk].read_bytes
-            fields[f'{name}_read'] = read_kbytes/self.sysmon_timer
+            fields[f'{name}_read'] = read_kbytes / self.sysmon_timer
             write_kbytes = (disk_io[disk].write_bytes - self.last_write[disk]) >> 10
             self.last_write[disk] = disk_io[disk].write_bytes
-            fields[f'{name}_write'] = write_kbytes/self.sysmon_timer
+            fields[f'{name}_write'] = write_kbytes / self.sysmon_timer
         self.db.write_to_influx(topic='sysmon', tags={'host': host}, fields=fields)
 
     def heartbeat(self):
@@ -133,7 +133,8 @@ class HostMonitor(Doberman.Monitor):
                         if dt < 3 * host_cfg['heartbeat_timer']:
                             if self.runmode == 'default':
                                 doc = dict(name=self.hostname, howbad=1,
-                                        msg='{sensor} has needed restarting twice within the last {dt} seconds, is it working properly?')
+                                           msg='{sensor} has needed restarting twice within the last {dt} seconds, '
+                                               'is it working properly?')
                                 self.db.log_alarm(doc)
                             self.db.set_host_setting(pull={'active': sensor},
                                                      addToSet={'in_error': sensor})

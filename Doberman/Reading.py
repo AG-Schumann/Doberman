@@ -1,8 +1,7 @@
-import Doberman
-import time
 import queue
-from functools import partial
 import threading
+import time
+from functools import partial
 
 __all__ = 'Reading MultiReading'.split()
 

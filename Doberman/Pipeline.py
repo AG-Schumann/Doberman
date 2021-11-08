@@ -387,7 +387,7 @@ class InfluxSinkNode(Node):
     """
     Puts a value back into influx
     """
-    def setup(self, **kwargs)
+    def setup(self, **kwargs):
         super().setup(**kwargs)
         self.topic = kwargs['topic']
         self.write_to_influx = kwargs['write_to_influx']
@@ -401,7 +401,7 @@ class ControlNode(Node):
     """
     Another empty base class to handle different database access
     """
-    def setup(self, **kwargs)
+    def setup(self, **kwargs):
         super().setup(**kwargs)
         self._log_command = kwargs['log_command']
         self.control_target = kwargs['control_target']

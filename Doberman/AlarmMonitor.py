@@ -1,12 +1,9 @@
-from datetime import datetime, timezone
-import time
-import re
-import requests
 import smtplib
-import Doberman
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
+
+import Doberman
 
 dtnow = datetime.utcnow
 
@@ -53,11 +50,6 @@ class AlarmMonitor(Doberman.Monitor):
             if not isinstance(toaddr, list):
                 toaddr = toaddr.split(',')
             recipients = toaddr
-            try:
-                contactaddr = connection_details['contactaddr']
-            except KeyError:
-                contactaddr = '--'
-            # Compose message
             msg = MIMEMultipart()
             msg['From'] = fromaddr
             msg['To'] = ', '.join(toaddr)
