@@ -15,7 +15,7 @@ import threading
 
 dtnow = datetime.datetime.now
 
-__all__ = 'dtnow FindPlugin Logger heartbeat_timer number_regex doberman_dir'.split()
+__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -227,7 +227,7 @@ class DobermanLogger(logging.Handler):
                 for f in self.files.values():
                     f.flush()
                 self.flush_cycle = 0
-        if record.level > logging.INFO:
+        if record.levelno > logging.INFO:
             rec = dict(
                 msg=record.getMessage(),
                 level=record.levelno,

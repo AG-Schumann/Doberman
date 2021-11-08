@@ -273,6 +273,7 @@ class LANSensor(Sensor):
             self._device.connect((self.ip, int(self.port)))
         except socket.error as e:
             self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
+            self._connected = False
             return False
         self._connected = True
         return True
