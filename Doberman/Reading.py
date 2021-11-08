@@ -23,7 +23,6 @@ class Reading(threading.Thread):
         self.name = kwargs['reading_name']
         self.logger = kwargs.pop('logger')
         self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
-        self.key = f'{self.sensor_name}__{self.name}'
         self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
         self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
                                 retq=self.process_queue)
@@ -31,7 +30,7 @@ class Reading(threading.Thread):
         self.update_config()
 
     def run(self):
-        self.logger.debug(f'{self.key} Starting')
+        self.logger.debug(f'{self.name} Starting')
         while not self.event.is_set():
             loop_top = time.time()
             self.update_config()
@@ -39,7 +38,7 @@ class Reading(threading.Thread):
                 self.Schedule()
                 self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug(f'{self.key} Returning')
+        self.logger.debug(f'{self.name} Returning')
 
     def update_config(self):
         doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
@@ -47,6 +46,7 @@ class Reading(threading.Thread):
         self.readout_interval = doc['readout_interval']
         self.is_int = 'is_int' in doc
         self.topic = doc['topic']
+        self.alarm = doc.get('alarm_thresholds', [])
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -96,8 +96,9 @@ class Reading(threading.Thread):
         """
         This function sends data upstream to wherever it should end up
         """
+        low, high = self.alarm if len(self.alarm) == 2 else (None, None)
         self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
-                                fields={'value': value})
+                                fields={'value': value, 'alarm_low': low, 'alarm_high': high})
 
 
 class MultiReading(Reading):
@@ -109,6 +110,10 @@ class MultiReading(Reading):
     def child_setup(self, doc):
         self.all_names = doc['multi']
 
+    def update_child_config(self, doc):
+        self.all_names = doc['multi']
+        self.alarms = {n: self.db.get_reading_setting(name=n, field='alarm_thresholds') for n in self.all_names}
+
     def more_processing(self, values):
         if self.is_int:
             values = list(map(int, values))
@@ -116,5 +121,6 @@ class MultiReading(Reading):
 
     def send_upstream(self, values):
         for n, v in zip(self.all_names, values):
+            low, high = self.alarms[n] if n in self.alarms and len(self.alarms[n]) == 2 else (None, None)
             self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n},
-                                    fields={'value': v})
+                    fields={'value': v, 'alarm_low': low, 'alarm_high': high})
