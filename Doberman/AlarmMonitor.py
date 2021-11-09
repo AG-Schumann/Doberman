@@ -42,45 +42,38 @@ class AlarmMonitor(Doberman.Monitor):
         # Get connection details
         connection_details = self.get_connection_details('twilio')
         if connection_details is None:
-            return -1
-        try:
-            # Compose connection details and addresses
-            url = connection_details['url']
-            fromnumber = connection_details['fromnumber']
-            auth = tuple(connection_details['auth'])
-            maxmessagelength = int(connection_details['maxmessagelength'])
+            raise KeyError("No connection details obtained from database.")
+        # Compose connection details and addresses
+        url = connection_details['url']
+        fromnumber = connection_details['fromnumber']
+        auth = tuple(connection_details['auth'])
+        maxmessagelength = int(connection_details['maxmessagelength'])
 
-            if not phone_numbers:
-                self.logger.warning("No phone number given. Can not send SMS.")
-                return 0
+        if not phone_numbers:
+            raise ValueError("No phone number given.")
 
-            message = str(message)
-            # Long messages are shortened to avoid excessive fees
-            if len(message) > maxmessagelength:
-                message = ' '.join(message[:maxmessagelength+1].split(' ')[0:-1])
-                message = '<p>' + message + '</p>'
-                message += '<p>Message shortened.</p>'
-                self.logger.warning(f"Message exceeds {maxmessagelength} "
-                                    "characters. Message will be shortened.")
-            message = f"This is the {self.db.experiment_name} alarm system. " + message
-            if len(phone_numbers) == 1:
-                phone_numbers = [phone_numbers]
-            for tonumber in phone_numbers:
-                data = {
-                    'To': 'BLAH',
-                    'From': 'BLAH',
-                    'Parameters': json.dumps({'message': message})
-                }
-            response = requests.post(url, auth=auth, data=data)
-            if response.status_code != 201:
-                self.logger.error(f"Couldn't place call, status"
-                                  + f" {response.status_code}: {response.json()['message']}")
-                return -1
+        message = str(message)
+        # Long messages are shortened to avoid excessive fees
+        if len(message) > maxmessagelength:
+            message = ' '.join(message[:maxmessagelength+1].split(' ')[0:-1])
+            message = '<p>' + message + '</p>'
+            message += '<p>Message shortened.</p>'
+            self.logger.warning(f"Message exceeds {maxmessagelength} "
+                                "characters. Message will be shortened.")
+        message = f"This is the {self.db.experiment_name} alarm system. " + message
+        if len(phone_numbers) == 1:
+            phone_numbers = [phone_numbers]
+        for tonumber in phone_numbers:
+            data = {
+                'To': 'BLAH',
+                'From': 'BLAH',
+                'Parameters': json.dumps({'message': message})
+            }
+        response = requests.post(url, auth=auth, data=data)
+        if response.status_code != 201:
+            self.logger.error(f"Couldn't place call, status"
+                              + f" {response.status_code}: {response.json()['message']}")
 
-        except Exception as e:
-            self.logger.error("Couldn't place call, error: %s (%s)." % (e, type(e)))
-            return -1
-        return 0
 
     def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
 
@@ -253,8 +246,10 @@ class AlarmMonitor(Doberman.Monitor):
                                    message=message) == -1:
                     self.logger.error('Could not send email!')
             elif protocol == 'phone':
-                if self.send_phonecall(recipients, message) == -1:
-                    self.logger.error('Could not make call')
+                try:
+                    self.send_phonecall(recipients, message)
+                except Exception as e:
+                    self.logger.error('Unable to make call: {type(e)}, {e}')
             else:
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
             self.last_message_time = now
