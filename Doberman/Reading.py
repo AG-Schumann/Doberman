@@ -115,6 +115,22 @@ class Reading(threading.Thread):
             value = int(value)
         return value
 
+    def sensiblesigfigs(reading, lowlim, upplim, defaultsigfigs=3):
+        """
+        Rounds reading to a sensible number of significant figures.
+
+        In general rounds to defaultsigfigs significant figures.
+        If the lowlim and upplim are rather close, have at least
+        one more than the number of decimal places to distinguish
+        them. For example: with limits 1.023 and 1.044, readings have
+        three decimal places.
+        """
+        mindps = 1 - floor(log10(upplim - lowlim))
+        minsfs = floor(log10(reading)) + 1 + mindps
+        sfs = max(minsfs, 3)
+        print(minsfs, sfs)
+        return f'{reading:#.{sfs}g}'
+
     def check_for_alarm(self, value):
         """
         If Kafka is not used this checks the reading for alarms and logs it to the database
@@ -135,8 +151,10 @@ class Reading(threading.Thread):
                         else:
                             self.recurrence_counter += 1
                             if self.recurrence_counter >= recurrence:
-                                msg = f'Alarm for {reading["topic"]} measurement {self.name}: {value} is outside ' \
-                                      + f'alarm range ({setpoint + lo}, {setpoint + hi})'
+                                toohigh = value - setpoint > hi  # (Or low)
+                                msg = f'{reading["topic"].capitalize()} alarm for reading {self.name}. '
+                                msg += f'{value} is {"above" if toohigh else "below"} '
+                                msg += f'threshold of {setpoint + hi if toohigh else setpoint + lo}.'
                                 self.logger.warning(msg)
                                 self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
                                 self.recurrence_counter = 0
