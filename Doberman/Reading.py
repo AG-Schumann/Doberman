@@ -130,7 +130,7 @@ class Reading(threading.Thread):
         minsfs = floor(log10(reading)) + 1 + mindps
         sfs = max(minsfs, 3)
         print(minsfs, sfs)
-        return f'{reading:#.{sfs}g}'
+        return f'{reading:.{sfs}g}'
 
     def check_for_alarm(self, value):
         """
