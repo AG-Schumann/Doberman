@@ -151,6 +151,7 @@ class Reading(threading.Thread):
                         else:
                             self.recurrence_counter += 1
                             if self.recurrence_counter >= recurrence:
+                                self.logger.info("Trying to create alarm.")
                                 msg = f'{reading["topic"].capitalize()} alarm for reading {self.name}. '
                                 try:
                                     toohigh = value - setpoint > hi  # (Or low)
