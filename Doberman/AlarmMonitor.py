@@ -45,7 +45,6 @@ class AlarmMonitor(Doberman.Monitor):
             return -1
         try:
             # Compose connection details and addresses
-            now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
             url = connection_details['url']
             fromnumber = connection_details['fromnumber']
             auth = tuple(connection_details['auth'])
@@ -63,11 +62,10 @@ class AlarmMonitor(Doberman.Monitor):
                 message += '<p>Message shortened.</p>'
                 self.logger.warning(f"Message exceeds {maxmessagelength} "
                                     "characters. Message will be shortened.")
-
+            message = f"This is the {self.db.experiment_name} alarm system. " + message
             if len(phone_numbers) == 1:
                 phone_numbers = [phone_numbers]
             for tonumber in phone_numbers:
-
                 data = {
                     'To': 'BLAH',
                     'From': 'BLAH',
@@ -92,7 +90,7 @@ class AlarmMonitor(Doberman.Monitor):
             return -1
         try:
             # Compose connection details and addresses
-            now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            now = datetime.datetime.now().astimezone(tzlocal()).strftime("%Y-%m-%d %H:%M %Z")
             server_addr = connection_details['server']
             port = int(connection_details['port'])
             fromaddr = connection_details['fromaddr']
@@ -249,7 +247,7 @@ class AlarmMonitor(Doberman.Monitor):
                 if self.send_sms(recipients, message) == -1:
                     self.logger.error('Could not send SMS')
             elif protocol == 'email':
-                subject = 'Doberman alarm level %i' % level
+                subject = f'{self.db.experiment_name} level {level} alarm'
                 if self.send_email(toaddr=recipients, subject=subject,
                                    message=message) == -1:
                     self.logger.error('Could not send email!')
