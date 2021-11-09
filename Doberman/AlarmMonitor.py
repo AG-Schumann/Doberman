@@ -3,6 +3,7 @@ import time
 from dateutil.tz import tzlocal
 import re
 import requests
+import json
 import smtplib
 import Doberman
 from email.mime.multipart import MIMEMultipart
@@ -70,13 +71,14 @@ class AlarmMonitor(Doberman.Monitor):
                 data = {
                     'To': 'BLAH',
                     'From': 'BLAH',
-                    'Parameters': f'{{"message": "{message}"}}'
+                    'Parameters': json.dumps({'message': message})
                 }
-
             response = requests.post(url, auth=auth, data=data)
             if response.status_code != 201:
                 self.logger.error(f"Couldn't place call, status"
                                   + f" {response.status_code}: {response.json()['message']}")
+                self.logger.info("Message:" + message)
+                self.logger.info("Parameters:" + parameters)
                 return -1
 
         except Exception as e:
