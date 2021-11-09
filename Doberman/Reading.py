@@ -4,6 +4,7 @@ import queue
 from functools import partial
 import threading
 import influxdb
+from math import floor, log10
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -162,7 +163,7 @@ class Reading(threading.Thread):
                                     self.logger.info(f'{type(e)}, {e}')
                                     # Sometimes hit a corner case (eg lo=hi)
                                     msg += f'{value:.3g} is outside allowed range of'
-                                    msg += f'{setpoint+lo:.3g} to {setpoint+hi:.3g}.'
+                                    msg += f' {setpoint+lo:.3g} to {setpoint+hi:.3g}.'
                                 self.logger.warning(msg)
                                 self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
                                 self.recurrence_counter = 0
