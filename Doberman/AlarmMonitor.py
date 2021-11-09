@@ -77,8 +77,6 @@ class AlarmMonitor(Doberman.Monitor):
             if response.status_code != 201:
                 self.logger.error(f"Couldn't place call, status"
                                   + f" {response.status_code}: {response.json()['message']}")
-                self.logger.info("Message:" + message)
-                self.logger.info("Parameters:" + parameters)
                 return -1
 
         except Exception as e:
@@ -228,7 +226,9 @@ class AlarmMonitor(Doberman.Monitor):
             for (lvl,), msg_docs in messages.items():
                 message = ""
                 for msg_doc in msg_docs:
-                    message += f'{msg_doc["_id"].generation_time}: {msg_doc["msg"]} \n'
+                    tz = pytz.timezone('Europe/Berlin')
+                    germantime = tz.localize(msg_doc["_id"].generation_time)
+                    message += f'{germantime.strftime(%Y-%m-%d %H:%M %Z)}: {msg_doc["msg"]} \n'
                 self.send_message(lvl, message)
 
     def send_message(self, level, message):
