@@ -159,8 +159,7 @@ class Reading(threading.Thread):
                                     msgthreshold = self.sensiblesigfigs(setpoint + hi if toohigh else setpoint + lo, setpoint + lo, setpoint + hi)
                                     msg += f'{msgval} is {"above" if toohigh else "below"} '
                                     msg += f'the threshold {msgthreshold}.'
-                                except Exception as e:
-                                    self.logger.info(f'{type(e)}, {e}')
+                                except ValueError:
                                     # Sometimes hit a corner case (eg lo=hi)
                                     msg += f'{value:.3g} is outside allowed range of'
                                     msg += f' {setpoint+lo:.3g} to {setpoint+hi:.3g}.'
