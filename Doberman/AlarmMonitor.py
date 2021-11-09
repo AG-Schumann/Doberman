@@ -234,6 +234,7 @@ class AlarmMonitor(Doberman.Monitor):
             if dt < message_time:
                 self.logger.warning(
                     f'Sent a message too recently ({dt:.0f} minutes). Message timer at {message_time:.0f}')
+            return
 
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
