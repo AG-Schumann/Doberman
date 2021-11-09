@@ -76,7 +76,7 @@ class AlarmMonitor(Doberman.Monitor):
             response = requests.post(url, auth=auth, data=data)
             if response.status_code != 201:
                 self.logger.error(f"Couldn't place call, status"
-                                  + " {response.status_code}: {response.json()['message']}")
+                                  + f" {response.status_code}: {response.json()['message']}")
                 return -1
 
         except Exception as e:
