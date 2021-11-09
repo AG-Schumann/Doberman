@@ -47,7 +47,7 @@ class AlarmMonitor(Doberman.Monitor):
             now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
             url = connection_details['url']
             fromnumber = connection_details['fromnumber']
-            auth = connection_details['auth']
+            auth = tuple(connection_details['auth'])
             maxmessagelength = int(connection_details['maxmessagelength'])
 
             if not phone_numbers:
