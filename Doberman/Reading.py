@@ -115,7 +115,7 @@ class Reading(threading.Thread):
             value = int(value)
         return value
 
-    def sensiblesigfigs(reading, lowlim, upplim, defaultsigfigs=3):
+    def sensiblesigfigs(self, reading, lowlim, upplim, defaultsigfigs=3):
         """
         Rounds reading to a sensible number of significant figures.
 
@@ -154,8 +154,8 @@ class Reading(threading.Thread):
                                 msg = f'{reading["topic"].capitalize()} alarm for reading {self.name}. '
                                 try:
                                     toohigh = value - setpoint > hi  # (Or low)
-                                    msgval = sensiblesigfigs(value, setpoint + lo, setpoint + hi)
-                                    msgthreshold = sensiblesigfigs(setpoint + hi if toohigh else setpoint + lo, setpoint + lo, setpoint + hi)
+                                    msgval = self.sensiblesigfigs(value, setpoint + lo, setpoint + hi)
+                                    msgthreshold = self.sensiblesigfigs(setpoint + hi if toohigh else setpoint + lo, setpoint + lo, setpoint + hi)
                                     msg += f'{msgval} is {"above" if toohigh else "below"} '
                                     msg += f'the threshold {msgthreshold}.'
                                 except ValueError:
@@ -167,7 +167,7 @@ class Reading(threading.Thread):
                                 self.recurrence_counter = 0
                             break
             except Exception as e:
-                self.logger.debug(f'Alarms not properly configured for {self.reading_name}: {type(e)}, {e}')
+                self.logger.debug(f'Alarms not properly configured for {self.name}: {type(e)}, {e}')
 
     def send_upstream(self, value):
         """
