@@ -151,10 +151,17 @@ class Reading(threading.Thread):
                         else:
                             self.recurrence_counter += 1
                             if self.recurrence_counter >= recurrence:
-                                toohigh = value - setpoint > hi  # (Or low)
                                 msg = f'{reading["topic"].capitalize()} alarm for reading {self.name}. '
-                                msg += f'{value} is {"above" if toohigh else "below"} '
-                                msg += f'threshold of {setpoint + hi if toohigh else setpoint + lo}.'
+                                try:
+                                    toohigh = value - setpoint > hi  # (Or low)
+                                    msgval = sensiblesigfigs(value, setpoint + lo, setpoint + hi)
+                                    msgthreshold = sensiblesigfigs(setpoint + hi if toohigh else setpoint + lo, setpoint + lo, setpoint + hi)
+                                    msg += f'{msgval} is {"above" if toohigh else "below"} '
+                                    msg += f'the threshold {msgthreshold}.'
+                                except ValueError:
+                                    # Sometimes hit a corner case (eg lo=hi)
+                                    msg += f'{value:.3g} is outside allowed range of'
+                                    msg += f'{setpoint+lo:.3g} to {setpoint+hi:.3g}.'
                                 self.logger.warning(msg)
                                 self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
                                 self.recurrence_counter = 0

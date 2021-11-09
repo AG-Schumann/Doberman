@@ -244,10 +244,11 @@ class AlarmMonitor(Doberman.Monitor):
 
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
+                message = f'{self.db.experiment_name.upper()} {message}'
                 if self.send_sms(recipients, message) == -1:
                     self.logger.error('Could not send SMS')
             elif protocol == 'email':
-                subject = f'{self.db.experiment_name} level {level} alarm'
+                subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
                 if self.send_email(toaddr=recipients, subject=subject,
                                    message=message) == -1:
                     self.logger.error('Could not send email!')
