@@ -8,6 +8,21 @@ from math import floor, log10
 
 __all__ = 'Reading MultiReading'.split()
 
+def sensiblesigfigs(reading, lowlim, upplim, defaultsigfigs=3):
+    """
+    Rounds reading to a sensible number of significant figures.
+
+    In general rounds to defaultsigfigs significant figures.
+    If the lowlim and upplim are rather close, have at least
+    one more than the number of decimal places to distinguish
+    them. For example: with limits 1.023 and 1.044, readings have
+    three decimal places.
+    """
+    mindps = 1 - floor(log10(upplim - lowlim))
+    minsfs = floor(log10(reading)) + 1 + mindps
+    sfs = max(minsfs, 3)
+    print(minsfs, sfs)
+    return f'{reading:.{sfs}g}'
 
 class Reading(threading.Thread):
     """
@@ -116,22 +131,6 @@ class Reading(threading.Thread):
             value = int(value)
         return value
 
-    def sensiblesigfigs(self, reading, lowlim, upplim, defaultsigfigs=3):
-        """
-        Rounds reading to a sensible number of significant figures.
-
-        In general rounds to defaultsigfigs significant figures.
-        If the lowlim and upplim are rather close, have at least
-        one more than the number of decimal places to distinguish
-        them. For example: with limits 1.023 and 1.044, readings have
-        three decimal places.
-        """
-        mindps = 1 - floor(log10(upplim - lowlim))
-        minsfs = floor(log10(reading)) + 1 + mindps
-        sfs = max(minsfs, 3)
-        print(minsfs, sfs)
-        return f'{reading:.{sfs}g}'
-
     def check_for_alarm(self, value):
         """
         If Kafka is not used this checks the reading for alarms and logs it to the database
@@ -155,8 +154,8 @@ class Reading(threading.Thread):
                                 msg = f'{reading["topic"].capitalize()} alarm for reading {self.name}. '
                                 try:
                                     toohigh = value - setpoint > hi  # (Or low)
-                                    msgval = self.sensiblesigfigs(value, setpoint + lo, setpoint + hi)
-                                    msgthreshold = self.sensiblesigfigs(setpoint + hi if toohigh else setpoint + lo, setpoint + lo, setpoint + hi)
+                                    msgval = sensiblesigfigs(value, setpoint + lo, setpoint + hi)
+                                    msgthreshold = sensiblesigfigs(setpoint + hi if toohigh else setpoint + lo, setpoint + lo, setpoint + hi)
                                     msg += f'{msgval} is {"above" if toohigh else "below"} '
                                     msg += f'the threshold {msgthreshold}.'
                                 except ValueError:
