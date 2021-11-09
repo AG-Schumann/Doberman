@@ -226,9 +226,9 @@ class AlarmMonitor(Doberman.Monitor):
             for (lvl,), msg_docs in messages.items():
                 message = ""
                 for msg_doc in msg_docs:
-                    tz = pytz.timezone('Europe/Berlin')
-                    germantime = tz.localize(msg_doc["_id"].generation_time)
-                    message += f'{germantime.strftime(%Y-%m-%d %H:%M %Z)}: {msg_doc["msg"]} \n'
+                    msgtime = msg_doc["_id"].generation_time
+                    msgtime = msgtime.astimezone(tzlocal()).strftime("%Y-%m-%d %H:%M %Z")
+                    message += f'{msgtime}: {msg_doc["msg"]} \n'
                 self.send_message(lvl, message)
 
     def send_message(self, level, message):
