@@ -65,8 +65,8 @@ class AlarmMonitor(Doberman.Monitor):
             phone_numbers = [phone_numbers]
         for tonumber in phone_numbers:
             data = {
-                'To': 'BLAH',
-                'From': 'BLAH',
+                'To': tonumber,
+                'From': fromnumber,
                 'Parameters': json.dumps({'message': message})
             }
         response = requests.post(url, auth=auth, data=data)
