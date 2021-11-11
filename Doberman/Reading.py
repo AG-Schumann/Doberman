@@ -14,39 +14,35 @@ class Reading(threading.Thread):
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.db = kwargs['db']
-        self.last_measurement_time = time.time()
-        self.late_counter = 0
-        self.recurrence_counter = 0
         self.process_queue = queue.Queue()
-        self.sensor_name = kwargs['sensor_name']
         self.event = kwargs['event']
-        self.name = kwargs['reading_name']
+        self.name = kwargs['name']
         self.logger = kwargs.pop('logger')
-        self.runmode = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name, field='runmode')
-        self.key = f'{self.sensor_name}__{self.name}'
-        self.sensor_process = partial(kwargs['sensor'].process_one_reading, name=self.name)
-        self.Schedule = partial(kwargs['sensor'].add_to_schedule, reading_name=self.name,
-                                retq=self.process_queue)
-        self.child_setup(self.db.get_sensor_setting(name=self.sensor_name))
+        self.sensor_process = kwargs['sensor'].process_one_reading
+        self.sensor_schedule = kwargs['sensor'].add_to_schedule
+        doc = self.db.get_reading_setting(name=self.name)
+        self.is_int = 'is_int' in doc
+        self.topic = doc['topic']
+        self.subsystem = doc.get('subsystem', 'unknown')
+        self.child_setup(doc)
         self.update_config()
 
     def run(self):
-        self.logger.debug(f'{self.key} Starting')
+        self.logger.debug(f'{self.name} Starting')
         while not self.event.is_set():
             loop_top = time.time()
             self.update_config()
             if self.status == 'online':
-                self.Schedule()
+                self.sensor_schedule(reading_name=self.name)
                 self.process()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug(f'{self.key} Returning')
+        self.logger.debug(f'{self.name} Returning')
 
     def update_config(self):
-        doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
+        doc = self.db.get_reading_setting(name=self.name)
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
-        self.is_int = 'is_int' in doc
-        self.topic = doc['topic']
+        self.alarm = doc.get('alarm_thresholds', [])
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -74,7 +70,7 @@ class Reading(threading.Thread):
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
-            value = self.sensor_process(data=pkg['data'])
+            value = self.sensor_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
@@ -96,8 +92,9 @@ class Reading(threading.Thread):
         """
         This function sends data upstream to wherever it should end up
         """
-        self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
-                                fields={'value': value})
+        low, high = self.alarm if len(self.alarm) == 2 else (None, None)
+        self.db.write_to_influx(topic=self.topic, tags={'reading': self.name, 'subsystem': self.subsystem},
+                                fields={'value': value, 'alarm_low': low, 'alarm_high': high})
 
 
 class MultiReading(Reading):
@@ -107,7 +104,12 @@ class MultiReading(Reading):
     """
 
     def child_setup(self, doc):
+        super().child_setup(doc)
         self.all_names = doc['multi']
+
+    def update_child_config(self, doc):
+        super().update_child_config(doc)
+        self.alarms = {n: self.db.get_reading_setting(name=n, field='alarm_thresholds') for n in self.all_names}
 
     def more_processing(self, values):
         if self.is_int:
@@ -116,5 +118,6 @@ class MultiReading(Reading):
 
     def send_upstream(self, values):
         for n, v in zip(self.all_names, values):
-            self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': n},
-                                    fields={'value': v})
+            low, high = self.alarms[n] if n in self.alarms and len(self.alarms[n]) == 2 else (None, None)
+            self.db.write_to_influx(topic=self.topic, tags={'reading': n, 'subsystem': self.subsystem},
+                    fields={'value': v, 'alarm_low': low, 'alarm_high': high})

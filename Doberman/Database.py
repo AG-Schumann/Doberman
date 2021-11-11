@@ -19,12 +19,13 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '/write?'
         if influx_cfg['version'] == 1:
+            self.influx_url = influx_cfg['url'] + '/write?'
             query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
                             ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
             self.influx_headers = {}
         elif influx_cfg['version'] == 2:
+            self.influx_url = influx_cfg['url'] = '/api/v2/write?'
             query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
                             ('bucket', influx_cfg['bucket'])]
             self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
@@ -340,25 +341,23 @@ class Database(object):
         self.update_db('settings', 'sensors', cuts={'name': name},
                        updates={'$set': {field: value}})
 
-    def get_reading_setting(self, sensor=None, name=None, field=None):
+    def get_reading_setting(self, name=None, field=None):
         """
         Gets the document from one reading
 
-        :param sensor: the name of the sensor (ignored)
         :param name: the name of the reading
         :param field: the specific field to return
-        :returns: reading document
+        :returns: reading document or field
         """
         doc = self.read_from_db('settings', 'readings', cuts={'name': name}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def set_reading_setting(self, sensor=None, name=None, field=None, value=None):
+    def set_reading_setting(self, name=None, field=None, value=None):
         """
         Updates a parameter for a reading, used only by the web interface
 
-        :param sensor: the name of the sensor
         :param name: the name of the reading
         :param field: the specific field to update
         :param value: the new value
