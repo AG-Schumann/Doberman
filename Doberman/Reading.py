@@ -54,17 +54,17 @@ class Reading(threading.Thread):
         """
         One measurement cycle
         """
-        ret = {} # we use a dict because that passes by reference
-        func_start = time.time()
+        pkg = {} # we use a dict because that passes by reference
+        failed = False
         with self.cv:
-            self.schedule(reading_name=self.name, retq=(ret, self.cv))
-            if self.cv.wait_for(lambda: (len(ret) > 0 or self.event.is_set()), timeout=self.readout_interval):
+            self.schedule(reading_name=self.name, retq=(pkg, self.cv))
+            if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), timeout=self.readout_interval):
                 # wait_for returns True unless the timeout expired
-                pass
+                failed = len(pkg) == 0
             else:
                 # the timeout expired, do something?
-                # TODO
-        if len(ret) == 0:
+                failed = True
+        if failed:
             self.logger.info('Didn\'t get anything from the sensor!')
             return
         try:
@@ -72,10 +72,10 @@ class Reading(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'Got a {type(e)} while processing \'{ret["data"]}\': {e}')
             value = None
-        self.logger.debug(f'Measured {value}')
+        self.logger.debug(f'{self.name} measured {value}')
         if value is not None:
             value = self.more_processing(value)
-            self.send_upstream(value)
+            self.send_upstream(value, pkg['time'])
         return
 
     def more_processing(self, value):
@@ -86,13 +86,14 @@ class Reading(threading.Thread):
             value = int(value)
         return value
 
-    def send_upstream(self, value):
+    def send_upstream(self, value, timestamp):
         """
         This function sends data upstream to wherever it should end up
         """
         low, high = self.alarm if len(self.alarm) == 2 else (None, None)
         self.db.write_to_influx(topic=self.topic, tags={'reading': self.name, 'subsystem': self.subsystem},
-                                fields={'value': value, 'alarm_low': low, 'alarm_high': high})
+                                fields={'value': value, 'alarm_low': low, 'alarm_high': high},
+                                timestamp=timestamp)
 
 
 class MultiReading(Reading):
@@ -114,8 +115,9 @@ class MultiReading(Reading):
             values = list(map(int, values))
         return values
 
-    def send_upstream(self, values):
+    def send_upstream(self, values, timestamp):
         for n, v in zip(self.all_names, values):
             low, high = self.alarms[n] if n in self.alarms and len(self.alarms[n]) == 2 else (None, None)
             self.db.write_to_influx(topic=self.topic, tags={'reading': n, 'subsystem': self.subsystem},
-                    fields={'value': v, 'alarm_low': low, 'alarm_high': high})
+                    fields={'value': v, 'alarm_low': low, 'alarm_high': high},
+                    timestamp=timestamp)

@@ -4,7 +4,6 @@ try:
 except ImportError:
     has_serial = False
 import socket
-import queue
 import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
@@ -33,11 +32,12 @@ class Sensor(object):
         self.readings = opts['readings']
         self.logger = logger
         self.event = event
+        self.cmd_queue = []
+        self.cv = threading.Condition()
         self.set_parameters()
         self.base_setup()
 
     def base_setup(self):
-        self.cmd_queue = queue.Queue()
         try:
             self.setup_child()
             self.setup()
@@ -77,9 +77,9 @@ class Sensor(object):
 
     def readout_scheduler(self):
         """
-        Pulls tasks from the command queue and deals with them. If the queue is empty
-        it sleeps for 1ms and retries. This function returns when self.running
-        becomes False. While the sensor is in normal operation, this is the only
+        Pulls tasks from the command queue and deals with them. Sleeps while there
+        are no tasks in the queue. This function returns when self.running
+        becomes False and the event is set. While the sensor is in normal operation, this is the only
         function that should call SendRecv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
@@ -89,12 +89,18 @@ class Sensor(object):
                 self.cv.wait_for(lambda: (len(self.cmd_queue > 0) || self.event.is_set()))
                 if len(self.cmd_queue) > 0:
                     command, (retd, retcv) = self.cmd_queue.pop(0)
-                    self.cmd_queue_lock.release()
+                    self.cv.release()
+                    t_start = time.time()
+                    self.logger.debug(f'Executing "{command}"')
                     ret = self.send_recv(command)
+                    t_end = time.time()
+                    ret['time'] = 0.5*(t_start + t_end)
                     if retd:
                         retd.update(ret)
                         with retcv:
                             retcv.notify()
+                else:
+                    self.cv.release()
         self.logger.debug('Readout scheduler returning')
 
     def add_to_schedule(self, reading_name=None, command=None, retq=None):
@@ -105,8 +111,8 @@ class Sensor(object):
 
         :param reading_name: the name of the reading to schedule
         :param command: the command to issue to the sensor
-        :param retq: a dict to put the result for asynchronous processing.
-            Required for reading_name != None
+        :param retq: a (dict, condition variable) tuple to store the result for 
+            asynchronous processing. Required for reading_name != None
         :returns None
         """
         if reading_name is not None:
