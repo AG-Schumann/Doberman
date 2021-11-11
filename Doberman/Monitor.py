@@ -7,7 +7,6 @@ import threading
 import datetime
 import pprint
 
-
 def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)

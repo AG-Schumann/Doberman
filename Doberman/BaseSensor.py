@@ -55,18 +55,21 @@ class Sensor(object):
         A function for a child class to implement with anything that should happen
         before shutdown, such as closing an active hardware connection
         """
+        pass
 
     def set_parameters(self):
         """
         A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
+        pass
 
     def setup(self):
         """
         If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
+        pass
 
     def setup_child(self):
         """
@@ -74,6 +77,7 @@ class Sensor(object):
         to be done before handing off to the user's code (such as opening a
         hardware connection)
         """
+        pass
 
     def readout_scheduler(self):
         """
@@ -99,8 +103,6 @@ class Sensor(object):
                         retd.update(ret)
                         with retcv:
                             retcv.notify()
-                else:
-                    self.cv.release()
         self.logger.debug('Readout scheduler returning')
 
     def add_to_schedule(self, reading_name=None, command=None, retq=None):
@@ -169,6 +171,16 @@ class Sensor(object):
         """
         Implemented by a child class
         """
+        if not hasattr(self, 'command_patterns'):
+            self.logger.error("I don't accept specific commands")
+            return
+        for pattern, func in self.command_patterns:
+            m = pattern.search(command)
+            if not m:
+                continue
+            self.add_to_schedule(command=func(m))
+            return
+        self.logger.error(f"Did not understand command '{command}'")
 
     def close(self):
         self.event.set()

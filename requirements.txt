@@ -1,7 +1,5 @@
 pyserial==3.4
 pymongo
-numpy
-influxdb
 psutil
 requests
 python-dateutil

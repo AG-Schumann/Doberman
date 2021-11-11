@@ -4,6 +4,8 @@ from socket import getfqdn
 import time
 import requests
 
+dtnow = datetime.datetime.utcnow
+
 __all__ = 'Database'.split()
 
 dtnow = Doberman.utils.dtnow

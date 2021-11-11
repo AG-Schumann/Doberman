@@ -1,7 +1,5 @@
-import queue
 import threading
 import time
-from functools import partial
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -14,7 +12,6 @@ class Reading(threading.Thread):
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.db = kwargs['db']
-        self.process_queue = queue.Queue()
         self.event = kwargs['event']
         self.name = kwargs['name']
         self.logger = kwargs.pop('logger')
@@ -42,6 +39,13 @@ class Reading(threading.Thread):
         self.status = doc['status']
         self.readout_interval = doc['readout_interval']
         self.alarm = doc.get('alarm_thresholds', [])
+        self.logger.debug(f'{self.name} returning')
+
+    def update_config(self, doc=None):
+        if doc is None:
+            doc = self.db.get_reading_setting(sensor=self.sensor_name, name=self.name)
+        self.status = doc['status']
+        self.readout_interval = doc['readout_interval']
         self.update_child_config(doc)
 
     def child_setup(self, config_doc):
@@ -95,6 +99,18 @@ class Reading(threading.Thread):
                                 fields={'value': value, 'alarm_low': low, 'alarm_high': high},
                                 timestamp=timestamp)
 
+    def send_upstream(self, value):
+        """
+        This function sends data upstream to wherever it should end up
+        """
+        if self.db.has_kafka:
+            try:
+                self.kafka(value=f'{self.name},{value:.6g}')
+            except Exception as e:
+                self.kafka(value=f'{self.name},{value}')
+            return
+        self.db.write_to_influx(topic=self.topic, tags={'sensor': self.sensor_name, 'reading': self.name},
+                                fields={'value': value})
 
 class MultiReading(Reading):
     """
