@@ -5,13 +5,19 @@ import time
 import datetime
 import signal
 import os.path
+<<<<<<< HEAD
 import os
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 import inspect
 import re
 import logging
 import logging.handlers
 import serial
+<<<<<<< HEAD
 import threading
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
 dtnow = datetime.datetime.now
 
@@ -164,6 +170,7 @@ class SignalHandler(object):
 
 class DobermanLogger(logging.Handler):
     """
+<<<<<<< HEAD
     Custom logger for Doberman. DEBUG goes to disk in one file, INFO and higher also goes to disk in another file,
     WARNING and higher go to the database. The DEBUG files will get purged regularly because they'll be quite bulky,
     while "important" info will remain in the long-term logfiles. Logfiles will get rotated daily with folder
@@ -246,4 +253,58 @@ def get_logger(name, db):
     logger = logging.getLogger(name)
     logger.addHandler(DobermanLogger(db, name))
     logger.setLevel(logging.DEBUG)
+=======
+    Custom logging interface for Doberman. Logs to
+    the database (with disk as backup).
+    """
+
+    def __init__(self, db, level=logging.INFO):
+        logging.Handler.__init__(self)
+        self.db = db
+        self.db_name = 'logging'
+        self.collection_name = 'logs'
+        backup_filename = datetime.date.today().isoformat()
+        self.backup_logger = logging.handlers.TimedRotatingFileHandler(
+            os.path.join(doberman_dir, 'logs', backup_filename + '.log'),
+            when='midnight', delay=True)
+        self.stream = logging.StreamHandler()
+        f = logging.Formatter('%(asctime)s | '
+                              '%(levelname)s | %(name)s | %(funcName)s | '
+                              '%(lineno)d | %(message)s')
+        self.setFormatter(f)
+        self.stream.setFormatter(f)
+        self.backup_logger.setFormatter(f)
+        self.level = level
+
+    def close(self):
+        self.backup_logger.close()
+        self.stream.close()
+        self.db = None
+
+    def __del__(self):
+        self.close()
+
+    def emit(self, record):
+        self.stream.emit(record)
+        if record.levelno < self.level or record.levelno <= logging.DEBUG:
+            return
+        rec = dict(
+            msg=record.msg,
+            level=record.levelno,
+            name=record.name,
+            funcname=record.funcName,
+            lineno=record.lineno)
+        if self.db.insert_into_db(self.db_name, self.collection_name, rec):
+            self.backup_logger.emit(record)
+
+
+def logger(name, db, loglevel='DEBUG'):
+    logger = logging.getLogger(name)
+    try:
+        lvl = getattr(logging, loglevel)
+    except AttributeError:
+        lvl = logging.INFO
+    logger.setLevel(lvl)
+    logger.addHandler(DobermanLogger(db, level=lvl))
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
     return logger

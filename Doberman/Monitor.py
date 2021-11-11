@@ -4,8 +4,13 @@ from pymongo import MongoClient
 import argparse
 import os
 import threading
+<<<<<<< HEAD
 import datetime
 import pprint
+=======
+from functools import partial
+import datetime
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
 
 def main(mongo_client):
@@ -15,9 +20,17 @@ def main(mongo_client):
     group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
+<<<<<<< HEAD
     args = parser.parse_args()
 
     db_kwargs = {'mongo_client': mongo_client}
+=======
+    parser.add_argument('--log', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL'],
+                        help='Logging level', default='INFO')
+    args = parser.parse_args()
+
+    db_kwargs = {'mongo_client': mongo_client, 'loglevel': args.log}
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
     err_msg = 'Specify an experiment first! This can be done either as an environment variable '
     err_msg += 'DOBERMAN_EXPERIMENT_NAME or in the file experiment_name'
     try:
@@ -33,11 +46,18 @@ def main(mongo_client):
             print(err_msg)
             return
     db = Doberman.Database(**db_kwargs)
+<<<<<<< HEAD
     kwargs = {'db': db}
     # TODO add checks for running systems
     if args.alarm:
         ctor = Doberman.AlarmMonitor
         kwargs['name'] = 'alarm_monitor'
+=======
+    kwargs = {'db': db, 'loglevel': args.log}
+    # TODO add checks for running systems
+    if args.alarm:
+        ctor = partial(Doberman.AlarmMonitor, **kwargs)
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
     elif args.host:
         doc = db.get_host_setting(db.hostname)
         if doc['status'] == 'online':
@@ -45,6 +65,7 @@ def main(mongo_client):
                 print(f'Host monitor {db.hostname}  already online!')
                 return
             print(f'Host monitor {db.hostname} crashed?')
+<<<<<<< HEAD
         ctor = Doberman.HostMonitor
         kwargs['name'] = db.hostname
     elif args.sensor:
@@ -62,6 +83,21 @@ def main(mongo_client):
     db.logger = logger
     kwargs['logger'] = logger
     monitor = ctor(**kwargs)
+=======
+        ctor = partial(Doberman.HostMonitor, **kwargs)
+    elif args.sensor:
+        kwargs['_name'] = args.sensor
+        if 'Test' in args.sensor:
+            db.experiment_name = 'testing'
+        # check if sensor is already running, otherwise start it
+        else:
+            ctor = partial(Doberman.SensorMonitor, **kwargs)
+    elif args.status:
+        pass
+    else:
+        return
+    monitor = ctor()
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
     if threading.current_thread() is threading.main_thread():
         while not monitor.sh.event.is_set():
             monitor.event.wait(10)

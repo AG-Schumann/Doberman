@@ -11,6 +11,7 @@ class Monitor(object):
     A base monitor class
     """
 
+<<<<<<< HEAD
     def __init__(self, db=None, name=None, logger=None):
         """
         """
@@ -20,6 +21,24 @@ class Monitor(object):
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
+=======
+    def __init__(self, db=None, _name=None, loglevel='INFO'):
+        """
+        """
+        self.db = db
+        if isinstance(self, Doberman.HostMonitor):
+            self.name = db.hostname
+        elif isinstance(self, Doberman.AlarmMonitor):
+            self.name = 'AlarmMonitor'
+        elif isinstance(self, Doberman.SensorMonitor):
+            self.name = _name
+
+        self.logger = Doberman.utils.logger(name=self.name, db=db, loglevel=loglevel)
+        self.logger.debug('Monitor constructing')
+        self.event = threading.Event()
+        self.threads = {}
+        self.loglevel = loglevel
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
         if threading.current_thread() is threading.main_thread():
             self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()
@@ -73,7 +92,10 @@ class Monitor(object):
         Called by the constructor. Allows subclasses to initialize stuff (most
         notably calls to Register)
         """
+<<<<<<< HEAD
         pass
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def shutdown(self):
         """
@@ -81,7 +103,10 @@ class Monitor(object):
         set to False before this is called, and all threads will be joined once
         this function returns
         """
+<<<<<<< HEAD
         pass
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def stop_thread(self, name):
         """

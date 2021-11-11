@@ -3,11 +3,18 @@ import datetime
 from socket import getfqdn
 from functools import partial
 import time
+<<<<<<< HEAD
 import requests
 
 
 try:
     from kafka import KafkaProducer
+=======
+
+try:
+    from kafka import KafkaProducer
+
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
     has_kafka = True
 except ImportError:
     has_kafka = False
@@ -34,8 +41,14 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
+<<<<<<< HEAD
     def __init__(self, mongo_client, experiment_name=None):
         self.client = mongo_client
+=======
+    def __init__(self, mongo_client, loglevel='INFO', experiment_name=None):
+        self.client = mongo_client
+        self.logger = Doberman.utils.logger(name='Database', db=self, loglevel=loglevel)
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         if has_kafka:
@@ -44,6 +57,7 @@ class Database(object):
             try:
                 self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
                                            value_serializer=partial(bytes, encoding='utf-8'))
+<<<<<<< HEAD
                 print(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
             except Exception as e:
                 print(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
@@ -57,6 +71,17 @@ class Database(object):
         self.influx_url = influx_cfg['url'] + '?' + '&'.join([f'{k}={v}' for k,v in influx_cfg['query_params'].items()])
         self.influx_precision = dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['query_params']['precision']]
         self.influx_headers = influx_cfg['headers']
+=======
+                self.logger.debug(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
+            except Exception as e:
+                self.logger.debug(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
+                self.kafka = FakeKafka()
+                self.has_kafka = False
+        else:
+            self.logger.debug(f"Could not import KafkaProducer. I will run in independent mode.")
+            self.kafka = FakeKafka()
+            self.has_kafka = False
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def close(self):
         self.kafka.close()
@@ -418,6 +443,7 @@ class Database(object):
         """
         return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
 
+<<<<<<< HEAD
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
         Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
@@ -441,6 +467,8 @@ class Database(object):
             # something went wrong
             pass
 
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
     def get_current_status(self):
         """
         Gives a snapshot of the current system status

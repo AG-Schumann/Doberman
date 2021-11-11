@@ -19,7 +19,11 @@ class Sensor(object):
     _msg_start = ''
     _msg_end = ''
 
+<<<<<<< HEAD
     def __init__(self, opts, logger, event):
+=======
+    def __init__(self, opts, logger):
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
         """
         opts is the document from the database
         """
@@ -32,7 +36,10 @@ class Sensor(object):
                 setattr(self, k, v)
         self.readings = opts['readings']
         self.logger = logger
+<<<<<<< HEAD
         self.event = event
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
         self.set_parameters()
         self.base_setup()
 
@@ -42,6 +49,10 @@ class Sensor(object):
             self.setup_child()
             self.setup()
             time.sleep(0.2)
+<<<<<<< HEAD
+=======
+            self.event = threading.Event()
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
             self.readout_thread = threading.Thread(target=self.readout_scheduler)
             self.readout_thread.start()
         except Exception as e:
@@ -55,21 +66,30 @@ class Sensor(object):
         A function for a child class to implement with anything that should happen
         before shutdown, such as closing an active hardware connection
         """
+<<<<<<< HEAD
         pass
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def set_parameters(self):
         """
         A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
+<<<<<<< HEAD
         pass
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def setup(self):
         """
         If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
+<<<<<<< HEAD
         pass
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def setup_child(self):
         """
@@ -77,7 +97,10 @@ class Sensor(object):
         to be done before handing off to the user's code (such as opening a
         hardware connection)
         """
+<<<<<<< HEAD
         pass
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def readout_scheduler(self):
         """
@@ -117,12 +140,18 @@ class Sensor(object):
             if retq is None:
                 return
             with self.cv:
+<<<<<<< HEAD
                 self.logger.debug(f'Scheduling {self.readings[reading_name]}')
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
                 self.cmd_queue.append((self.readings[reading_name], retq))
                 self.cv.notify()
         elif command is not None:
             with self.cv:
+<<<<<<< HEAD
                 self.logger.debug(f'Scheduling {command}')
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
                 self.cmd_queue.append((command, (None,None))
                 self.cv.notify()
         return
@@ -165,7 +194,11 @@ class Sensor(object):
                 continue
             self.add_to_schedule(command=func(m))
             return
+<<<<<<< HEAD
         self.logger.error(f"Did not understand command '{command}'")
+=======
+        self.logger.error("Did not understand command '%s'" % command)
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def close(self):
         self.event.set()
@@ -218,9 +251,12 @@ class SerialSensor(Sensor):
         self._device.stopbits = serial.STOPBITS_ONE
         self._device.timeout = 0  # nonblocking mode
         self._device.write_timeout = 1
+<<<<<<< HEAD
         if not hasattr(self, 'msg_sleep'):
             # so we can more easily change this later
             self.msg_sleep = 1.0
+=======
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
         if self.tty == '0':
             raise ValueError('No tty port specified!')
@@ -250,7 +286,11 @@ class SerialSensor(Sensor):
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
+<<<<<<< HEAD
             time.sleep(self.msg_sleep)
+=======
+            time.sleep(1.0)
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
             if device.in_waiting:
                 s = device.read(device.in_waiting)
                 ret['data'] = s

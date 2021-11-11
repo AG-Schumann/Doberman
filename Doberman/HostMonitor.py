@@ -47,16 +47,28 @@ class HostMonitor(Doberman.Monitor):
         n_cpus = psutil.cpu_count()
         host = self.db.hostname
         load_1, load_5, load_15 = psutil.getloadavg()
+<<<<<<< HEAD
         fields = {'load_1': load_1 / n_cpus, 'load_5': load_5 / n_cpus, 'load_15': load_15 / n_cpus}
         mem = psutil.virtual_memory()
         fields['mem_avail'] = mem.available/mem.total
         swap = psutil.swap_memory()
         fields['swap_used'] = swap.percent
+=======
+        self.kafka(value=f'{host},load_1,{load_1 / n_cpus:.3g}')
+        self.kafka(value=f'{host},load_5,{load_5 / n_cpus:.3g}')
+        self.kafka(value=f'{host},load_15,{load_15 / n_cpus:.3g}')
+        mem = psutil.virtual_memory()
+        self.kafka(value=f'{host},mem_avail,{mem.available / mem.total:.3g}')
+        swap = psutil.swap_memory()
+        self.kafka(value=f'{host},swap_avail,{swap.percent:.3g}')
+        socket = '0'
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
         temp_dict = psutil.sensors_temperatures()
         if 'coretemp' in temp_dict.keys():
             for row in temp_dict['coretemp']:
                 if 'Package' in row.label:  # Fujitsu Intel core servers
                     socket = row.label[-1]  # max 10 sockets per machine
+<<<<<<< HEAD
                     fields[f'cpu_{socket}_temp'] = row.current
         elif len(temp_dict) == 1:
             key = list(temp_dict.keys())[0]
@@ -80,6 +92,34 @@ class HostMonitor(Doberman.Monitor):
             self.last_write[disk] = disk_io[disk].write_bytes
             fields[f'{name}_write'] = write_kbytes/self.sysmon_timer
         self.db.write_to_influx(topic='sysmon', tags={'host': host}, fields=fields)
+=======
+                    self.kafka(value=f'{host},cpu_{socket}_temp,{row.current:.3g}')
+                else:
+                    core = int(row.label.split(' ')[-1])
+                    self.kafka(value=f'{host},cpu_{socket}_{core:02d}_temp,{row.current:.3g}')
+        elif 'bcm2835_thermal' in temp_dict.keys():  # Revolution Pi
+            self.kafka(value=f'{host},cpu_temp,{temp_dict["bcm2835_thermal"]["current"]:3g}')
+        else:
+            self.logger.debug(f'Couldn\'t read out CPU temperatures for {host}.')
+        for i, row in enumerate(psutil.cpu_freq(True)):
+            self.kafka(value=f'{host},cpu_{i:02d}_freq,{row.current:.3g}')
+        net_io = psutil.net_io_counters(True)
+        for nic, name in self.nics.items():
+            recv_mbytes = (net_io[nic].bytes_recv - self.last_recv[nic]) >> 20
+            self.last_recv[nic] = net_io[nic].bytes_recv
+            self.kafka(value=f'{host},{name}_recv,{recv_mbytes / self.sysmon_timer:.3g}')
+            sent_mbytes = (net_io[nic].bytes_sent - self.last_sent[nic]) >> 20
+            self.last_sent[nic] = net_io[nic].bytes_sent
+            self.kafka(value=f'{host},{name}_sent,{sent_mbytes / self.sysmon_timer:.3g}')
+        disk_io = psutil.disk_io_counters(True)
+        for disk, name in self.disks.items():
+            read_mbytes = (disk_io[disk].read_bytes - self.last_read[disk]) >> 20
+            self.last_read[disk] = disk_io[disk].read_bytes
+            self.kafka(value=f'{host},{name}_read,{read_mbytes / self.sysmon_timer:.3g}')
+            write_mbytes = (disk_io[disk].write_bytes - self.last_write[disk]) >> 20
+            self.last_write[disk] = disk_io[disk].write_bytes
+            self.kafka(value=f'{host},{name}_write,{write_mbytes / self.sysmon_timer:.3g}')
+>>>>>>> f0454c9472bbbe22bc8153e48d9b8c6b2fa07413
 
     def heartbeat(self):
         self.logger.debug("Heartbeat")
