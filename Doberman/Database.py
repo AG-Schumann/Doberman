@@ -8,6 +8,7 @@ __all__ = 'Database'.split()
 
 dtnow = Doberman.utils.dtnow
 
+
 class Database(object):
     """
     Class to handle interfacing with the Doberman database
@@ -18,17 +19,19 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '?'
+        self.influx_url = influx_cfg['url'] + '/write?'
         if influx_cfg['version'] == 1:
-            self.influx_url += f'u={influx_cfg["username"]}&p={influx_cfg["password"]}&db={influx_cfg["org"]}'
+            query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
+                            ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
             self.influx_headers = {}
         elif influx_cfg['version'] == 2:
-            self.influx_url += (f'org={influx_cfg["org"]}&precision={influx_cfg["precision"]}'
-                                f'&bucket={influx_cfg["bucket"]}')
+            query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
+                            ('bucket', influx_cfg['bucket'])]
             self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
             raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
-        self.influx_precision = int(dict(zip(['s','ms','us','ns'],[1,1e3,1e6,1e9]))[influx_cfg['precision']])
+        self.influx_url += '&'.join([f'{k}={v}' for k, v in query_params])
+        self.influx_precision = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
 
     def close(self):
         pass
@@ -202,7 +205,7 @@ class Database(object):
         """
         now = dtnow()
         doc = self.find_one_and_update('logging', 'commands',
-                # the order of terms in the query is important
+                                       # the order of terms in the query is important
                                        cuts={'acknowledged': 0,
                                              'logged': {'$lte': now},
                                              'name': name},
@@ -219,6 +222,33 @@ class Database(object):
             doc['logged'] = dtnow()
         doc['acknowledged'] = 0
         self.insert_into_db('logging', 'commands', doc)
+
+    def get_pipeline(self, name):
+        """
+        Gets a pipeline config doc
+        :param name: the name of the pipeline
+        """
+        return self.read_from_db('settings', 'pipelines', {'name': name}, onlyone=True)
+
+    def get_alarm_pipelines(self, inactive=False):
+        """
+        Returns a list of names of pipelines.
+        :param inactive: bool, include currently inactive pipelines in the return
+        :yields: names of pipelines
+        """
+        query = {'name': {'$regex': 'alarm'}, 'status': {'$in': ['active', 'silent']}}
+        if inactive:
+            del query['status']
+        for doc in self.read_from_db('settings', 'pipelines', query):
+            yield doc['name']
+
+    def set_pipeline_value(self, name, kvp):
+        """
+        Updates a pipeline config
+        :param name: the name of the pipeline
+        :param kvp: a list of (key, value) pairs to set
+        """
+        return self.update_db('settings', 'pipelines', {'name': name}, {'$set': dict(kvp)})
 
     def get_message_protocols(self, level):
         """
@@ -329,13 +359,12 @@ class Database(object):
         """
         Gets the document from one reading
 
-        :param sensor: the name of the sensor
+        :param sensor: the name of the sensor (ignored)
         :param name: the name of the reading
         :param field: the specific field to return
         :returns: reading document
         """
-        doc = self.read_from_db('settings', 'readings',
-                                cuts={'sensor': sensor, 'name': name}, onlyone=True)
+        doc = self.read_from_db('settings', 'readings', cuts={'name': name}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
@@ -411,24 +440,26 @@ class Database(object):
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
-        Writes the specified data to Influx. See https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
+        Writes the specified data to Influx. See
+        https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
         for more info. The URL and access credentials are stored in the database and cached for use
         :param topic: the named named type of measurement (temperature, pressure, etc)
         :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
-        :param fields: a dict of field names and values, usually 'value'
+        :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
-        data = f'{topic}'
+        if topic is None or fields is None:
+            raise ValueError('Missing required fields for influx insertion')
+        data = f'{topic}' if self.experiment_name != 'testing' else 'testing'
         if tags is not None:
             data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
         data += ' '
-        if fields is not None:
-            data += ','.join([
-                f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
-                ])
+        data += ','.join([
+            f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
+        ])
         timestamp = timestamp or time.time()
-        data += f' {int(timestamp*self.influx_precision)}'
-        if requests.post(self.influx_url, headers=self.influx_headers, data=data).status_code != 200:
+        data += f' {int(timestamp * self.influx_precision)}'
+        if requests.post(self.influx_cfg['url'], headers=self.influx_cfg['headers'], data=data).status_code != 200:
             # something went wrong
             pass
 
@@ -465,6 +496,6 @@ class Database(object):
                         if reading_doc['status'] == 'online':
                             status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] \
                                 = reading_doc['runmode']
-                except TypeError as e:
+                except TypeError:
                     pass
         return status

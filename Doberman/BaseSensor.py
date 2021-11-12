@@ -1,5 +1,6 @@
 try:
     import serial
+
     has_serial = True
 except ImportError:
     has_serial = False
@@ -55,21 +56,18 @@ class Sensor(object):
         A function for a child class to implement with anything that should happen
         before shutdown, such as closing an active hardware connection
         """
-        pass
 
     def set_parameters(self):
         """
         A function for a sensor to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
-        pass
 
     def setup(self):
         """
         If a sensor needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
-        pass
 
     def setup_child(self):
         """
@@ -77,7 +75,6 @@ class Sensor(object):
         to be done before handing off to the user's code (such as opening a
         hardware connection)
         """
-        pass
 
     def readout_scheduler(self):
         """
@@ -141,8 +138,8 @@ class Sensor(object):
     def send_recv(self, message):
         """
         General sensor interface. Returns a dict with retcode -1 if sensor not connected,
-        -2 if there is an exception, (larger numbers also possible) and whatever data was read. Adds _msg_start and _msg_end
-        to the message before sending it
+        -2 if there is an exception, (larger numbers also possible) and whatever data was read.
+        Adds _msg_start and _msg_end to the message before sending it
         """
         raise NotImplementedError()
 
@@ -162,7 +159,6 @@ class Sensor(object):
         """
         Implemented by a child class
         """
-        pass
 
     def close(self):
         self.event.set()
@@ -220,7 +216,7 @@ class SerialSensor(Sensor):
         if self.tty == '0':
             raise ValueError('No tty port specified!')
         try:
-            if self.tty.startswith('/'): # Full path to device TTY specified
+            if self.tty.startswith('/'):  # Full path to device TTY specified
                 self._device.port = self.tty
             else:
                 self._device.port = f'/dev/tty{self.tty}'
@@ -272,7 +268,7 @@ class LANSensor(Sensor):
             self._device.settimeout(1)
             self._device.connect((self.ip, int(self.port)))
         except socket.error as e:
-            self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
+            self.logger.error(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
             self._connected = False
             return False
         self._connected = True

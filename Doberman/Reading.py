@@ -1,8 +1,7 @@
-import Doberman
-import time
 import queue
-from functools import partial
 import threading
+import time
+from functools import partial
 
 __all__ = 'Reading MultiReading'.split()
 
@@ -79,23 +78,9 @@ class Reading(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
-        if ((func_start - self.last_measurement_time) > 1.5 * self.readout_interval or
-                value is None):
-            self.late_counter += 1
-            if self.late_counter > 2:
-                msg = f'Sensor {self.sensor_name} responding slowly? {self.late_counter} measurements are late or missing'
-                if self.runmode == 'default':
-                    self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': 1})
-                else:
-                    self.logger.info(msg)
-                self.late_counter = 0
-        else:
-            self.late_counter = max(0, self.late_counter - 1)
-        self.last_measurement_time = func_start
         self.logger.debug(f'Measured {value}')
         if value is not None:
             value = self.more_processing(value)
-            self.check_for_alarm(value)
             self.send_upstream(value)
         return
 
@@ -106,35 +91,6 @@ class Reading(threading.Thread):
         if self.is_int:
             value = int(value)
         return value
-
-    def check_for_alarm(self, value):
-        """
-        This checks the reading for alarms and logs it to the database
-        """
-        reading = self.db.get_reading_setting(self.sensor_name, self.name)
-        if reading['runmode'] == 'default':
-            alarms = reading['alarms']
-            try:
-                simple_alarm = list(filter(lambda alarm: alarm['type'] == 'simple', alarms))[0]
-                if simple_alarm['enabled'] == 'true':
-                    setpoint = simple_alarm['setpoint']
-                    recurrence = simple_alarm['recurrence']
-                    levels = simple_alarm['levels']
-                    for i, level in reversed(list(enumerate(levels))):
-                        lo, hi = level
-                        if lo <= value - setpoint <= hi:
-                            self.recurrence_counter = 0
-                        else:
-                            self.recurrence_counter += 1
-                            if self.recurrence_counter >= recurrence:
-                                msg = f'{reading["description"]}: {value} is outside ' \
-                                      + f'range ({setpoint + lo}, {setpoint + hi})'
-                                self.logger.warning(msg)
-                                self.db.log_alarm({'msg': msg, 'name': self.key, 'howbad': i})
-                                self.recurrence_counter = 0
-                            break
-            except Exception as e:
-                self.logger.debug(f'Alarms not properly configured for {self.name}: {type(e)}, {e}')
 
     def send_upstream(self, value):
         """
@@ -155,7 +111,7 @@ class MultiReading(Reading):
 
     def more_processing(self, values):
         if self.is_int:
-            return list(map(int, values))
+            values = list(map(int, values))
         return values
 
     def send_upstream(self, values):

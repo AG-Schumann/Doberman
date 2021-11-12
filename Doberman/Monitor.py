@@ -14,6 +14,7 @@ def main(mongo_client):
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
     group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
+    group.add_argument('--pipeline', help='Start a pipeline monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
@@ -30,8 +31,8 @@ def main(mongo_client):
             print(err_msg)
             return
     if len(db_kwargs['experiment_name']) == 0:
-            print(err_msg)
-            return
+        print(err_msg)
+        return
     db = Doberman.Database(**db_kwargs)
     kwargs = {'db': db}
     # TODO add checks for running systems
@@ -52,6 +53,9 @@ def main(mongo_client):
         kwargs['name'] = args.sensor
         if 'Test' in args.sensor:
             db.experiment_name = 'testing'
+    elif args.pipeline:
+        kwargs['name'] = f'pl_{args.pipeline}'
+        ctor = Doberman.PipelineMonitor
     elif args.status:
         pprint.pprint(db.get_current_status())
         return
@@ -64,7 +68,7 @@ def main(mongo_client):
     monitor = ctor(**kwargs)
     if threading.current_thread() is threading.main_thread():
         while not monitor.sh.event.is_set():
-            monitor.event.wait(10)
+            monitor.event.wait(1)
     print('Shutting down')
     monitor.shutdown()
     print('Main returning')

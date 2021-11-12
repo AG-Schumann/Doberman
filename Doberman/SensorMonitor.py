@@ -30,7 +30,9 @@ class SensorMonitor(Doberman.Monitor):
             reading = Doberman.MultiReading(**kwargs)
         else:
             reading = Doberman.Reading(**kwargs)
-        self.register(rd, reading)
+        
+        self.register(obj=reading, period=reading_doc['readout_interval'],
+                          name=rd)
 
     def shutdown(self):
         if self.sensor is None:
@@ -88,4 +90,3 @@ class SensorMonitor(Doberman.Monitor):
             if reading_name in self.threads.keys():
                 self.stop_thread(reading_name)
                 self.start_reading(reading_name)
-
