@@ -15,20 +15,22 @@ class SensorMonitor(Doberman.Monitor):
         cfg_doc = self.db.get_sensor_setting(self.name)
         self.open_sensor()
         for rd in cfg_doc['readings'].keys():
-            self.logger.debug('Constructing ' + rd)
-            reading_doc = self.db.get_reading_setting(self.name, rd)
-            kwargs = {'sensor_name': self.name, 'reading_name': rd, 'logger': self.logger,
-                      'event': self.event, 'db': self.db, 'sensor': self.sensor}
-            if 'is_multi' in reading_doc:
-                reading = Doberman.MultiReading(**kwargs)
-            elif 'pid' in reading_doc:
-                reading = Doberman.PIDReading(**kwargs)
-            else:
-                reading = Doberman.Reading(**kwargs)
-            self.register(rd, reading)
+            self.start_reading(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
-                      period=self.db.get_host_setting(field='heartbeat_timer'))
-        self.db.set_host_setting(addToSet={'active': self.name})
+                      period=self.db.get_experiment_config(name='hypervisor', field='period'))
+        self.db.notify_hypervisor(active=self.name)
+
+    def start_reading(self, rd):
+        self.logger.debug('Constructing ' + rd)
+        reading_doc = self.db.get_reading_setting(rd)
+        kwargs = {'name': rd, 'logger': self.logger, db: self.db,
+                  'event': self.event, 'sensor': self.sensor}
+        if 'is_multi' in reading_doc:
+            # TODO this is probably broken
+            reading = Doberman.MultiReading(**kwargs)
+        else:
+            reading = Doberman.Reading(**kwargs)
+        self.register(rd, reading)
 
     def shutdown(self):
         if self.sensor is None:
@@ -37,7 +39,8 @@ class SensorMonitor(Doberman.Monitor):
         self.sensor.event.set()
         self.sensor.close()
         self.sensor = None
-        self.db.set_host_setting(pull={'active': self.name})
+        # we only unmanage if we receive a STOP command
+        self.db.notify_hypervisor(inactive=self.name)
         return
 
     def open_sensor(self, reopen=False):
@@ -66,26 +69,14 @@ class SensorMonitor(Doberman.Monitor):
         while (doc := self.db.find_command(self.name)) is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
-            if command.startswith('runmode'):
-                try:
-                    _, runmode, reading = command.split()
-                except Exception as e:
-                    self.logger.error(f'Bad runmode command: {e}')
-                else:
-                    if reading == 'all':
-                        for rd in self.db.get_sensor_setting(self.name, 'readings'):
-                            self.db.set_reading_setting(sensor=self.name, name=rd,
-                                                        field='runmode', value=runmode)
-                    else:
-                        self.db.set_reading_setting(sensor=self.name, name=reading,
-                                                    field='runmode', value=runmode)
-            elif command == 'reload readings':
+            if command == 'reload readings':
                 self.sensor.setattr('readings',
                                     self.db.get_sensor_setting(self.name, field='readings'))
                 self.reload_readings()
             elif command == 'stop':
                 self.event.set()
-                self.db.update_db('settings', 'experiment_config', {'name': 'hypervisor'}, {'$pull': {'processes.active': self.name, 'processes.managed': self.name}})
+                # only unmanage from HV if asked to stop
+                self.db.notify_hypervisor(unmanage=self.name)
             elif self.sensor is not None:
                 self.sensor._execute_command(command=command)
             else:
@@ -96,8 +87,5 @@ class SensorMonitor(Doberman.Monitor):
         for reading_name in readings_dict.values():
             if reading_name in self.threads.keys():
                 self.stop_thread(reading_name)
-            self.readings[reading_name] = Doberman.Reading(self.name, reading_name,
-                                                           self.db)
-            self.register(func=self.ScheduleReading, period=r.readout_interval,
-                          reading=r, name=r.name)
+                self.start_reading(reading_name)
 

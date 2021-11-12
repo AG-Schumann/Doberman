@@ -28,7 +28,8 @@ def Hypervisor(Doberman.Monitor):
             updates['$set']: {'heartbeat': heartbeat}
         if status:
             updates['$set'] = {'status': status}
-        self.db.update_db('settings', 'experiment_config', {'name': 'hypervisor'}, updates)
+        if updates:
+            self.db.update_db('settings', 'experiment_config', {'name': 'hypervisor'}, updates)
 
     def hypervise(self):
         self.logger.debug('Hypervising')
@@ -53,7 +54,8 @@ def Hypervisor(Doberman.Monitor):
         return self.config['period']
 
     def heartbeat(self):
-        self.run_over_ssh(self.config['remote_heartbeat_address'], r'date +%s > /scratch/remote_hb', port=self.config.get('remote_heartbeat_port', 22))
+        if (addr := self.config.get('remote_heartbeat_address')) is not None:
+            self.run_over_ssh(addr, r'date +%s > /scratch/remote_hb', port=self.config.get('remote_heartbeat_port', 22))
 
     def run_over_ssh(self, address, command, port=22):
         """
@@ -76,8 +78,8 @@ def Hypervisor(Doberman.Monitor):
     def start_sensor(self, sensor):
         doc = self.db.get_sensor_setting(sensor=sensor)
         host = doc['host']
-        self.update_config(active=sensor)
         self.last_restart[sensor] = now
+        self.update_config(manage=sensor)
         return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh sensor {sensor}")
 
     def start_pipeline(self, pipeline):
@@ -89,17 +91,18 @@ def Hypervisor(Doberman.Monitor):
             cmd = doc['command']
             if cmd.startswith('start'):
                 _, target = cmd.split(' ', maxsplit=1)
+                self.logger.info(f'Hypervisor starting {target}')
                 if target[:3] == 'pl_': # this is a pipeline
                     self.start_pipeline(target)
                 else:
                     self.start_sensor(sensor)
             elif cmd.startswith('manage'):
                 _, sensor = cmd.split(' ', maxsplit=1)
-                self.log.info(f'Hypervisor now managing {sensor}')
+                self.logger.info(f'Hypervisor now managing {sensor}')
                 self.update_config(manage=sensor)
             elif cmd.startswith('unmanage'):
                 _, sensor = cmd.split(' ', maxsplit=1)
-                self.log.info(f'Hypervisor relinquishing control of {sensor}')
+                self.logger.info(f'Hypervisor relinquishing control of {sensor}')
                 self.update_config(unmanage=sensor)
             else:
                 pass

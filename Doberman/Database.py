@@ -367,6 +367,25 @@ class Database(object):
             return doc[field]
         return doc
 
+    def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
+        """
+        A way for sensors to tell the hypervisor when they start and stop and stuff
+        :param active: the name of a sensor that's just starting up
+        :param inactive: the name of a sensor that's stopping
+        :param unamange: the name of a sensor that doesn't need to be monitored
+        """
+        updates = {}
+        if active:
+            updates['$addToSet'] = {'processes.active': active}
+        if inactive:
+            updates['$pull'] = {'processes.active': inactive}
+        if unmanage:
+            updates['$pull'] = {'processes.managed': unmanage}
+        if updates:
+            self.update_db('settings', 'experiment_config', {'name': 'hypervisor'},
+                    updates)
+        return
+
     def get_host_setting(self, host=None, field=None):
         """
         Gets the setting document of the specified host
@@ -389,17 +408,6 @@ class Database(object):
             host = self.hostname
         self.update_db('settings', 'hosts', {'hostname': host},
                        updates={f'${k}': v for k, v in kwargs.items()})
-
-    def get_unmonitored_sensors(self):
-        """
-        Returns list of sensors that are not in 'default' of any host (i.e. not read out by any host)
-        """
-        all_sensors = self.distinct('settings', 'sensors', 'name')
-        hosts = self.distinct('common', 'hosts', 'hostname')
-        monitored = []
-        for host in hosts:
-            monitored.extend(self.get_host_setting(host, 'default'))
-        return list(set(all_sensors) - set(monitored))
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
