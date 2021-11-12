@@ -2,7 +2,7 @@ import Doberman
 import re
 
 
-class TestSensor(Doberman.LANSensor):
+class TestSensor(Doberman.TestSensor):
     def set_parameters(self):
         self._msg_start = '*'
         self._msg_end = '\r\n'
