@@ -2,16 +2,9 @@ import Doberman
 import requests
 import time
 import itertools
-import enum
 import math
 
 __all__ = 'Pipeline'.split()
-
-class PipelineStatus(enum.Enum):
-    offline = 0
-    silent = 1
-    active = 2
-
 
 class Pipeline(object):
     """
@@ -31,13 +24,13 @@ class Pipeline(object):
         """
         doc = self.db.get_pipeline(self.name)
         self.reconfigure(doc['node_config'])
+        status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
         timing = {}
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         for node in self.graph.values():
             t_start = time.time()
             try:
-                status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
-                node._process_base(status) # status == 1 is silent, 2 is active, 0 is off
+                node._process_base(status)
             except Exception as e:
                 self.last_error = self.cycles
                 msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
@@ -177,8 +170,7 @@ class Node(object):
 
     def _process_base(self, status):
         self.logger.debug(f'{self.name} processing')
-        status = PipelineStatus[status] if isinstance(status, str) else PipelineStatus(status)
-        self.is_silent = status == PipelineStatus.silent
+        self.is_silent = status == 'silent'
         package = self.get_package() # TODO discuss this wrt BufferNodes
         self.logger.debug(f'{self.name} input {package}')
         ret = self.process(package)
@@ -258,9 +250,11 @@ class InfluxSourceNode(SourceNode):
             url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}&q={query}'
             json = {}
         elif version == 2:
-            url += f'org={config_doc["org"]}'
+            # even though you're using influxv2 we still use the v1 query endpoint
+            # because the v2 query is garbage for our purposes
+            url += f'db={config_doc["org"]}' # org -> db, because reasons
             headers.update({'Authorization': f'Token {config_doc["auth_token"]}'})
-            json = {'bucket': config_doc['bucket'], 'type': 'influxql', 'query': query}
+            json = {'q': query}
         else:
             raise ValueError("Invalid version specified: must be 1 or 2")
         self.precision = int({'s': 1, 'ms': 1e3, 'us': 1e6, 'ns': 1e9}[config_doc['precision']])
@@ -277,7 +271,8 @@ class InfluxSourceNode(SourceNode):
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
 
-        timestamp = int(timestamp)
+        timestamp = int(timestamp) # TODO this might be broken because influx and ns
+        # timestamp = int(timestamp[:-(9-int(np.log10(self.precision)))])
         val = int(val) if '.' not in val else float(val)
         if self.last_time == timestamp:
             raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
