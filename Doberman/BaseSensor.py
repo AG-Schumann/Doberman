@@ -1,11 +1,9 @@
 try:
     import serial
-
     has_serial = True
 except ImportError:
     has_serial = False
 import socket
-import queue
 import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
@@ -34,11 +32,12 @@ class Sensor(object):
         self.readings = opts['readings']
         self.logger = logger
         self.event = event
+        self.cv = threading.Condition()
+        self.cmd_queue = []
         self.set_parameters()
         self.base_setup()
 
     def base_setup(self):
-        self.cmd_queue = queue.Queue()
         try:
             self.setup_child()
             self.setup()
@@ -79,22 +78,28 @@ class Sensor(object):
     def readout_scheduler(self):
         """
         Pulls tasks from the command queue and deals with them. If the queue is empty
-        it sleeps for 1ms and retries. This function returns when self.running
-        becomes False. While the sensor is in normal operation, this is the only
+        it waits until it isn't. This function returns when the event is set.
+        While the sensor is in normal operation, this is the only
         function that should call SendRecv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
         self.logger.debug('Readout scheduler starting')
         while not self.event.is_set():
-            try:
-                command, retq = self.cmd_queue.get(timeout=0.001)
+            command = None
+            with self.cv:
+                self.cv.wait_for(lambda: (len(self.cmd_queue) > 0 or self.event.is_set()))
+                if len(self.cmd_queue) > 0:
+                    command, (retd, retcv) = self.cmd_queue.pop(0)
+            if command is not None:
                 self.logger.debug(f'Executing {command}')
+                t_start = time.time()
                 ret = self.send_recv(command)
-                self.cmd_queue.task_done()
-                if retq is not None:
-                    retq.put(ret)
-            except queue.Empty:
-                pass
+                t_stop = time.time()
+                ret['time'] = 0.5*(t_start + t_stop)
+                if retd is not None:
+                    with retcv:
+                        retd.update(ret)
+                        retcv.notify()
         self.logger.debug('Readout scheduler returning')
 
     def add_to_schedule(self, reading_name=None, command=None, retq=None):
@@ -105,7 +110,7 @@ class Sensor(object):
 
         :param reading_name: the name of the reading to schedule
         :param command: the command to issue to the sensor
-        :param retq: a queue to put the result for asynchronous processing.
+        :param retq: a (dict, Condition) tuple to store the result for asynchronous processing.
             Required for reading_name != None
         :returns None
         """
@@ -113,10 +118,14 @@ class Sensor(object):
             if retq is None:
                 return
             self.logger.debug(f'Scheduling {self.readings[reading_name]}')
-            self.cmd_queue.put((self.readings[reading_name], retq))
+            with self.cv:
+                self.cmd_queue.append((self.readings[reading_name], retq))
+                self.cv.notify()
         elif command is not None:
             self.logger.debug(f'Scheduling {command}')
-            self.cmd_queue.put((command, None))
+            with self.cv:
+                self.cmd_queue.append((command, (None,None)))
+                self.cv.notify()
         return
 
     def process_one_reading(self, name=None, data=None):
@@ -163,6 +172,8 @@ class Sensor(object):
     def close(self):
         self.event.set()
         if hasattr(self, 'readout_thread'):
+            with self.cv:
+                self.cv.notify()
             self.readout_thread.join()
         self.shutdown()
 
