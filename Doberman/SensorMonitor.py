@@ -17,12 +17,12 @@ class SensorMonitor(Doberman.Monitor):
         for rd in cfg_doc['readings'].keys():
             self.logger.debug('Constructing ' + rd)
             reading_doc = self.db.get_reading_setting(self.name, rd)
-            kwargs = {'sensor_name': self.name, 'reading_name': rd, 'logger': self.logger,
-                      'event': self.event, 'db': self.db, 'sensor': self.sensor}
-            if 'is_multi' in reading_doc:
+            kwargs = {'reading_name': rd, 'logger': self.logger, 'db': self.db,
+                      'event': self.event, 'sensor': self.sensor}
+            if 'is_multi' in reading_doc and isinstance(reading_doc['is_multi'], list):
+                # the "base" multireading stores all the names in the list
+                # the "secondary" multireadings store the name of the base
                 reading = Doberman.MultiReading(**kwargs)
-            elif 'pid' in reading_doc:
-                reading = Doberman.PIDReading(**kwargs)
             else:
                 reading = Doberman.Reading(**kwargs)
             self.register(rd, reading)
