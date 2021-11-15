@@ -5,7 +5,6 @@ from functools import partial
 
 __all__ = 'Reading MultiReading'.split()
 
-
 class Reading(threading.Thread):
     """
     A thread responsible for scheduling readouts and processing the returned data.
