@@ -1,6 +1,7 @@
 import Doberman
 import subprocess
 
+dtnow = Doberman.utils.dtnow
 
 def Hypervisor(Doberman.Monitor):
     """
@@ -78,7 +79,7 @@ def Hypervisor(Doberman.Monitor):
     def start_sensor(self, sensor):
         doc = self.db.get_sensor_setting(sensor=sensor)
         host = doc['host']
-        self.last_restart[sensor] = now
+        self.last_restart[sensor] = dtnow()
         self.update_config(manage=sensor)
         return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh sensor {sensor}")
 

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 import psutil
-import requests
 import Doberman
 import time
 
-period = 1
+period = 2
 # specify disks etc like this: device:name,device:name
 # eg en0ps1:network or md0:raid,md1:home
-nics = dict(map(lambda s: s.split(':'), os.environ['NICS'].split(',')))
-disks = dict(map(lambda s: s.split(':'), os.environ['DISKS'].split(',')))
+nics = dict(map(lambda s: s.split(':'), os.environ.get('NICS', '').split(',')))
+disks = dict(map(lambda s: s.split(':'), os.environ.get('DISKS', '').split(',')))
 net_io = psutil.net_io_counters(True)
 last_recv = {n:net_io[n].bytes_recv for n in nics}
 last_sent = {n:net_io[n].bytes_sent for n in nics}
@@ -19,54 +18,53 @@ last_write = {d:disk_io[d].write_bytes for d in disks}
 def monitor():
     n_cpus = psutil.cpu_count()
     load_1, load_5, load_15 = psutil.getloadavg()
-    ret = f'load1={load1/n_cpus:.2f},load5={load_5/n_cpus:.2f},load15={load_15/n_cpus:.2f}'
+    fields = {'load1': load1 / n_cpus, 'load5': load_5 / n_cpus, 'load15', load_15 / n_cpus}
     mem = psutil.virtual_memory()
-    ret += f',mem_avail={mem.available/mem.total:.2f}'
+    fields['mem_avail'] = mem.available / mem.total
     swap = psutil.swap_memory()
     if swap.total > 0:
-        ret += f',swap_used={swap.used/swap.total:.2f}'
+        fields['swap_used'] = swap.used / swap.total
     else:
-        ret += f',swap_used=0'
+        fields['swap_used'] = 0
     temp_dict = psutil.sensors_temperatures()
     if 'coretemp' in temp_dict.keys():
         for row in temp_dict['coretemp']:
             if 'Package' in row.label:  # Fujitsu Intel core servers
                 socket = row.label[-1]  # max 10 sockets per machine
-               ret += f',cpu_{socket}_temp={row.current}'
+                fields[f'cpu_{socket}_temp'] = row.current
     elif len(temp_dict) == 1:
         key = list(temp_dict.keys())[0]
         fields['cpu_0_temp'] = temp_dict[key][0].current
-        ret += f',cpu_0_temp={temp_dict[key][0].current}'
     else:
         print(f'Couldn\'t read out CPU temperatures')
+        fields['cpu_0_temp'] = None
     net_io = psutil.net_io_counters(True)
     for nic, name in nics.items():
         recv_kbytes = (net_io[nic].bytes_recv - last_recv[nic]) >> 10
         last_recv[nic] = net_io[nic].bytes_recv
-        ret += f',{name}_recv={recv_kbytes/period:.3f}'
+        fields[f'{name}_recv'] = recv_kbytes / period
+
         sent_kbytes = (net_io[nic].bytes_sent - last_sent[nic]) >> 10
         last_sent[nic] = net_io[nic].bytes_sent
-        ret += f',{name}_sent={sent_kbytes/period:.3f}'
+        fields[f'{name}_sent'] = sent_kbytes / period
     disk_io = psutil.disk_io_counters(True)
     for disk, name in disks.items():
         read_kbytes = (disk_io[disk].read_bytes - last_read[disk]) >> 10
         last_read[disk] = disk_io[disk].read_bytes
-        ret += f',{name}_read={read_kbytes/period:.3f}'
+        fields[f'{name}_read'] = read_kbytes / period
+
         write_kbytes = (disk_io[disk].write_bytes - last_write[disk]) >> 10
         last_write[disk] = disk_io[disk].write_bytes
-        ret += f',{name}_write={write_kbytes/period:.3f}'
-    return ret
+        fields[f'{name}_write'] = write_kbytes / period
+    return fields
 
 def main(client):
     sh = Doberman.utils.SignalHandler()
-    url = f'http://192.168.131.2:8096/api/v2/query?org={os.environ["DOBERMAN_EXPERIMENT_NAME"]}&precision=ms&bucket=sysmon'
-    headers = {'Authorization': f'Token {os.environ["INFLUX_TOKEN"]}'}
+    db = Doberman.Database(client = MongoClient, experiment_name = os.environ['DOBERMAN_EXPERIMENT_NAME'])
     while sh.run():
         try:
-            fields=monitor()
-            now = int(time.time()*1000)
-            data = f'sysmon,host={hostname} {fields} {now}'
-            requests.post(url, headers=headers, data=data)
+            fields = monitor()
+            db.write_to_influx(topic = 'sysmon', tags = {'hostname': hostname}, fields = fields)
         except Exception as e:
             print(f'Caught a {type(e)}: {e}')
         time.sleep(period)
