@@ -152,21 +152,6 @@ class Database(object):
             return doc[field]
         return doc
 
-    def delete_alarm(self, reading_name, alarm_type):
-        """
-        Delete alarm of specific type from a reading
-        :param reading_name: name of the reading
-        :param alarm_type: alarm type to be removed
-        """
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$pull': {'alarms': {'type': alarm_type}}})
-
-    def update_alarm(self, reading_name, alarm_doc):
-        alarm_type = alarm_doc['type']
-        self.delete_alarm(reading_name, alarm_type)
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$push': {'alarms': alarm_doc}})
-
     def distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
         """
         Transfer function for collection.distinct
@@ -316,12 +301,12 @@ class Database(object):
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
-    def log_alarm(self, document):
+    def log_alarm(self, msg, severity=0):
         """
         Adds the alarm to the history.
         """
-        document['acknowledged'] = 0
-        if self.insert_into_db('logging', 'alarm_history', document):
+        doc = {'msg': msg, 'howbad': severity, 'acknowledged': 0}
+        if self.insert_into_db('logging', 'alarm_history', doc):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
