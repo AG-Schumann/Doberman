@@ -116,7 +116,7 @@ class Hypervisor(Doberman.Monitor):
                 if target[:3] == 'pl_': # this is a pipeline
                     self.start_pipeline(target)
                 else:
-                    self.start_sensor(sensor)
+                    self.start_sensor(target)
             elif cmd.startswith('manage'):
                 _, sensor = cmd.split(' ', maxsplit=1)
                 if sensor[:3] == 'pl_':
