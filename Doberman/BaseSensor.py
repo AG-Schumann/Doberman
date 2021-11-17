@@ -311,3 +311,20 @@ class LANSensor(Sensor):
             self.logger.fatal('Could not receive data from sensor. Error: %s' % e)
             ret['retcode'] = -2
         return ret
+
+class TestSensor(LANSensor):
+    """
+    The TestSensorServer expects a new socket for each connection, so we do that here
+    """
+    def setup_child(self):
+        self._device = None
+        self._connected = True
+        return True
+
+    def shutdown(self):
+        return
+
+    def send_recv(self, message):
+        with socket.create_connection((self.ip, int(self.port)), 1) as self._device:
+            return super().send_recv(message)
+
