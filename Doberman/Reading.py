@@ -16,9 +16,12 @@ class Reading(threading.Thread):
         self.name = kwargs['reading_name']
         self.logger = kwargs.pop('logger')
         self.cv = threading.Condition()
+        self.sensor_name = kwargs['sensor_name']
         self.sensor_process = kwargs['sensor'].process_one_reading
         self.schedule = kwargs['sensor'].add_to_schedule
-        self.setup(self.db.get_reading_setting(name=self.name))
+        doc = self.db.get_reading_setting(name=self.name)
+        self.setup(doc)
+        self.update_config(doc)
 
     def run(self):
         self.logger.debug(f'{self.name} Starting')
@@ -84,8 +87,9 @@ class Reading(threading.Thread):
         This function sends data upstream to wherever it should end up
         """
         low, high = self.alarms
-        self.db.write_to_influx(topic=self.topic, tags={'reading': self.name, 'subsystem': self.subsystem},
-                fields={'value': value, 'alarm_low': low, 'alarm_high': high}, timestamp=timestamp)
+        tags = {'reading': self.name, 'sensor': self.sensor_name, 'subsystem': self.subsystem}
+        fields = {'value': value, 'alarm_low': low, 'alarm_high': high}
+        self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields)
 
 
 class MultiReading(Reading):
@@ -100,14 +104,14 @@ class MultiReading(Reading):
     "status" and "readout_interval" only use the value of the primary.
     The extra database fields should look like this:
     primary:
-    { ..., name: name0, is_multi: [name0, name1, name2, ...]}
+    { ..., name: name0, multi_reading: [name0, name1, name2, ...]}
     secondaries:
-    {..., name: name[^0], is_multi: name0}
+    {..., name: name[^0], multi_reading: name0}
     """
 
     def setup(self, doc):
         super().setup(doc)
-        self.all_names = doc['multi']
+        self.all_names = doc['multi_reading']
 
     def update_config(self, doc):
         super().update_config(doc)
@@ -127,5 +131,6 @@ class MultiReading(Reading):
     def send_upstream(self, values, timestamp):
         for n, v in zip(self.all_names, values):
             low, high = self.alarms[n]
-            self.db.write_to_influx(topic=self.topic, tags={'reading': n, 'subsystem': self.subsystem},
-                    fields={'value': v, 'alarm_low': low, 'alarm_high': high}, timestamp=timestamp)
+            tags = {'reading': n, 'subsystem': self.subsystem, 'sensor': self.sensor_name}
+            fields = {'value': v, 'alarm_low': low, 'alarm_high': high}
+            self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
