@@ -15,20 +15,23 @@ class SensorMonitor(Doberman.Monitor):
         cfg_doc = self.db.get_sensor_setting(self.name)
         self.open_sensor()
         for rd in cfg_doc['readings'].keys():
-            self.logger.debug('Constructing ' + rd)
-            reading_doc = self.db.get_reading_setting(self.name, rd)
-            kwargs = {'sensor_name': self.name, 'reading_name': rd, 'logger': self.logger,
-                      'event': self.event, 'db': self.db, 'sensor': self.sensor}
-            if 'is_multi' in reading_doc:
-                reading = Doberman.MultiReading(**kwargs)
-            elif 'pid' in reading_doc:
-                reading = Doberman.PIDReading(**kwargs)
-            else:
-                reading = Doberman.Reading(**kwargs)
-            self.register(rd, reading)
+            self.start_reading(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
                       period=self.db.get_host_setting(field='heartbeat_timer'))
         self.db.set_host_setting(addToSet={'active': self.name})
+
+    def start_reading(self, rd_name):
+        self.logger.debug('Constructing ' + rd)
+        reading_doc = self.db.get_reading_setting(self.name, rd)
+        kwargs = {'reading_name': rd, 'logger': self.logger, 'db': self.db,
+                  'sensor_name': self.name, 'event': self.event, 'sensor': self.sensor}
+        if 'multi_reading' in reading_doc and isinstance(reading_doc['multi_reading'], list):
+            # the "base" multireading stores all the names in the list
+            # the "secondary" multireadings store the name of the base
+            reading = Doberman.MultiReading(**kwargs)
+        else:
+            reading = Doberman.Reading(**kwargs)
+        self.register(name=rd, obj=reading, period=reading.readout_interval)
 
     def shutdown(self):
         if self.sensor is None:
@@ -96,7 +99,4 @@ class SensorMonitor(Doberman.Monitor):
         for reading_name in readings_dict.values():
             if reading_name in self.threads.keys():
                 self.stop_thread(reading_name)
-            self.readings[reading_name] = Doberman.Reading(self.name, reading_name,
-                                                           self.db)
-            self.register(func=self.ScheduleReading, period=r.readout_interval,
-                          reading=r, name=r.name)
+                self.start_reading(reading_name)
