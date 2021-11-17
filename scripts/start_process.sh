@@ -1,7 +1,7 @@
 #!/bin/bash
 
 USAGE="Usage: $0 <sensor|pipeline> <name>"
-folder="/home/doberman/
+folder="/global/software/doberman/Doberman"
 
 if [[ $# -ne 2 ]]; then
   echo $USAGE

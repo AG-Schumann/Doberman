@@ -276,7 +276,7 @@ class Database(object):
                     except:
                         pass
             return ret
-        else
+        else:
             protocols = self.get_message_protocols(level)
             ret = {k: [] for k in protocols}
             now = datetime.datetime.now()  # no UTC here, we want local time
@@ -388,7 +388,7 @@ class Database(object):
         A way for sensors to tell the hypervisor when they start and stop and stuff
         :param active: the name of a sensor that's just starting up
         :param inactive: the name of a sensor that's stopping
-        :param unamange: the name of a sensor that doesn't need to be monitored
+        :param unmanage: the name of a sensor that doesn't need to be monitored
         """
         updates = {}
         if active:

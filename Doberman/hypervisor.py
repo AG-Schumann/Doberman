@@ -6,7 +6,7 @@ import os.path
 
 dtnow = Doberman.utils.dtnow
 
-def Hypervisor(Doberman.Monitor):
+class Hypervisor(Doberman.Monitor):
     """
     A tool to monitor and restart processes when necessary
     """

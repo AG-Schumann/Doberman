@@ -41,11 +41,12 @@ def main(mongo_client):
         kwargs['name'] = 'alarm_monitor'
     elif args.hypervisor:
         doc = db.get_experiment_config(name='hypervisor')
-        if doc['status'] == 'online' and (Doberman.utils.dtnow()-doc['heartbeat']).total_seconds < 2*doc['period']:
-            print('Hypervisor already running')
-            return
-        else:
-            print(f'Hypervisor crashed?')
+        if doc['status'] == 'online':
+            if (Doberman.utils.dtnow()-doc['heartbeat']).total_seconds < 2*doc['period']:
+                print('Hypervisor already running')
+                return
+            else:
+                print(f'Hypervisor crashed?')
         ctor = Doberman.Hypervisor
         kwargs['name'] = 'hypervisor'
     elif args.sensor:
