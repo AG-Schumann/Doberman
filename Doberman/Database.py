@@ -148,7 +148,7 @@ class Database(object):
         :returns: The whole document if field = None, either just the field
         """
         doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
-        if field:
+        if doc and field and field in doc:
             return doc[field]
         return doc
 
