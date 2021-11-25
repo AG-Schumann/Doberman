@@ -8,7 +8,7 @@ import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
 
-__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor'.split()
+__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor TestSensor'.split()
 
 
 class Sensor(object):
@@ -89,43 +89,34 @@ class Sensor(object):
             with self.cv:
                 self.cv.wait_for(lambda: (len(self.cmd_queue) > 0 or self.event.is_set()))
                 if len(self.cmd_queue) > 0:
-                    command, (retd, retcv) = self.cmd_queue.pop(0)
+                    command, ret = self.cmd_queue.pop(0)
             if command is not None:
                 self.logger.debug(f'Executing {command}')
-                t_start = time.time()
-                ret = self.send_recv(command)
-                t_stop = time.time()
-                ret['time'] = 0.5*(t_start + t_stop)
-                if retd is not None:
-                    with retcv:
-                        retd.update(ret)
-                        retcv.notify()
+                t_start = time.time() # we don't want perf_counter because we care about
+                pkg = self.send_recv(command)
+                t_stop = time.time() # the clock time when the data came out not cpu time
+                pkg['time'] = 0.5*(t_start + t_stop)
+                if ret is not None:
+                    d, cv = ret
+                    with cv:
+                        d.update(pkg)
+                        cv.notify()
         self.logger.debug('Readout scheduler returning')
 
-    def add_to_schedule(self, reading_name=None, command=None, retq=None):
+    def add_to_schedule(self, command=None, ret=None):
         """
         Adds one thing to the command queue. This is the only function called
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
-        :param reading_name: the name of the reading to schedule
-        :param command: the command to issue to the sensor
-        :param retq: a (dict, Condition) tuple to store the result for asynchronous processing.
-            Required for reading_name != None
+        :param command: the command to issue to the sensor, or the name of a reading
+        :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        if reading_name is not None:
-            if retq is None:
-                return
-            self.logger.debug(f'Scheduling {self.readings[reading_name]}')
-            with self.cv:
-                self.cmd_queue.append((self.readings[reading_name], retq))
-                self.cv.notify()
-        elif command is not None:
-            self.logger.debug(f'Scheduling {command}')
-            with self.cv:
-                self.cmd_queue.append((command, (None,None)))
-                self.cv.notify()
+        self.logger.debug(f'Scheduling {command}')
+        with self.cv:
+            self.cmd_queue.append((self.readings.get(command, command), retq))
+            self.cv.notify()
         return
 
     def process_one_reading(self, name=None, data=None):
@@ -161,6 +152,7 @@ class Sensor(object):
             cmd = self.execute_command(command)
         except Exception as e:
             self.logger.info(f'Tried to process command "{command}", got a {type(e)}: {e}')
+            cmd = None
         if cmd is not None:
             self.add_to_schedule(command=cmd)
 

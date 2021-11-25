@@ -50,18 +50,17 @@ class Reading(threading.Thread):
         """
         Asks the sensor for data, unpacks it, and sends it to the database
         """
-        func_start = time.time()
         pkg = {}
         failed = False
-        self.schedule(reading_name=self.name, retq = (pkg, self.cv))
+        self.schedule(command=self.name, ret = (pkg, self.cv))
         with self.cv:
-            if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_timeout):
+            if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
                 failed = False
             else:
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info('Didn\'t get anything from the sensor!')
+            self.logger.info('{self.name} didn\'t get anything from the sensor!')
             return
         try:
             value = self.sensor_process(name=self.name, data=pkg['data'])
