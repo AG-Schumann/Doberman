@@ -20,20 +20,6 @@ class SensorMonitor(Doberman.Monitor):
                       period=self.db.get_experiment_config(name='hypervisor', field='period'))
         self.db.notify_hypervisor(active=self.name)
 
-    def start_reading(self, rd):
-        self.logger.debug('Constructing ' + rd)
-        reading_doc = self.db.get_reading_setting(rd)
-        kwargs = {'name': rd, 'logger': self.logger, 'db': self.db,
-                  'event': self.event, 'sensor': self.sensor}
-        if 'is_multi' in reading_doc:
-            # TODO this is probably broken
-            reading = Doberman.MultiReading(**kwargs)
-        else:
-            reading = Doberman.Reading(**kwargs)
-
-        self.register(obj=reading, period=reading_doc['readout_interval'],
-                          name=rd)
-
     def start_reading(self, rd_name):
         self.logger.debug('Constructing ' + rd)
         reading_doc = self.db.get_reading_setting(self.name, rd)
