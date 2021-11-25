@@ -34,6 +34,19 @@ class SensorMonitor(Doberman.Monitor):
         self.register(obj=reading, period=reading_doc['readout_interval'],
                           name=rd)
 
+    def start_reading(self, rd_name):
+        self.logger.debug('Constructing ' + rd)
+        reading_doc = self.db.get_reading_setting(self.name, rd)
+        kwargs = {'reading_name': rd, 'logger': self.logger, 'db': self.db,
+                  'sensor_name': self.name, 'event': self.event, 'sensor': self.sensor}
+        if 'multi_reading' in reading_doc and isinstance(reading_doc['multi_reading'], list):
+            # the "base" multireading stores all the names in the list
+            # the "secondary" multireadings store the name of the base
+            reading = Doberman.MultiReading(**kwargs)
+        else:
+            reading = Doberman.Reading(**kwargs)
+        self.register(name=rd, obj=reading, period=reading.readout_interval)
+
     def shutdown(self):
         if self.sensor is None:
             return
