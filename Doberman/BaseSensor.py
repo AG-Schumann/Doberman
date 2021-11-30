@@ -10,7 +10,7 @@ import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
 
-__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor'.split()
+__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor TestSensor'.split()
 
 
 class Sensor(object):

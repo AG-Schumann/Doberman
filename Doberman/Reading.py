@@ -68,7 +68,7 @@ class Reading(threading.Thread):
         try:
             value = self.sensor_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.debug(f'{self.name} got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
         self.logger.debug(f'Measured {value}')
         if value is not None:
