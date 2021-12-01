@@ -12,7 +12,7 @@ def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
-    group.add_argument('--host', action='store_true', help='Start this host\'s monitor')
+    group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
     group.add_argument('--sensor', help='Start the specified sensor monitor')
     group.add_argument('--pipeline', help='Start a pipeline monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
@@ -39,15 +39,15 @@ def main(mongo_client):
     if args.alarm:
         ctor = Doberman.AlarmMonitor
         kwargs['name'] = 'alarm_monitor'
-    elif args.host:
-        doc = db.get_host_setting(db.hostname)
+    elif args.hypervisor:
+        doc = db.get_experiment_config(name='hypervisor')
         if doc['status'] == 'online':
-            if (datetime.datetime.utcnow() - doc['heartbeat']).seconds < 2 * doc['heartbeat_timer']:
-                print(f'Host monitor {db.hostname}  already online!')
+            if (Doberman.utils.dtnow()-doc['heartbeat']).total_seconds < 2*doc['period']:
+                print('Hypervisor already running')
                 return
-            print(f'Host monitor {db.hostname} crashed?')
-        ctor = Doberman.HostMonitor
-        kwargs['name'] = db.hostname
+            print(f'Hypervisor crashed?')
+        ctor = Doberman.Hypervisor
+        kwargs['name'] = 'hypervisor'
     elif args.sensor:
         ctor = Doberman.SensorMonitor
         kwargs['name'] = args.sensor

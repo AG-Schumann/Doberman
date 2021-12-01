@@ -433,7 +433,7 @@ class AlarmNode(Node):
 
     def log_alarm(self, msg):
         if not self.is_silent:
-            self._log_alarm({'msg': msg, 'name': self.input_var})
+            self._log_alarm(msg)
         else:
             self.logger.error(msg)
 
