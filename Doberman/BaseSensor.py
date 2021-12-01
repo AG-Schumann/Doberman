@@ -115,7 +115,7 @@ class Sensor(object):
         """
         self.logger.debug(f'Scheduling {command}')
         with self.cv:
-            self.cmd_queue.append((self.readings.get(command, command), retq))
+            self.cmd_queue.append((self.readings.get(command, command), ret))
             self.cv.notify()
         return
 

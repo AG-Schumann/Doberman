@@ -51,7 +51,6 @@ class Reading(threading.Thread):
         Asks the sensor for data, unpacks it, and sends it to the database
         """
         pkg = {}
-        failed = False
         self.schedule(command=self.name, ret = (pkg, self.cv))
         with self.cv:
             if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
