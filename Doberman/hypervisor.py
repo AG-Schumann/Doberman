@@ -135,4 +135,3 @@ class Hypervisor(Doberman.Monitor):
                 self.update_config(unmanage=sensor)
             else:
                 self.logger.error(f'Command "{cmd}" not understood')
-

@@ -273,21 +273,20 @@ class Database(object):
                 for p in protocols:
                     try:
                         ret[p].append(doc[p])
-                    except:
+                    except KeyError:
                         pass
             return ret
-        else:
-            protocols = self.get_message_protocols(level)
-            ret = {k: [] for k in protocols}
-            now = datetime.datetime.now()  # no UTC here, we want local time
-            shifters = self.read_from_db('settings', 'shifts',
-                                         {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                         onlyone=True)['shifters']
-            for doc in self.read_from_db('settings', 'contacts',
-                                         {'name': {'$in': shifters}}):
-                for p in protocols:
-                    ret[p].append(doc[p])
-            return ret
+        protocols = self.get_message_protocols(level)
+        ret = {k: [] for k in protocols}
+        now = datetime.datetime.now()  # no UTC here, we want local time
+        shifters = self.read_from_db('settings', 'shifts',
+                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
+                                     onlyone=True)['shifters']
+        for doc in self.read_from_db('settings', 'contacts',
+                                     {'name': {'$in': shifters}}):
+            for p in protocols:
+                ret[p].append(doc[p])
+        return ret
 
     def get_heartbeat(self, sensor=None):
         doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)

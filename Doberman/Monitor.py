@@ -45,8 +45,7 @@ def main(mongo_client):
             if (Doberman.utils.dtnow()-doc['heartbeat']).total_seconds < 2*doc['period']:
                 print('Hypervisor already running')
                 return
-            else:
-                print(f'Hypervisor crashed?')
+            print(f'Hypervisor crashed?')
         ctor = Doberman.Hypervisor
         kwargs['name'] = 'hypervisor'
     elif args.sensor:
