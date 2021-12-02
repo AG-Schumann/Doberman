@@ -35,23 +35,32 @@ class Reading(threading.Thread):
         self.logger.debug(f'{self.name} Returning')
 
     def setup(self, config_doc):
+        """
+        Initial setup using whatever parameters are in the config doc
+        :param config_doc: the reading document from the database
+        """
         self.is_int = 'is_int' in config_doc
         self.topic = config_doc['topic']
         self.subsystem = config_doc['subsystem']
 
     def update_config(self, doc):
+        """
+        Updates runtime configs. This is called at the start of a measurement cycle.
+        :param doc: the reading document from the database
+        """
         self.readout_interval = doc['readout_interval']
         if 'alarm_thresholds' in doc and len(doc['alarm_thresholds']) == 2:
             self.alarms = doc['alarm_thresholds']
         else:
             self.alarms = (None, None)
+        self.xform = doc.get('value_xform', [0, 1])
 
     def do_one_measurement(self):
         """
         Asks the sensor for data, unpacks it, and sends it to the database
         """
         pkg = {}
-        self.schedule(command=self.name, ret = (pkg, self.cv))
+        self.schedule(command=self.name, ret=(pkg, self.cv))
         with self.cv:
             if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
                 failed = False
@@ -76,6 +85,7 @@ class Reading(threading.Thread):
         """
         Does something interesting with the value. Should return a value
         """
+        value = sum(a*value**i for i, a in enumerate(self.xform))
         if self.is_int:
             value = int(value)
         return value
@@ -98,8 +108,8 @@ class MultiReading(Reading):
     Only the primary is actually read out, but the assumption is that the reading
     of the primary also brings the values of the secondary with it. The secondaries
     must have entries in the database but these are "shadow" entries and most of the
-    fields will be ignored, the only one mattering is any alarm values. Things like
-    "status" and "readout_interval" only use the value of the primary.
+    fields will be ignored, the only ones mattering are any alarm values or transform values.
+    Things like "status" and "readout_interval" only use the value of the primary.
     The extra database fields should look like this:
     primary:
     { ..., name: name0, multi_reading: [name0, name1, name2, ...]}
@@ -114,14 +124,19 @@ class MultiReading(Reading):
     def update_config(self, doc):
         super().update_config(doc)
         self.alarms = {}
+        self.xform = {}
         for n in self.all_names:
-            vals = self.db.get_reading_setting(name=n, field='alarm_thresholds')
+            rdoc = self.db.get_reading_setting(name=n)
+            vals = rdoc.get('alarm_thresholds')
             if vals is not None and isinstance(vals, (list, tuple)) and len(vals) == 2:
                 self.alarms[n] = vals
             else:
                 self.alarms[n] = (None, None)
+            self.xform[n] = rdoc.get('value_xform', [0, 1])
 
     def more_processing(self, values):
+        for i, (n, v) in enumerate(zip(self.all_names, values)):
+            values[i] = sum(a*v**j for j, a in enumerate(self.xform[n]))
         if self.is_int:
             values = list(map(int, values))
         return values
