@@ -1,4 +1,3 @@
-import queue
 import threading
 import time
 
@@ -13,10 +12,10 @@ class Reading(threading.Thread):
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.db = kwargs['db']
-        self.process_queue = queue.Queue()
         self.event = kwargs['event']
         self.name = kwargs['reading_name']
         self.logger = kwargs.pop('logger')
+        self.cv = threading.Condition()
         self.sensor_name = kwargs['sensor_name']
         self.sensor_process = kwargs['sensor'].process_one_reading
         self.schedule = kwargs['sensor'].add_to_schedule
@@ -51,29 +50,26 @@ class Reading(threading.Thread):
         """
         Asks the sensor for data, unpacks it, and sends it to the database
         """
-        func_start = time.time()
-        self.schedule(reading_name=self.name, retq = self.process_queue)
-        pkg = None
-        while time.time() - func_start < self.readout_interval:
-            try:
-                pkg = self.process_queue.get(timeout=0.01)
-            except queue.Empty:
-                pass
+        pkg = {}
+        self.schedule(command=self.name, ret = (pkg, self.cv))
+        with self.cv:
+            if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
+                failed = False
             else:
-                self.process_queue.task_done()
-                break
-        if pkg is None:
-            self.logger.info('Didn\'t get anything from the sensor!')
+                # timeout expired
+                failed = len(pkg) == 0
+        if len(pkg) == 0 or failed:
+            self.logger.info('{self.name} didn\'t get anything from the sensor!')
             return
         try:
             value = self.sensor_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'{self.name} got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
-        self.logger.debug(f'Measured {value}')
+        self.logger.debug(f'{self.name} measured {value}')
         if value is not None:
             value = self.more_processing(value)
-            self.send_upstream(value)
+            self.send_upstream(value, pkg['time'])
         return
 
     def more_processing(self, value):
@@ -84,7 +80,7 @@ class Reading(threading.Thread):
             value = int(value)
         return value
 
-    def send_upstream(self, value):
+    def send_upstream(self, value, timestamp):
         """
         This function sends data upstream to wherever it should end up
         """
@@ -134,7 +130,7 @@ class MultiReading(Reading):
             values = list(map(int, values))
         return values
 
-    def send_upstream(self, values):
+    def send_upstream(self, values, timestamp):
         for n, v in zip(self.all_names, values):
             tags = {'reading': n, 'subsystem': self.subsystem}
             low, high = self.alarms[n]

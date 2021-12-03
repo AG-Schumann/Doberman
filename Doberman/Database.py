@@ -142,20 +142,17 @@ class Database(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
-    def delete_alarm(self, reading_name, alarm_type):
+    def get_experiment_config(self, name, field=None):
         """
-        Delete alarm of specific type from a reading
-        :param reading_name: name of the reading
-        :param alarm_type: alarm type to be removed
+        Gets an experiment config document
+        :param name: the name of the document
+        :param field: a specific field
+        :returns: The whole document if field = None, either just the field
         """
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$pull': {'alarms': {'type': alarm_type}}})
-
-    def update_alarm(self, reading_name, alarm_doc):
-        alarm_type = alarm_doc['type']
-        self.delete_alarm(reading_name, alarm_type)
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$push': {'alarms': alarm_doc}})
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if doc and field and field in doc:
+            return doc[field]
+        return doc
 
     def distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
         """
@@ -268,6 +265,19 @@ class Database(object):
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
+        if level == 'ohshit':
+            # shit shit fire ze missiles!
+            protocols = set()
+            for doc in self.read_from_db('settings', 'alarm_config', {'level': {'$gte': 0}}):
+                protocols |= set(doc['protocols'])
+            ret = {k: [] for k in protocols}
+            for doc in self.read_from_db('settings', 'contacts'):
+                for p in protocols:
+                    try:
+                        ret[p].append(doc[p])
+                    except KeyError:
+                        pass
+            return ret
         protocols = self.get_message_protocols(level)
         ret = {k: [] for k in protocols}
         now = datetime.datetime.now()  # no UTC here, we want local time
@@ -280,35 +290,24 @@ class Database(object):
                 ret[p].append(doc[p])
         return ret
 
-    def get_heartbeat(self, host=None, sensor=None):
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        doc = self.read_from_db('settings', coll, cuts=cuts, onlyone=True)
+    def get_heartbeat(self, sensor=None):
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)
         return doc['heartbeat']
 
-    def update_heartbeat(self, host=None, sensor=None):
+    def update_heartbeat(self, sensor=None):
         """
         Heartbeats the specified sensor or host
         """
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        self.update_db('settings', coll, cuts=cuts,
+        self.update_db('settings', coll, cuts={'name': sensor},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
-    def log_alarm(self, document):
+    def log_alarm(self, msg, severity=0):
         """
         Adds the alarm to the history.
         """
-        if self.insert_into_db('logging', 'alarm_history', document):
+        doc = {'msg': msg, 'howbad': severity, 'acknowledged': 0}
+        if self.insert_into_db('logging', 'alarm_history', doc):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
@@ -385,6 +384,25 @@ class Database(object):
             return doc[field]
         return doc
 
+    def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
+        """
+        A way for sensors to tell the hypervisor when they start and stop and stuff
+        :param active: the name of a sensor that's just starting up
+        :param inactive: the name of a sensor that's stopping
+        :param unmanage: the name of a sensor that doesn't need to be monitored
+        """
+        updates = {}
+        if active:
+            updates['$addToSet'] = {'processes.active': active}
+        if inactive:
+            updates['$pull'] = {'processes.active': inactive}
+        if unmanage:
+            updates['$pull'] = {'processes.managed': unmanage}
+        if updates:
+            self.update_db('settings', 'experiment_config', {'name': 'hypervisor'},
+                    updates)
+        return
+
     def get_host_setting(self, host=None, field=None):
         """
         Gets the setting document of the specified host
@@ -407,17 +425,6 @@ class Database(object):
             host = self.hostname
         self.update_db('settings', 'hosts', {'hostname': host},
                        updates={f'${k}': v for k, v in kwargs.items()})
-
-    def get_unmonitored_sensors(self):
-        """
-        Returns list of sensors that are not in 'default' of any host (i.e. not read out by any host)
-        """
-        all_sensors = self.distinct('settings', 'sensors', 'name')
-        hosts = self.distinct('common', 'hosts', 'hostname')
-        monitored = []
-        for host in hosts:
-            monitored.extend(self.get_host_setting(host, 'default'))
-        return list(set(all_sensors) - set(monitored))
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
