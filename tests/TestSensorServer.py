@@ -147,8 +147,7 @@ class IsoVac(object):
         self.turbo_hz = 0
         self.turbo_max_hz = 1500
         self.turbo_ramp_rate = self.turbo_max_hz/turbo_spinup_time
-        self.turbo_pressure_threshold = 1 # mbar
-        self.turbo_status = 0
+        self.turbo_pressure_threshold = 10 # mbar
         self.ic = ic
 
     def outgassing(self):
@@ -200,7 +199,8 @@ class IsoVac(object):
         self.m_gas = max(0, self.m_gas + dm_gas)
         if _print:
             print(
-                f'IV pressure {self.pressure / 100:.2g} mbar | rate {self.pump_rate():.2g} kg/s | {self.m_gas:.3g} kg')
+                f'IV pressure {self.pressure / 100:.2g} mbar | rate {self.pump_rate():.2g} kg/s | {self.m_gas:.3g} kg | '
+                f'{self.turbo_hz:.1f} Hz')
 
 
 class InnerCryostat(object):

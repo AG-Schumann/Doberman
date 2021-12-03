@@ -19,21 +19,23 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_cfg = {'url': influx_cfg['url']}
+        url = influx_cfg['url']
         if influx_cfg['version'] == 1:
             query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
                             ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
-            self.influx_cfg['url'] += '/write?'
-            self.influx_cfg['headers'] = {}
+            url += '/write?'
+            headers = {}
         elif influx_cfg['version'] == 2:
             query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
                             ('bucket', influx_cfg['bucket'])]
-            self.influx_cfg['url'] += '/api/v2/write?'
-            self.influx_cfg['headers'] = {'Authorization': 'Token ' + influx_cfg['token']}
+            url += '/api/v2/write?'
+            headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
             raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
-        self.influx_cfg['url'] += '&'.join([f'{k}={v}' for k, v in query_params])
-        self.influx_cfg['precision'] = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
+        url += '&'.join([f'{k}={v}' for k, v in query_params])
+        precision = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
+        self.influx_cfg = (url, headers, precision)
+        print(self.influx_cfg)
 
     def close(self):
         pass
@@ -427,6 +429,7 @@ class Database(object):
         :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
+        url, headers, precision = self.influx_cfg
         if topic is None or fields is None:
             raise ValueError('Missing required fields for influx insertion')
         data = f'{topic}' if self.experiment_name != 'testing' else 'testing'
@@ -437,10 +440,15 @@ class Database(object):
             f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
         ])
         timestamp = timestamp or time.time()
-        data += f' {int(timestamp * self.influx_cfg["precision"])}'
-        if requests.post(self.influx_cfg['url'], headers=self.influx_cfg['headers'], data=data).status_code != 200:
+        data += f' {int(timestamp * precision)}'
+        r = requests.post(url, headers=headers, data=data)
+        if r.status_code not in [200, 204]:
             # something went wrong
-            pass
+            self.logger.error(f'Got status code {r.status_code} instead of 200/204')
+            try:
+                self.logger.error(r.json())
+            except:
+                self.logger.error(r.content)
 
     def get_current_status(self):
         """

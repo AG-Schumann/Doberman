@@ -90,7 +90,11 @@ class Reading(threading.Thread):
         """
         low, high = self.alarms
         tags = {'reading': self.name, 'sensor': self.sensor_name, 'subsystem': self.subsystem}
-        fields = {'value': value, 'alarm_low': low, 'alarm_high': high}
+        fields = {'value': value}
+        if low is not None:
+            fields['alarm_low'] = low
+        if high is not None:
+            fields['alarm_high'] = high
         self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields)
 
 
@@ -132,6 +136,12 @@ class MultiReading(Reading):
 
     def send_upstream(self, values):
         for n, v in zip(self.all_names, values):
+            tags = {'reading': n, 'subsystem': self.subsystem}
             low, high = self.alarms[n]
-            self.db.write_to_influx(topic=self.topic, tags={'reading': n, 'subsystem': self.subsystem},
-                    fields={'value': v, 'alarm_low': low, 'alarm_high': high})
+            fields = {'value': v}
+            if low is not None:
+                fields['alarm_low'] = low
+            if high is not None:
+                fields['alarm_high'] = high
+            self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields)
+

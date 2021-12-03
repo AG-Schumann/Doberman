@@ -18,13 +18,12 @@ def main(mongo_client):
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
-    db_kwargs = {'mongo_client': mongo_client}
     k = 'DOBERMAN_EXPERIMENT_NAME'
     err_msg = f'Specify an experiment first via the environment variable {k}'
     if not os.environ.get(k):
         print(err_msg)
         return
-    db = Doberman.Database(**db_kwargs)
+    db = Doberman.Database(mongo_client=mongo_client, experiment_name=os.environ[k])
     kwargs = {'db': db}
     # TODO add checks for running systems
     if args.alarm:
