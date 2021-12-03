@@ -386,6 +386,7 @@ class InfluxSinkNode(Node):
         super().setup(**kwargs)
         self.topic = kwargs['topic']
         self.write_to_influx = kwargs['write_to_influx']
+        self.subsystem = kwargs['subsystem']
 
     def process(self, package):
         if not self.is_silent:
@@ -403,7 +404,7 @@ class ControlNode(Node):
         self.control_value = kwargs['control_value']
 
     def set_output(self, value):
-        self.logger.debug(f'Setting output to {value}')
+        self.logger.debug(f'{self.name} setting output to {value}')
         if not self.is_silent:
             self._log_command({'name': self.control_target, 'acknowledged': 0,
                 command: f'set {self.control_value} {value}'})

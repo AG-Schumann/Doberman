@@ -10,7 +10,11 @@ import inspect
 import re
 import logging
 import logging.handlers
-import serial
+try:
+    import serial
+    has_serial=True
+except ImportError:
+    has_serial=False
 import threading
 
 dtnow = datetime.datetime.now
@@ -27,6 +31,8 @@ def refresh_tty(db):
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
+    if not has_serial:
+        raise ValueError('No serial library, can\'t do this')
     cuts = {'status': 'online', 'address.tty': {'$exists': 1, '$regex': 'USB'}}
     if db.count('settings', 'sensors', cuts):
         print('Some USB sensors are running! Stopping them now')

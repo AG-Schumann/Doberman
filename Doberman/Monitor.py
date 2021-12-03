@@ -18,22 +18,12 @@ def main(mongo_client):
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
-    db_kwargs = {'mongo_client': mongo_client}
-    err_msg = 'Specify an experiment first! This can be done either as an environment variable '
-    err_msg += 'DOBERMAN_EXPERIMENT_NAME or in the file experiment_name'
-    try:
-        db_kwargs['experiment_name'] = os.environ['DOBERMAN_EXPERIMENT_NAME']
-    except KeyError:
-        try:
-            with open(os.path.join(Doberman.utils.doberman_dir, 'experiment_name'), 'r') as f:
-                db_kwargs['experiment_name'] = f.read().strip()
-        except FileNotFoundError:
-            print(err_msg)
-            return
-    if len(db_kwargs['experiment_name']) == 0:
+    k = 'DOBERMAN_EXPERIMENT_NAME'
+    err_msg = f'Specify an experiment first via the environment variable {k}'
+    if not os.environ.get(k):
         print(err_msg)
         return
-    db = Doberman.Database(**db_kwargs)
+    db = Doberman.Database(mongo_client=mongo_client, experiment_name=os.environ[k])
     kwargs = {'db': db}
     # TODO add checks for running systems
     if args.alarm:
@@ -75,16 +65,9 @@ def main(mongo_client):
 
 
 if __name__ == '__main__':
-    try:
-        mongo_uri = os.environ['DOBERMAN_MONGO_URI']
+    if not (mongo_uri := os.environ.get('DOBERMAN_MONGO_URI')):
+        print('Please specify a valid MongoDB connection URI via the environment '
+              'variable DOBERMAN_MONGO_URI')
+    else:
         with MongoClient(mongo_uri) as mongo_client:
             main(mongo_client)
-    except KeyError:
-        try:
-            with open(os.path.join(Doberman.utils.doberman_dir, 'connection_uri'), 'r') as f:
-                mongo_uri = f.read().strip()
-            with MongoClient(mongo_uri) as mongo_client:
-                main(mongo_client)
-        except FileNotFoundError:
-            print('I need the connection uri to the Config DB. Specify either as an environment', end=' ')
-            print('variable DOBERMAN_MONGO_URI or in the file connection_uri in the Doberman directory')

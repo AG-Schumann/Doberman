@@ -20,7 +20,7 @@ class SensorMonitor(Doberman.Monitor):
                       period=self.db.get_experiment_config(name='hypervisor', field='period'))
         self.db.notify_hypervisor(active=self.name)
 
-    def start_reading(self, rd_name):
+    def start_reading(self, rd):
         self.logger.debug('Constructing ' + rd)
         reading_doc = self.db.get_reading_setting(self.name, rd)
         kwargs = {'reading_name': rd, 'logger': self.logger, 'db': self.db,
