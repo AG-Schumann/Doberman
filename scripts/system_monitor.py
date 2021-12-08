@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 import psutil
 import Doberman
 import time
@@ -14,6 +14,7 @@ ignore_disks = ['loop', 'ram', 'boot']
 # setup disk and network rate caching
 net_io = psutil.net_io_counters(True)
 last_recv = {}
+last_sent = {}
 for nic in net_io:
     if any([n in nic for n in ignore_nics]):
         continue
@@ -30,14 +31,14 @@ for disk in disk_io:
 
 def monitor():
     load_1, load_5, load_15 = psutil.getloadavg()
-    fields = {'load1': load1 / n_cpus, 'load5': load_5 / n_cpus, 'load15': load_15 / n_cpus}
+    fields = {'load1': load_1 / n_cpus, 'load5': load_5 / n_cpus, 'load15': load_15 / n_cpus}
     mem = psutil.virtual_memory()
     fields['mem_avail'] = mem.available / mem.total
     swap = psutil.swap_memory()
     if swap.total > 0:
         fields['swap_used'] = swap.used / swap.total
     else:
-        fields['swap_used'] = 0
+        fields['swap_used'] = 0.
     temp_dict = psutil.sensors_temperatures()
     if 'coretemp' in temp_dict.keys():
         for row in temp_dict['coretemp']:
@@ -49,7 +50,7 @@ def monitor():
         fields['cpu_0_temp'] = temp_dict[key][0].current
     else:
         print(f'Couldn\'t read out CPU temperatures')
-        fields['cpu_0_temp'] = None
+        fields['cpu_0_temp'] = -1.
     net_io = psutil.net_io_counters(True)
     for nic in last_recv:
         recv_kbytes = (net_io[nic].bytes_recv - last_recv[nic]) >> 10
@@ -70,13 +71,23 @@ def monitor():
         fields[f'{disk}_write'] = write_kbytes / period
     return fields
 
+class DumbLogger(object):
+    def __init__(self):
+        pass
+
+    def error(self, message):
+        print(message)
+
 def main(client):
     sh = Doberman.utils.SignalHandler()
-    db = Doberman.Database(client = client, experiment_name = os.environ['DOBERMAN_EXPERIMENT_NAME'])
+    db = Doberman.Database(client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'],
+            bucket_override='sysmon')
+    db.logger = DumbLogger() # in case we need to print a message
+    tags = {'host': db.hostname}
     while sh.run:
         try:
             fields = monitor()
-            db.write_to_influx(topic = 'sysmon', tags = {'hostname': db.hostname}, fields = fields)
+            db.write_to_influx(topic='sysmon', tags=tags, fields=fields)
         except Exception as e:
             print(f'Caught a {type(e)}: {e}')
         time.sleep(period)

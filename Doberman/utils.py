@@ -184,22 +184,27 @@ class DobermanLogger(logging.Handler):
         self.db_name = 'logging'
         self.collection_name = 'logs'
         self.today = datetime.date.today()
+        self.files = {}
         self.open_files(self.today)
         self.flush_cycle = 0
 
     def rotate(self, when):
-        for f in cls.files.values():
+        for f in self.files.values():
             if f is not None:
                 f.close()
         self.today = datetime.date.today()
         self.open_files(when)
 
     def open_files(self, when):
-        self.files = {'DEBUG': open(os.path.join(self.logdir(when), self.filename(when, 'DEBUG')), 'a'),
-                'INFO': open(os.path.join(self.logdir(when), self.filename(when)), 'a')}
+        self.files = {
+                'DEBUG': open(self.full_file_path(when, 'DEBUG'), 'a'),
+                'INFO': open(self.full_file_path(when), 'a')}
         for k in 'WARNING ERROR FATAL'.split():
             # copy for INFO and higher
             self.files[k] = self.files['INFO']
+
+    def full_file_path(self, when, level=None):
+        return os.path.join(self.logdir(when), self.filename(when, level))
 
     def filename(self, when, level=None):
         lvl = '' if level is None else f'{level}_'
