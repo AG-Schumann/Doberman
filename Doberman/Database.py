@@ -19,19 +19,23 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
-        self.influx_url = influx_cfg['url'] + '/write?'
+        url = influx_cfg['url']
         if influx_cfg['version'] == 1:
             query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
                             ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
-            self.influx_headers = {}
+            url += '/write?'
+            headers = {}
         elif influx_cfg['version'] == 2:
             query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
                             ('bucket', influx_cfg['bucket'])]
-            self.influx_headers = {'Authorization': 'Token ' + influx_cfg['token']}
+            url += '/api/v2/write?'
+            headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
             raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
-        self.influx_url += '&'.join([f'{k}={v}' for k, v in query_params])
-        self.influx_precision = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
+        url += '&'.join([f'{k}={v}' for k, v in query_params])
+        precision = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
+        self.influx_cfg = (url, headers, precision)
+        print(self.influx_cfg)
 
     def close(self):
         pass
@@ -138,20 +142,17 @@ class Database(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
-    def delete_alarm(self, reading_name, alarm_type):
+    def get_experiment_config(self, name, field=None):
         """
-        Delete alarm of specific type from a reading
-        :param reading_name: name of the reading
-        :param alarm_type: alarm type to be removed
+        Gets an experiment config document
+        :param name: the name of the document
+        :param field: a specific field
+        :returns: The whole document if field = None, either just the field
         """
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$pull': {'alarms': {'type': alarm_type}}})
-
-    def update_alarm(self, reading_name, alarm_doc):
-        alarm_type = alarm_doc['type']
-        self.delete_alarm(reading_name, alarm_type)
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$push': {'alarms': alarm_doc}})
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if doc and field and field in doc:
+            return doc[field]
+        return doc
 
     def distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
         """
@@ -264,6 +265,19 @@ class Database(object):
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
+        if level == 'ohshit':
+            # shit shit fire ze missiles!
+            protocols = set()
+            for doc in self.read_from_db('settings', 'alarm_config', {'level': {'$gte': 0}}):
+                protocols |= set(doc['protocols'])
+            ret = {k: [] for k in protocols}
+            for doc in self.read_from_db('settings', 'contacts'):
+                for p in protocols:
+                    try:
+                        ret[p].append(doc[p])
+                    except KeyError:
+                        pass
+            return ret
         protocols = self.get_message_protocols(level)
         ret = {k: [] for k in protocols}
         now = datetime.datetime.now()  # no UTC here, we want local time
@@ -279,35 +293,24 @@ class Database(object):
                     self.logger.warning(f"No {protocol} contact details for {doc['name']}.")
         return ret
 
-    def get_heartbeat(self, host=None, sensor=None):
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        doc = self.read_from_db('settings', coll, cuts=cuts, onlyone=True)
+    def get_heartbeat(self, sensor=None):
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)
         return doc['heartbeat']
 
-    def update_heartbeat(self, host=None, sensor=None):
+    def update_heartbeat(self, sensor=None):
         """
         Heartbeats the specified sensor or host
         """
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        self.update_db('settings', coll, cuts=cuts,
+        self.update_db('settings', coll, cuts={'name': sensor},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
-    def log_alarm(self, document):
+    def log_alarm(self, msg, severity=0):
         """
         Adds the alarm to the history.
         """
-        if self.insert_into_db('logging', 'alarm_history', document):
+        doc = {'msg': msg, 'howbad': severity, 'acknowledged': 0}
+        if self.insert_into_db('logging', 'alarm_history', doc):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
@@ -384,6 +387,25 @@ class Database(object):
             return doc[field]
         return doc
 
+    def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
+        """
+        A way for sensors to tell the hypervisor when they start and stop and stuff
+        :param active: the name of a sensor that's just starting up
+        :param inactive: the name of a sensor that's stopping
+        :param unmanage: the name of a sensor that doesn't need to be monitored
+        """
+        updates = {}
+        if active:
+            updates['$addToSet'] = {'processes.active': active}
+        if inactive:
+            updates['$pull'] = {'processes.active': inactive}
+        if unmanage:
+            updates['$pull'] = {'processes.managed': unmanage}
+        if updates:
+            self.update_db('settings', 'experiment_config', {'name': 'hypervisor'},
+                    updates)
+        return
+
     def get_host_setting(self, host=None, field=None):
         """
         Gets the setting document of the specified host
@@ -407,27 +429,17 @@ class Database(object):
         self.update_db('settings', 'hosts', {'hostname': host},
                        updates={f'${k}': v for k, v in kwargs.items()})
 
-    def get_unmonitored_sensors(self):
-        """
-        Returns list of sensors that are not in 'default' of any host (i.e. not read out by any host)
-        """
-        all_sensors = self.distinct('settings', 'sensors', 'name')
-        hosts = self.distinct('common', 'hosts', 'hostname')
-        monitored = []
-        for host in hosts:
-            monitored.extend(self.get_host_setting(host, 'default'))
-        return list(set(all_sensors) - set(monitored))
-
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
         Writes the specified data to Influx. See
         https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
         for more info. The URL and access credentials are stored in the database and cached for use
         :param topic: the named named type of measurement (temperature, pressure, etc)
-        :param tags: a dict of tag names and values, usually 'sensor' and 'reading'
+        :param tags: a dict of tag names and values, usually 'subsystem' and 'reading'
         :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
+        url, headers, precision = self.influx_cfg
         if topic is None or fields is None:
             raise ValueError('Missing required fields for influx insertion')
         data = f'{topic}' if self.experiment_name != 'testing' else 'testing'
@@ -438,10 +450,15 @@ class Database(object):
             f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
         ])
         timestamp = timestamp or time.time()
-        data += f' {int(timestamp * self.influx_precision)}'
-        if requests.post(self.influx_cfg['url'], headers=self.influx_cfg['headers'], data=data).status_code != 200:
+        data += f' {int(timestamp * precision)}'
+        r = requests.post(url, headers=headers, data=data)
+        if r.status_code not in [200, 204]:
             # something went wrong
-            pass
+            self.logger.error(f'Got status code {r.status_code} instead of 200/204')
+            try:
+                self.logger.error(r.json())
+            except:
+                self.logger.error(r.content)
 
     def get_current_status(self):
         """
