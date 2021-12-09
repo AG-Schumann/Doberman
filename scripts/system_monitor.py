@@ -13,32 +13,34 @@ ignore_disks = ['loop', 'ram', 'boot']
 
 # setup disk and network rate caching
 net_io = psutil.net_io_counters(True)
-last_recv = {}
-last_sent = {}
+last_recv = 0
+last_sent = 0
 for nic in net_io:
     if any([n in nic for n in ignore_nics]):
         continue
-    last_recv[nic] = net_io[nic].bytes_recv
-    last_sent[nic] = net_io[nic].bytes_sent
+    last_recv += net_io[nic].bytes_recv
+    last_sent += net_io[nic].bytes_sent
 disk_io = psutil.disk_io_counters(True)
-last_read = {}
-last_write = {}
+last_read = 0
+last_write = 0
 for disk in disk_io:
     if any([d in disk for d in ignore_disks]):
         continue
-    last_read[disk] = disk_io[disk].read_bytes
-    last_write[disk] = disk_io[disk].write_bytes
+    last_read += disk_io[disk].read_bytes
+    last_write += disk_io[disk].write_bytes
 
 def monitor():
-    load_1, load_5, load_15 = psutil.getloadavg()
-    fields = {'load1': load_1 / n_cpus, 'load5': load_5 / n_cpus, 'load15': load_15 / n_cpus}
+    load1, load5, load15 = psutil.getloadavg()
+    fields = {'load1': load1 / n_cpus, 'load5': load5 / n_cpus, 'load15': load15 / n_cpus}
+    cpu_percent = sorted(psutil.cpu_percent(percpu=True))
+    fields['cpu0'] = cpu_percent[-1]
+    fields['cpu1'] = cpu_percent[-2] if n_cpus > 1 else 0.
+
     mem = psutil.virtual_memory()
-    fields['mem_avail'] = mem.available / mem.total
+    fields['mem_pct'] = mem.percent
     swap = psutil.swap_memory()
-    if swap.total > 0:
-        fields['swap_used'] = swap.used / swap.total
-    else:
-        fields['swap_used'] = 0.
+    fields['swap_pct'] = swap.percent
+
     temp_dict = psutil.sensors_temperatures()
     if 'coretemp' in temp_dict.keys():
         for row in temp_dict['coretemp']:
@@ -52,23 +54,29 @@ def monitor():
         print(f'Couldn\'t read out CPU temperatures')
         fields['cpu_0_temp'] = -1.
     net_io = psutil.net_io_counters(True)
-    for nic in last_recv:
-        recv_kbytes = (net_io[nic].bytes_recv - last_recv[nic]) >> 10
-        last_recv[nic] = net_io[nic].bytes_recv
-        fields[f'{nic}_recv'] = recv_kbytes / period
-
-        sent_kbytes = (net_io[nic].bytes_sent - last_sent[nic]) >> 10
-        last_sent[nic] = net_io[nic].bytes_sent
-        fields[f'{nic}_sent'] = sent_kbytes / period
+    this_recv = 0
+    this_sent = 0
+    for nic in net_io:
+        if any([n in nic for n in ignore_nics]):
+            continue
+        this_recv += net_io[nic].bytes_recv
+        this_sent += net_io[nic].bytes_sent
+    fields['network_recv'] = ((this_recv - last_recv)>>10)/period
+    fields['network_sent'] = ((this_sent - last_sent)>>10)/period
+    last_recv = this_recv
+    last_sent = this_sent
     disk_io = psutil.disk_io_counters(True)
-    for disk in last_read:
-        read_kbytes = (disk_io[disk].read_bytes - last_read[disk]) >> 10
-        last_read[disk] = disk_io[disk].read_bytes
-        fields[f'{disk}_read'] = read_kbytes / period
-
-        write_kbytes = (disk_io[disk].write_bytes - last_write[disk]) >> 10
-        last_write[disk] = disk_io[disk].write_bytes
-        fields[f'{disk}_write'] = write_kbytes / period
+    this_read = 0
+    this_write = 0
+    for disk in disk_io:
+        if any([d in disk for d in ignore_disks]):
+            continue
+        this_read += disk_io[disk].read_bytes
+        this_write += disk_io[disk].write_bytes
+    fields['disk_read'] = ((this_read - last_read)>>10) /period
+    fields['disk_write'] = ((this_write - last_write)>>10) /period
+    last_read = this_read
+    last_write = this_write
     return fields
 
 class DumbLogger(object):
