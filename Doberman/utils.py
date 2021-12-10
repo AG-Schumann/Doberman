@@ -16,6 +16,7 @@ try:
 except ImportError:
     has_serial=False
 import threading
+from math import floor, log10
 
 dtnow = datetime.datetime.now
 
@@ -253,3 +254,18 @@ def get_logger(name, db):
     logger.addHandler(DobermanLogger(db, name))
     logger.setLevel(logging.DEBUG)
     return logger
+
+def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
+    """
+    Rounds reading to a sensible number of significant figures.
+
+    In general rounds to defaultsigfigs significant figures.
+    If the lowlim and upplim are rather close, have at least
+    one more than the number of decimal places to distinguish
+    them. For example: with limits 1.023 and 1.044, readings have
+    three decimal places.
+    """
+    mindps = 1 - floor(log10(upplim - lowlim))
+    minsfs = floor(log10(reading)) + 1 + mindps
+    sfs = max(minsfs, 3)
+    return f'{reading:.{sfs}g}'

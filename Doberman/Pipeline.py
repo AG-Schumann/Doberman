@@ -45,7 +45,7 @@ class Pipeline(object):
         total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
         self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
-        self.db.set_pipeline_value(self.name, 
+        self.db.set_pipeline_value(self.name,
                 [('heartbeat', Doberman.utils.dtnow()),
                     ('cycles', self.cycles),
                     ('error', self.last_error),
@@ -466,8 +466,17 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
             # at least one value is in an acceptable range
             pass
         else:
-            msg = (f'Alarm for {self.description} ({self.input_var}) - {values[-1]} '
-                   f'is outside the allowed range ({low},{high})')
+            msg = f'Alarm for {self.description}. '
+            try:
+                toohigh = values[-1] >= high  # (Or low)
+                msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
+                msgthreshold = Doberman.utils.sensible_sig_figs(high if toohigh else low, low, high)
+                msg += f'{msgval} is {"above" if toohigh else "below"} '
+                msg += f'the threshold {msgthreshold}.'
+            except ValueError:
+                # Sometimes hit a corner case (eg low=high)
+                msg += f'{values[-1]:.3g} is outside allowed range of'
+                msg += f' {low:.3g} to {high:.3g}.'
             self.log_alarm(msg)
 
 class TimeSinceNode(BufferNode):
