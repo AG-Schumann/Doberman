@@ -289,7 +289,11 @@ class Database(object):
         for doc in self.read_from_db('settings', 'contacts',
                                      {'name': {'$in': shifters}}):
             for p in protocols:
-                ret[p].append(doc[p])
+                try:
+                    ret[p].append(doc[p])
+                except:
+                    contactname = doc['name']
+                    self.logger.info(f"No {p} contact details for {contactname}")
         return ret
 
     def get_heartbeat(self, sensor=None):
