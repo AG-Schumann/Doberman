@@ -287,10 +287,7 @@ class Database(object):
         for doc in self.read_from_db('settings', 'contacts',
                                      {'name': {'$in': shifters}}):
             for p in protocols:
-                if p in doc:
-                    ret[p].append(doc[p])
-                else:
-                    self.logger.warning(f"No {protocol} contact details for {doc['name']}.")
+                ret[p].append(doc[p])
         return ret
 
     def get_heartbeat(self, sensor=None):
