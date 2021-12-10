@@ -466,7 +466,7 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
             # at least one value is in an acceptable range
             pass
         else:
-            msg = f'{Alarm for {self.description}. '
+            msg = f'Alarm for {self.description}. '
             try:
                 toohigh = values[-1] >= high  # (Or low)
                 msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
