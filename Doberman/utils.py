@@ -255,7 +255,7 @@ def get_logger(name, db):
     logger.setLevel(logging.DEBUG)
     return logger
 
-def sensiblesigfigs(reading, lowlim, upplim, defaultsigfigs=3):
+def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
     """
     Rounds reading to a sensible number of significant figures.
 
@@ -268,5 +268,4 @@ def sensiblesigfigs(reading, lowlim, upplim, defaultsigfigs=3):
     mindps = 1 - floor(log10(upplim - lowlim))
     minsfs = floor(log10(reading)) + 1 + mindps
     sfs = max(minsfs, 3)
-    print(minsfs, sfs)
     return f'{reading:.{sfs}g}'

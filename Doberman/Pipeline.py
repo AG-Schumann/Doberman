@@ -466,11 +466,11 @@ class SimpleAlarmNode(BufferNode, AlarmNode):
             # at least one value is in an acceptable range
             pass
         else:
-            msg = f'{reading["topic"].capitalize()} alarm for {self.description}. '
+            msg = f'{Alarm for {self.description}. '
             try:
                 toohigh = values[-1] >= high  # (Or low)
-                msgval = Doberman.utils.sensiblesigfigs(values[-1], low, high)
-                msgthreshold = Doberman.utils.sensiblesigfigs(high if toohigh else low, low, high)
+                msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
+                msgthreshold = Doberman.utils.sensible_sig_figs(high if toohigh else low, low, high)
                 msg += f'{msgval} is {"above" if toohigh else "below"} '
                 msg += f'the threshold {msgthreshold}.'
             except ValueError:
