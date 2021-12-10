@@ -291,7 +291,7 @@ class Database(object):
             for p in protocols:
                 try:
                     ret[p].append(doc[p])
-                except:
+                except KeyError:
                     contactname = doc['name']
                     self.logger.info(f"No {p} contact details for {contactname}")
         return ret
