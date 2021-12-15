@@ -81,7 +81,7 @@ class AlarmMonitor(Doberman.Monitor):
                 server.login(fromaddr, password)
                 server.sendmail(fromaddr, recipients, msg.as_string())
                 server.quit()
-            self.logger.info(f'Mail (Subject:{subject}) sent')
+            self.logger.info(f'Mail (Subject:{subject}) sent to {",".join(recipients)}')
         except Exception as e:
             self.logger.warning(f'Could not send mail: {e} ({type(e)})')
             return 0

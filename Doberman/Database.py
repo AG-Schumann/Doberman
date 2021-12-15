@@ -282,13 +282,18 @@ class Database(object):
         protocols = self.get_message_protocols(level)
         ret = {k: [] for k in protocols}
         now = datetime.datetime.now()  # no UTC here, we want local time
-        shifters = self.read_from_db('settings', 'shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                     onlyone=True)['shifters']
+        shifters = []
+        for doc in self.read_from_db('settings', 'shifts',
+                                     {'start': {'$lte': now}, 'end': {'$gte': now}}):
+                             shifters += doc['shifters']
         for doc in self.read_from_db('settings', 'contacts',
                                      {'name': {'$in': shifters}}):
             for p in protocols:
-                ret[p].append(doc[p])
+                try:
+                    ret[p].append(doc[p])
+                except KeyError:
+                    contactname = doc['name']
+                    self.logger.info(f"No {p} contact details for {contactname}")
         return ret
 
     def get_heartbeat(self, sensor=None):
