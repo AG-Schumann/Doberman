@@ -19,7 +19,7 @@ class Sysmon(object):
         self.last_recv = 0
         self.last_sent = 0
         for nic in net_io:
-            if any([n in nic for n in ignore_nics]):
+            if any([n in nic for n in self.ignore_nics]):
                 continue
             self.last_recv += net_io[nic].bytes_recv
             self.last_sent += net_io[nic].bytes_sent
@@ -27,7 +27,7 @@ class Sysmon(object):
         self.last_read = 0
         self.last_write = 0
         for disk in disk_io:
-            if any([d in disk for d in ignore_disks]):
+            if any([d in disk for d in self.ignore_disks]):
                 continue
             self.last_read += disk_io[disk].read_bytes
             self.last_write += disk_io[disk].write_bytes
@@ -102,7 +102,7 @@ def main(client):
             db.write_to_influx(topic='sysmon', tags=tags, fields=fields)
         except Exception as e:
             print(f'Caught a {type(e)}: {e}')
-        time.sleep(period)
+        time.sleep(sm.period)
 
 if __name__ == '__main__':
     with MongoClient(os.environ['DOBERMAN_MONGO_URI']) as client:
