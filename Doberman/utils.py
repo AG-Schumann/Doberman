@@ -12,10 +12,11 @@ import logging
 import logging.handlers
 import serial
 import threading
+import hashlib
 
 dtnow = datetime.datetime.now
 
-__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger'.split()
+__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -247,3 +248,15 @@ def get_logger(name, db):
     logger.addHandler(DobermanLogger(db, name))
     logger.setLevel(logging.DEBUG)
     return logger
+
+def make_hash(*args, hash_length=16):
+    """
+    Generates a hash from the provided arguments, returns
+    a hex string
+    :param *args: bytes objects you want to be hashed
+    :param hash_length: how long the returned hash should be. Default 16
+    :returns: string
+    """
+    m = hashlib.sha256()
+    map(m.update, args)
+    return m.hexdigest()[:hash_length]

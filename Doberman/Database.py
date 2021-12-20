@@ -205,13 +205,34 @@ class Database(object):
             self.delete_documents('logging', 'commands', {'_id': doc['_id']})
         return doc
 
-    def log_command(self, doc):
+    def log_command(self, command, target, issuer, delay=0):
         """
+        Store a command for someone else
+        :param command: the command for them to process
+        :param target: who the command is for
+        :param issuer: who is issuing the command
+        :param delay: how far into the future the command should happen, default 0
+        :returns: None
         """
-        if 'logged' not in doc:
-            doc['logged'] = dtnow()
-        doc['acknowledged'] = 0
+        doc = {
+                'name': target,
+                'command': command,
+                'acknowledged': 0,
+                'by': issuer,
+                'logged': dtnow() + datetime.timedelta(seconds=delay)
+                }
         self.insert_into_db('logging', 'commands', doc)
+
+    def get_experiment_config(self, name, field=None):
+        """
+        Gets a document or parameter from the experimental configs
+        :param field: which field you want, default None which gives you all of them
+        :returns: either the whole document or a specific field
+        """
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if doc is not None and field is not None:
+            return doc.get(field)
+        return doc
 
     def get_pipeline(self, name):
         """
@@ -302,20 +323,16 @@ class Database(object):
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
-    def log_alarm(self, document):
+    def log_alarm(self, message, pipeline=None, alarm_hash=None):
         """
         Adds the alarm to the history.
         """
+        doc = {'msg': message, 'acknowledged': 0, 'pipeline': pipeline,
+                'hash': alarm_hash}
         if self.insert_into_db('logging', 'alarm_history', document):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
-
-    def log_update(self, **kwargs):
-        """
-        Logs changes submitted from the website
-        """
-        self.insert_into_db('logging', 'updates', kwargs)
 
     def get_sensor_setting(self, name, field=None):
         """
