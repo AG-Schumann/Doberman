@@ -17,10 +17,10 @@ class SensorMonitor(Doberman.Monitor):
         for rd in cfg_doc['readings'].keys():
             self.start_reading(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
-                      period=self.db.get_host_setting(field='heartbeat_timer'))
-        self.db.set_host_setting(addToSet={'active': self.name})
+                      period=self.db.get_experiment_config(name='hypervisor', field='period'))
+        self.db.notify_hypervisor(active=self.name)
 
-    def start_reading(self, rd_name):
+    def start_reading(self, rd):
         self.logger.debug('Constructing ' + rd)
         reading_doc = self.db.get_reading_setting(self.name, rd)
         kwargs = {'reading_name': rd, 'logger': self.logger, 'db': self.db,
@@ -40,7 +40,8 @@ class SensorMonitor(Doberman.Monitor):
         self.sensor.event.set()
         self.sensor.close()
         self.sensor = None
-        self.db.set_host_setting(pull={'active': self.name})
+        # we only unmanage if we receive a STOP command
+        self.db.notify_hypervisor(inactive=self.name)
         return
 
     def open_sensor(self, reopen=False):
@@ -63,32 +64,20 @@ class SensorMonitor(Doberman.Monitor):
 
     def heartbeat(self):
         self.db.update_heartbeat(sensor=self.name)
-        return self.db.get_host_setting(field='heartbeat_timer')
+        return self.db.get_experiment_config(name='hypervisor', field='period')
 
     def handle_commands(self):
         while (doc := self.db.find_command(self.name)) is not None:
             command = doc['command']
             self.logger.info(f"Found command '{command}'")
-            if command.startswith('runmode'):
-                try:
-                    _, runmode, reading = command.split()
-                except Exception as e:
-                    self.logger.error(f'Bad runmode command: {e}')
-                else:
-                    if reading == 'all':
-                        for rd in self.db.get_sensor_setting(self.name, 'readings'):
-                            self.db.set_reading_setting(sensor=self.name, name=rd,
-                                                        field='runmode', value=runmode)
-                    else:
-                        self.db.set_reading_setting(sensor=self.name, name=reading,
-                                                    field='runmode', value=runmode)
-            elif command == 'reload readings':
+            if command == 'reload readings':
                 self.sensor.setattr('readings',
                                     self.db.get_sensor_setting(self.name, field='readings'))
                 self.reload_readings()
             elif command == 'stop':
                 self.event.set()
-                self.db.set_host_setting(pull={'default': self.name})
+                # only unmanage from HV if asked to stop
+                self.db.notify_hypervisor(unmanage=self.name)
             elif self.sensor is not None:
                 self.sensor._execute_command(command=command)
             else:

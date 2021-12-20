@@ -36,6 +36,8 @@ class ValveControlNode(ControlNode):
         vac_is_good = max_iso_vac == -1 or package.get('iso_vac_pressure', 0) < max_iso_vac
         scale_is_good = min_scale == -1 or package.get('scale_weight', 0) < min_scale
 
+        some_value = 10000 # FIXME
+
         if liquid_level < low_level:
             if valve_status == 0:
                 # valve is closed, level is too low
@@ -67,7 +69,7 @@ class ValveControlNode(ControlNode):
                     if (dt := (package['time']-self.valve_opened)) > max_fill_time:
                         # filling too long!
                         # TODO something reasonable
-                        self.logger.fatal(f'Valve has been open for {dt/60:.1f} minutes without reaching full, something wrong?')
+                        self.logger.critical(f'Valve has been open for {dt/60:.1f} minutes without reaching full, something wrong?')
                     else:
                         if fill_rate < min_fill_rate and dt > some_value:
                             # filling too slowly! Something fishy

@@ -52,7 +52,7 @@ class AlarmNode(Doberman.Node):
                 self.alarm_start = ts or time.time()
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
-            self._log_alarm(msg, self.pipeline.name, self.hash, self.escalation_level)
+            self._log_alarm(msg, self.pipeline.name, self.hash, self.base_level, self.escalation_level)
             self.pipeline.silence_for(self.auto_silence_duration)
         else:
             self.logger.error(msg)
@@ -106,7 +106,16 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
             # we're no longer in an alarmed state so reset the hash
             self.reset_alarm()
         else:
-            msg = (f'Alarm for {self.description} ({self.input_var}) - {values[-1]} '
-                   f'is outside the allowed range ({low},{high})')
+            msg = f'Alarm for {self.description}. '
+            try:
+                toohigh = values[-1] >= high  # (Or low)
+                msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
+                msgthreshold = Doberman.utils.sensible_sig_figs(high if toohigh else low, low, high)
+                msg += f'{msgval} is {"above" if toohigh else "below"} '
+                msg += f'the threshold {msgthreshold}.'
+            except ValueError:
+                # Sometimes hit a corner case (eg low=high)
+                msg += f'{values[-1]:.3g} is outside allowed range of'
+                msg += f' {low:.3g} to {high:.3g}.'
             self.log_alarm(msg, packages[-1]['time'])
 

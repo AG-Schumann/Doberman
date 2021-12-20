@@ -35,12 +35,12 @@ class Thermosiphon(object):
         self.A_cs = np.pi * 0.075 ** 2  # 15cm diameter nitrogen reservoir
         self.A_vent = np.pi * 0.01 ** 2  # 2cm diameter vent
         self.reservoir_length = 1.5  # m, height of LN2 storage
-        self.m_liq = 10  # kg
+        self.m_liq = 1  # kg
         self.m_gas = (p_amb + 1) * self.A_cs * (self.reservoir_length - self.liquid_level()) / (
                     R * self.T_gas) * nitrogen_molar_mass
         self.liquid_in = 0  # kg/s
         self.gas_purge = 0  # kg/s
-        self.p_active = 2 * 101325  # bar, active region
+        self.p_active = 1.1 * 101325  # bar, active region
         self.q_leakage = 10  # W
         self.dewar = dewar
 
@@ -125,9 +125,11 @@ class Thermosiphon(object):
         dm_gas = boiloff_rate * dt + self.gas_purge * dt - self.vent_rate(dt)
         if _print:
             print(
-                f'TS {self.m_liq:.3f} kg | {dm_liquid / dt:.3g} kg/s | {self.m_gas:.3g} kg | {dm_gas / dt:.3g} kg/s | {(self.p_gas - p_amb) / 100:.1f} mbar')
-        self.m_liq += dm_liquid
-        self.m_gas += dm_gas
+                f'TS {self.m_liq:.3f} kg | {dm_liquid / dt:.3g} kg/s | {self.m_gas:.3g} kg | '
+                f'{dm_gas / dt:.3g} kg/s | {(self.p_gas - p_amb) / 100:.1f} mbar | '
+                f'{self.cooling_power():.1f} W')
+        self.m_liq = max(0, self.m_liq + dm_liquid)
+        self.m_gas = max(0, self.m_gas + dm_gas)
 
 
 class IsoVac(object):
@@ -140,6 +142,12 @@ class IsoVac(object):
         self.gas_conductivity = np.array(
             [(0, 0), (1e-7, 1e-3), (1e-6, 1e-2), (1e-5, 0.1), (1e-4, 1), (1e-3, 10), (1e-2, 85), (0.1, 400), (1, 700),
              (2000, 700)], dtype=[('p', np.float32), ('Q', np.float32)])
+        self.roughing_pump_rate = 3 # m^3/hr
+        turbo_spinup_time = 5.5 * 60 # seconds
+        self.turbo_hz = 0
+        self.turbo_max_hz = 1500
+        self.turbo_ramp_rate = self.turbo_max_hz/turbo_spinup_time
+        self.turbo_pressure_threshold = 10 # mbar
         self.ic = ic
 
     def outgassing(self):
@@ -166,12 +174,19 @@ class IsoVac(object):
         """ K """
         return 0.5 * (outside_temp() + self.ic.temperature)
 
-    def pump_rate(self):
+    def pump_rate(self, dt=None):
         p = self.pressure / 100  # convert to mbar
-        if p > 1:
-            # turbo doesn't work above 1mbar
-            return 0.001
-        liters_per_second = np.interp(p, self.pump_perf['p'], self.pump_perf['rate'])
+        if p > self.turbo_pressure_threshold:
+            # turbo isn't on, use RP
+            # scale = 1hr/3600s * 1000l/1m^3 = 1/3.6
+            liters_per_second = self.roughing_pump_rate / 3.6
+        else:
+            if dt is not None:
+                # spin the turbo up a bit
+                drpm = self.turbo_ramp_rate * dt
+                # but only if necessary
+                self.turbo_hz = max(self.turbo_max_hz, self.turbo_hz + dt*drpt)
+            liters_per_second = np.interp(p, self.pump_perf['p'], self.pump_perf['rate']) * self.turbo_hz/self.turbo_max_hz
         return liters_per_second / 1000 * self.rho_gas
 
     def max_step(self):
@@ -180,11 +195,12 @@ class IsoVac(object):
         return ret
 
     def step(self, dt, _print=False):
-        dm_gas = (self.outgassing() - self.pump_rate()) * dt
-        self.m_gas += dm_gas
+        dm_gas = (self.outgassing() - self.pump_rate(dt=dt)) * dt
+        self.m_gas = max(0, self.m_gas + dm_gas)
         if _print:
             print(
-                f'IV pressure {self.pressure / 100:.2g} mbar | rate {self.pump_rate():.2g} kg/s | {self.m_gas:.3g} kg')
+                f'IV pressure {self.pressure / 100:.2g} mbar | rate {self.pump_rate():.2g} kg/s | {self.m_gas:.3g} kg | '
+                f'{self.turbo_hz:.1f} Hz')
 
 
 class InnerCryostat(object):
@@ -251,7 +267,7 @@ class Dewar(object):
         self.nitrogen_out = (self.nitrogen > min_nitrogen) * (self.valve == 1) * self.flow_rate * dt
         if _print:
             print(f'Dewar scale {self.scale:.2g} kg | output {self.nitrogen_out:.2g} kg/s')
-        self.nitrogen -= self.nitrogen_out + boiloff
+        self.nitrogen = max(0, self.nitrogen - self.nitrogen_out - boiloff)
 
 
 class FastCooling(object):
@@ -316,36 +332,39 @@ class LabSimulator(object):
         Peek into what the system is currently doing. Returns a string-cast value with some noise
         added on top for good measure
         """
-        if quantity == 't_bot':
+        if quantity == 'T_IC_01':
             noise = 0.1 * rand()  # 0.1 K
-            return f'{self.ic.temp[1] + noise:.3f}'
-        if quantity == 't_top':
+            return f'{self.ic.temp[1] + noise:.2f}'
+        if quantity == 'T_IC_02':
             noise = 0.1 * rand()
-            return f'{self.ic.temp[0] + noise:.3f}'
-        if quantity == 't_amb':
+            return f'{self.ic.temp[0] + noise:.2f}'
+        if quantity == 'T_LB_01':
             noise = 0.2 * rand()  # 0.2 K
             return f'{outside_temp() + noise:.1f}'
-        if quantity == "n2_level":
+        if quantity == "L_TS_01":
             noise = 2 * rand()  # pf
             return f'{self.ts.llm() + noise:.1f}'
-        if quantity == 'ln2_valve':
+        if quantity == 'S_TS_01':
             return f'{self.dewar.valve}'
-        if quantity == 'iso_vac_pressure':
+        if quantity == 'P_OC_01':
             noise = 0.01 * rand() + 1  # 1%
-            return f'{self.iso_vac.pressure / 100 * noise:.3g}'
-        if quantity == 'scale':
+            v = min(self.iso_vac.pressure, 1e4) # gauge doesn't work well below 100 mbar
+            return f'{v / 100 * noise:.3g}'
+        if quantity == 'M_LB_01':
             noise = rand()
             return f'{self.dewar.scale + noise:.1f}'
         return -1
 
     def take_input(self, quantity, value):
         try:
-            if quantity == 'ln2_valve' and value in '01':
+            if quantity == 'S_TS_01' and value in '01':
                 return self.dewar.valve_control(int(value))
             if quantity == 'dewar_fill':
                 return self.dewar.fill()
             if quantity == 'ts_pressure':
                 return self.ts.set_pressure(float(val))
+            else:
+                print(f'Rejecting input: "{quantity}"')
         except Exception as e:
             print(f'Caught a {type(e)}: {e}')
             print(quantity, value)
@@ -368,7 +387,7 @@ def main(lab):
                     if 'READ' in data:
                         # format READ:t_in or something
                         ch = data.split(':')[1]
-                        if val := lab.observe(ch) == -1:
+                        if (val := lab.observe(ch)) == -1:
                             output = f'FAIL:bad_ch'
                         else:
                             output = f'OK;{val}'

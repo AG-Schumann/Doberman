@@ -45,7 +45,7 @@ class Pipeline(object):
         total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
         self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
-        self.db.set_pipeline_value(self.name, 
+        self.db.set_pipeline_value(self.name,
                 [('heartbeat', Doberman.utils.dtnow()),
                     ('cycles', self.cycles),
                     ('error', self.last_error),

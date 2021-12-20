@@ -10,13 +10,18 @@ import inspect
 import re
 import logging
 import logging.handlers
-import serial
+try:
+    import serial
+    has_serial=True
+except ImportError:
+    has_serial=False
 import threading
 import hashlib
+from math import floor, log10
 
 dtnow = datetime.datetime.now
 
-__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash'.split()
+__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -28,6 +33,8 @@ def refresh_tty(db):
     Brute-force matches sensors to ttyUSB assignments by trying
     all possible combinations, and updates the database
     """
+    if not has_serial:
+        raise ValueError('No serial library, can\'t do this')
     cuts = {'status': 'online', 'address.tty': {'$exists': 1, '$regex': 'USB'}}
     if db.count('settings', 'sensors', cuts):
         print('Some USB sensors are running! Stopping them now')
@@ -260,3 +267,18 @@ def make_hash(*args, hash_length=16):
     m = hashlib.sha256()
     map(m.update, args)
     return m.hexdigest()[:hash_length]
+
+def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
+    """
+    Rounds reading to a sensible number of significant figures.
+
+    In general rounds to defaultsigfigs significant figures.
+    If the lowlim and upplim are rather close, have at least
+    one more than the number of decimal places to distinguish
+    them. For example: with limits 1.023 and 1.044, readings have
+    three decimal places.
+    """
+    mindps = 1 - floor(log10(upplim - lowlim))
+    minsfs = floor(log10(reading)) + 1 + mindps
+    sfs = max(minsfs, 3)
+    return f'{reading:.{sfs}g}'

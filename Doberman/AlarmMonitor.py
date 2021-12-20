@@ -1,3 +1,5 @@
+import requests
+import json
 import smtplib
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
@@ -32,6 +34,43 @@ class AlarmMonitor(Doberman.Monitor):
             self.logger.critical('Could not load connection details for %s' % which)
             return None
 
+    def send_phonecall(self, phone_numbers, message):
+        # Get connection details
+        connection_details = self.get_connection_details('twilio')
+        if connection_details is None:
+            raise KeyError("No connection details obtained from database.")
+        # Compose connection details and addresses
+        url = connection_details['url']
+        fromnumber = connection_details['fromnumber']
+        auth = tuple(connection_details['auth'])
+        maxmessagelength = int(connection_details['maxmessagelength'])
+
+        if not phone_numbers:
+            raise ValueError("No phone number given.")
+
+        message = str(message)
+        # Long messages are shortened to avoid excessive fees
+        if len(message) > maxmessagelength:
+            message = ' '.join(message[:maxmessagelength+1].split(' ')[0:-1])
+            message = '<p>' + message + '</p>'
+            message += '<p>Message shortened.</p>'
+            self.logger.warning(f"Message exceeds {maxmessagelength} "
+                                "characters. Message will be shortened.")
+        message = f"This is the {self.db.experiment_name} alarm system. " + message
+        if len(phone_numbers) == 1:
+            phone_numbers = [phone_numbers]
+        for tonumber in phone_numbers:
+            data = {
+                'To': tonumber,
+                'From': fromnumber,
+                'Parameters': json.dumps({'message': message})
+            }
+        response = requests.post(url, auth=auth, data=data)
+        if response.status_code != 201:
+            self.logger.error(f"Couldn't place call, status"
+                              + f" {response.status_code}: {response.json()['message']}")
+
+
     def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
 
         # Get connection details
@@ -40,7 +79,7 @@ class AlarmMonitor(Doberman.Monitor):
             return -1
         try:
             # Compose connection details and addresses
-            now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S')
+            now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime("%Y-%m-%d %H:%M %Z")
             server_addr = connection_details['server']
             port = int(connection_details['port'])
             fromaddr = connection_details['fromaddr']
@@ -132,7 +171,7 @@ class AlarmMonitor(Doberman.Monitor):
         return 0
 
     def check_for_alarms(self):
-        doc_filter = {'acknowledged': {'$exists': 0}}
+        doc_filter = {'acknowledged': 0}
         messages = {}
         updates = {'$set': {'acknowledged': dtnow()}}
         db_col = ('logging', 'alarm_history')
@@ -163,21 +202,25 @@ class AlarmMonitor(Doberman.Monitor):
             if dt < message_time:
                 self.logger.warning(f'Sent a message too recently ({dt:.0f} minutes). '
                                     f'Message timer at {message_time:.0f}')
-                return -3
+                return
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
                 message = f'{self.db.experiment_name.upper()} {message}'
                 if self.send_sms(recipients, message) == -1:
                     self.logger.error('Could not send SMS')
-                    return -4
             elif protocol == 'email':
-                subject = f'{self.db.experiment_name.upper()} alarm (level {level})'
+                subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
                 if self.send_email(toaddr=recipients, subject=subject,
                                    message=message) == -1:
                     self.logger.error('Could not send email!')
-                    return -5
+            elif protocol == 'phone':
+                try:
+                    self.send_phonecall(recipients, message)
+                except Exception as e:
+                    self.logger.error('Unable to make call: {type(e)}, {e}')
+            else:
+                self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
             self.last_message_time = now
-        return 0
 
     def check_shifters(self):
         """
