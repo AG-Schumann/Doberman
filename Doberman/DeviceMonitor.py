@@ -3,7 +3,7 @@ import Doberman
 __all__ = 'SensorMonitor'.split()
 
 
-class SensorMonitor(Doberman.Monitor):
+class DeviceMonitor(Doberman.Monitor):
     """
     A subclass to monitor an active sensor
     """
@@ -12,7 +12,7 @@ class SensorMonitor(Doberman.Monitor):
         plugin_dir = self.db.get_host_setting(field='plugin_dir')
         self.sensor_ctor = Doberman.utils.find_plugin(self.name, plugin_dir)
         self.sensor = None
-        cfg_doc = self.db.get_sensor_setting(self.name)
+        cfg_doc = self.db.get_device_setting(self.name)
         self.open_sensor()
         for rd in cfg_doc['readings'].keys():
             self.start_reading(rd)
@@ -54,7 +54,7 @@ class SensorMonitor(Doberman.Monitor):
             self.sensor.event.set()
             self.sensor.close()
         try:
-            self.sensor = self.sensor_ctor(self.db.get_sensor_setting(self.name),
+            self.sensor = self.sensor_ctor(self.db.get_device_setting(self.name),
                                            self.logger, self.event)
         except Exception as e:
             self.logger.error(f'Could not open sensor. Error: {e} ({type(e)}')
@@ -72,7 +72,7 @@ class SensorMonitor(Doberman.Monitor):
             self.logger.info(f"Found command '{command}'")
             if command == 'reload readings':
                 self.sensor.setattr('readings',
-                                    self.db.get_sensor_setting(self.name, field='readings'))
+                                    self.db.get_device_setting(self.name, field='readings'))
                 self.reload_readings()
             elif command == 'stop':
                 self.event.set()
@@ -84,7 +84,7 @@ class SensorMonitor(Doberman.Monitor):
                 self.logger.error(f"Command '{command}' not accepted")
 
     def reload_readings(self):
-        readings_dict = self.db.get_sensor_setting(self.name, 'readings')
+        readings_dict = self.db.get_device_setting(self.name, 'readings')
         for reading_name in readings_dict.values():
             if reading_name in self.threads.keys():
                 self.stop_thread(reading_name)

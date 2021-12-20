@@ -15,10 +15,10 @@ class Reading(threading.Thread):
         self.name = kwargs['reading_name']
         self.logger = kwargs.pop('logger')
         self.cv = threading.Condition()
-        self.sensor_name = kwargs['sensor_name']
-        self.sensor_process = kwargs['sensor'].process_one_reading
-        self.schedule = kwargs['sensor'].add_to_schedule
-        doc = self.db.get_reading_setting(name=self.name)
+        self.device_name = kwargs['device_name']
+        self.device_process = kwargs['device'].process_one_reading
+        self.schedule = kwargs['device'].add_to_schedule
+        doc = self.db.get_sensor_setting(name=self.name)
         self.setup(doc)
         self.update_config(doc)
 
@@ -26,7 +26,7 @@ class Reading(threading.Thread):
         self.logger.debug(f'{self.name} Starting')
         while not self.event.is_set():
             loop_top = time.time()
-            doc = self.db.get_reading_setting(name=self.name)
+            doc = self.db.get_sensor_setting(name=self.name)
             self.update_config(doc)
             if doc['status'] == 'online':
                 self.do_one_measurement()
@@ -56,7 +56,7 @@ class Reading(threading.Thread):
 
     def do_one_measurement(self):
         """
-        Asks the sensor for data, unpacks it, and sends it to the database
+        Asks the device for data, unpacks it, and sends it to the database
         """
         pkg = {}
         self.schedule(command=self.name, ret=(pkg, self.cv))
@@ -67,10 +67,10 @@ class Reading(threading.Thread):
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info('{self.name} didn\'t get anything from the sensor!')
+            self.logger.info('{self.name} didn\'t get anything from the device!')
             return
         try:
-            value = self.sensor_process(name=self.name, data=pkg['data'])
+            value = self.device_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'{self.name} got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
@@ -94,7 +94,7 @@ class Reading(threading.Thread):
         This function sends data upstream to wherever it should end up
         """
         low, high = self.alarms
-        tags = {'reading': self.name, 'sensor': self.sensor_name, 'subsystem': self.subsystem}
+        tags = {'reading': self.name, 'device': self.device_name, 'subsystem': self.subsystem}
         fields = {'value': value}
         if low is not None:
             fields['alarm_low'] = low
@@ -103,9 +103,9 @@ class Reading(threading.Thread):
         self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields)
 
 
-class MultiReading(Reading):
+class MultiSensor(Reading):
     """
-    A special class to handle sensors that return multiple values for each
+    A special class to handle devices that return multiple values for each
     readout cycle (smartec_uti, caen mainframe, etc). This works this way:
     one reading is designated the "primary" and the others are "secondaries".
     Only the primary is actually read out, but the assumption is that the reading
@@ -129,7 +129,7 @@ class MultiReading(Reading):
         self.alarms = {}
         self.xform = {}
         for n in self.all_names:
-            rdoc = self.db.get_reading_setting(name=n)
+            rdoc = self.db.get_sensor_setting(name=n)
             vals = rdoc.get('alarm_thresholds')
             if vals is not None and isinstance(vals, (list, tuple)) and len(vals) == 2:
                 self.alarms[n] = vals
