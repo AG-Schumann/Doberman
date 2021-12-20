@@ -290,15 +290,15 @@ class Database(object):
                 ret[p].append(doc[p])
         return ret
 
-    def get_heartbeat(self, sensor=None):
-        doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)
+    def get_heartbeat(self, device=None):
+        doc = self.read_from_db('settings', 'devices', cuts={'name': device}, onlyone=True)
         return doc['heartbeat']
 
-    def update_heartbeat(self, sensor=None):
+    def update_heartbeat(self, device=None):
         """
-        Heartbeats the specified sensor or host
+        Heartbeats the specified device or host
         """
-        self.update_db('settings', coll, cuts={'name': sensor},
+        self.update_db('settings', coll, cuts={'name': device},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
@@ -318,56 +318,56 @@ class Database(object):
         """
         self.insert_into_db('logging', 'updates', kwargs)
 
-    def get_sensor_setting(self, name, field=None):
+    def get_device_setting(self, name, field=None):
         """
-        Gets a specific setting from one sensor
+        Gets a specific setting from one device
 
-        :param name: the name of the sensor
+        :param name: the name of the device
         :param field: the field you want
         :returns: the value of the named field
         """
-        doc = self.read_from_db('settings', 'sensors', cuts={'name': name},
+        doc = self.read_from_db('settings', 'devices', cuts={'name': name},
                                 onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def set_sensor_setting(self, name, field, value):
+    def set_device_setting(self, name, field, value):
         """
-        Updates the setting from one sensor
+        Updates the setting from one device
 
-        :param name: the name of the sensor
+        :param name: the name of the device
         :param field: the specific field to update
         :param value: the new value
         """
-        self.update_db('settings', 'sensors', cuts={'name': name},
+        self.update_db('settings', 'devices', cuts={'name': name},
                        updates={'$set': {field: value}})
 
-    def get_reading_setting(self, sensor=None, name=None, field=None):
+    def get_sensor_setting(self, device=None, name=None, field=None):
         """
-        Gets the document from one reading
+        Gets the document from one sensor
 
-        :param sensor: the name of the sensor (ignored)
-        :param name: the name of the reading
+        :param device: the name of the device (ignored)
+        :param name: the name of the sensor
         :param field: the specific field to return
-        :returns: reading document
+        :returns: sensor document
         """
-        doc = self.read_from_db('settings', 'readings', cuts={'name': name}, onlyone=True)
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': name}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def set_reading_setting(self, sensor=None, name=None, field=None, value=None):
+    def set_sensor_setting(self, device=None, name=None, field=None, value=None):
         """
-        Updates a parameter for a reading, used only by the web interface
+        Updates a parameter for a sensor, used only by the web interface
 
-        :param sensor: the name of the sensor
-        :param name: the name of the reading
+        :param device: the name of the device
+        :param name: the name of the sensor
         :param field: the specific field to update
         :param value: the new value
         """
-        self.update_db('settings', 'readings',
-                       cuts={'sensor': sensor, 'name': name},
+        self.update_db('settings', 'sensors',
+                       cuts={'device': device, 'name': name},
                        updates={'$set': {field: value}})
 
     def get_runmode_setting(self, runmode=None, field=None):
@@ -386,10 +386,10 @@ class Database(object):
 
     def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
         """
-        A way for sensors to tell the hypervisor when they start and stop and stuff
-        :param active: the name of a sensor that's just starting up
-        :param inactive: the name of a sensor that's stopping
-        :param unmanage: the name of a sensor that doesn't need to be monitored
+        A way for devices to tell the hypervisor when they start and stop and stuff
+        :param active: the name of a device that's just starting up
+        :param inactive: the name of a device that's stopping
+        :param unmanage: the name of a device that doesn't need to be monitored
         """
         updates = {}
         if active:
@@ -400,7 +400,7 @@ class Database(object):
             updates['$pull'] = {'processes.managed': unmanage}
         if updates:
             self.update_db('settings', 'experiment_config', {'name': 'hypervisor'},
-                    updates)
+                           updates)
         return
 
     def get_host_setting(self, host=None, field=None):
@@ -432,7 +432,7 @@ class Database(object):
         https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
         for more info. The URL and access credentials are stored in the database and cached for use
         :param topic: the named named type of measurement (temperature, pressure, etc)
-        :param tags: a dict of tag names and values, usually 'subsystem' and 'reading'
+        :param tags: a dict of tag names and values, usually 'subsystem' and 'sensor'
         :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
@@ -468,28 +468,28 @@ class Database(object):
             status[hostname] = {
                 'status': host_doc['status'],
                 'last_heartbeat': (now - host_doc['heartbeat']).total_seconds(),
-                'sensors': {}
+                'devices': {}
             }
-            for sensor_name in host_doc['default']:
+            for device_name in host_doc['default']:
                 try:
-                    sensor_doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor_name}, onlyone=True)
-                    status[hostname]['sensors'][sensor_name] = {
-                        'last_heartbeat': (now - sensor_doc['heartbeat']).total_seconds(),
-                        'readings': {}
+                    device_doc = self.read_from_db('settings', 'devices', cuts={'name': device_name}, onlyone=True)
+                    status[hostname]['devices'][device_name] = {
+                        'last_heartbeat': (now - device_doc['heartbeat']).total_seconds(),
+                        'sensors': {}
                     }
-                    if 'multi' in sensor_doc:
-                        readings = sensor_doc['multi']
+                    if 'multi' in device_doc:
+                        sensors = device_doc['multi']
                     else:
-                        readings = sensor_doc['readings']
-                    for reading_name in readings:
-                        reading_doc = self.get_reading_setting(sensor_name, reading_name)
-                        status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
-                            'description': reading_doc['description'],
-                            'status': reading_doc['status'],
+                        sensors = device_doc['sensors']
+                    for sensor_name in sensors:
+                        sensor_doc = self.get_sensor_setting(device_name, sensor_name)
+                        status[hostname]['devices'][device_name]['sensors'][sensor_name] = {
+                            'description': sensor_doc['description'],
+                            'status': sensor_doc['status'],
                         }
-                        if reading_doc['status'] == 'online':
-                            status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] \
-                                = reading_doc['runmode']
+                        if sensor_doc['status'] == 'online':
+                            status[hostname]['devices'][device_name]['sensors'][sensor_name]['runmode'] \
+                                = sensor_doc['runmode']
                 except TypeError:
                     pass
         return status

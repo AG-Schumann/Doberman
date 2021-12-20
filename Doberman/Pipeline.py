@@ -50,7 +50,7 @@ class Pipeline(object):
                     ('cycles', self.cycles),
                     ('error', self.last_error),
                     ('rate', sum(timing.values()))])
-        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on)
+        return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on)
 
     def build(self, config):
         """
@@ -92,18 +92,18 @@ class Pipeline(object):
                     n = getattr(Doberman, node_type)(**node_kwargs)
                     setup_kwargs = {}
                     if isinstance(n, InfluxSourceNode):
-                        reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        setup_kwargs['topic'] = reading_doc['topic']
+                        sensor_doc = self.db.get_sensor_setting(name=kwargs['input_var'])
+                        setup_kwargs['topic'] = sensor_doc['topic']
                         setup_kwargs['config_doc'] = influx_cfg
                     if isinstance(n, InfluxSinkNode):
                         setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     if isinstance(n, BufferNode):
                         setup_kwargs['strict_length'] = kwargs.get('strict', False)
                     if isinstance(n, AlarmNode):
-                        doc = self.db.get_reading_setting(name=kwargs['input_var'])
+                        doc = self.db.get_sensor_setting(name=kwargs['input_var'])
                         setup_kwargs['description'] = doc['description']
                         setup_kwargs['log_alarm'] = self.db.log_alarm
-                        setup_kwargs['sensor'] = doc['sensor']
+                        setup_kwargs['device'] = doc['device']
                         setup_kwargs['strict_length'] = True
                     if isinstance(n, ControlNode):
                         setup_kwargs['log_command'] = self.db.log_command
@@ -134,7 +134,7 @@ class Pipeline(object):
     def reconfigure(self, doc):
         for node in self.graph.values():
             if isinstance(node, AlarmNode):
-                rd = self.db.get_reading_setting(name=node.input_var)
+                rd = self.db.get_sensor_setting(name=node.input_var)
                 if node.name not in doc:
                     doc[node.name] = {}
                 doc[node.name].update(alarm_thresholds=rd['alarm_threshold'], readout_interval=rd['readout_interval'])
@@ -228,7 +228,7 @@ class InfluxSourceNode(SourceNode):
     def setup(self, **kwargs):
         """
         How we actually make the request changes depending on what version of influx and schema is used
-        :param topic: the reading's topic
+        :param topic: the sensor's topic
         :param config_doc: the influx document from experiment_config
         :return: none
         """
@@ -242,7 +242,7 @@ class InfluxSourceNode(SourceNode):
             variable = 'value'
             # note that the single quotes in the WHERE clause are very important
             # see https://docs.influxdata.com/influxdb/v1.8/query_language/explore-data/#a-where-clause-query-unexpectedly-returns-no-data
-            where = f"WHERE reading='{self.input_var}'"
+            where = f"WHERE sensor='{self.input_var}'"
         query = f'SELECT last({variable}) FROM {topic} {where};'
         url = config_doc['url'] + '/query?'
         headers = {'Accept': 'application/csv'}
@@ -390,7 +390,7 @@ class InfluxSinkNode(Node):
 
     def process(self, package):
         if not self.is_silent:
-            self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
+            self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var, 'device': 'pipeline'},
                                 fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class ControlNode(Node):
@@ -429,7 +429,7 @@ class AlarmNode(Node):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.description = kwargs['description']
-        self.sensor = kwargs['sensor']
+        self.device = kwargs['device']
         self._log_alarm = kwargs['log_alarm']
 
     def log_alarm(self, msg):
@@ -446,13 +446,13 @@ class SensorRespondingAlarm(InfluxSourceNode, AlarmNode):
         try:
             return super().get_package()
         except ValueError as e:
-            self.log_alarm(f"Is {self.sensor} responding correctly? We haven't gotten a new value recently")
+            self.log_alarm(f"Is {self.device} responding correctly? We haven't gotten a new value recently")
             raise
 
     def process(self, package):
         if (now := time.time()) - package['time'] > 2*self.config['readout_interval']:
             self.log_alarm(
-                    (f'Is {self.sensor} responding correctly? A value for {self.input_var} is '
+                    (f'Is {self.device} responding correctly? A value for {self.input_var} is '
                          f'{now-package["time"]:.1f}s late rather than {self.config["readout_interval"]}'))
 
 class SimpleAlarmNode(BufferNode, AlarmNode):

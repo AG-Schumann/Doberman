@@ -9,7 +9,7 @@ from .BaseSensor import *
 from .Database import *
 from .AlarmMonitor import *
 from .HostMonitor import *
-from .SensorMonitor import *
+from .DeviceMonitor import *
 from .PipelineMonitor import *
-from .Reading import *
+from .Sensor import *
 from .Pipeline import *
