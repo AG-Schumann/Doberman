@@ -14,28 +14,29 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, mongo_client, experiment_name=None):
+    def __init__(self, mongo_client, experiment_name=None, bucket_override=None):
         self.client = mongo_client
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
         url = influx_cfg['url']
-        if influx_cfg['version'] == 1:
-            query_params = [('u', influx_cfg['username']), ('p', influx_cfg['password']),
-                            ('db', influx_cfg['org']), ('precision', influx_cfg['precision'])]
+        query_params = [('precision', influx_cfg.get('precision', 'ms'))]
+        if influx_cfg.get('version', 2) == 1:
+            query_params += [('u', influx_cfg['username']),
+                            ('p', influx_cfg['password']),
+                            ('db', influx_cfg['org'])]
             url += '/write?'
             headers = {}
         elif influx_cfg['version'] == 2:
-            query_params = [('org', influx_cfg['org']), ('precision', influx_cfg['precision']),
-                            ('bucket', influx_cfg['bucket'])]
+            query_params += [('org', influx_cfg['org']),
+                            ('bucket', bucket_override or influx_cfg['bucket'])]
             url += '/api/v2/write?'
             headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
-            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg["version"]}"')
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg.get("version")}"')
         url += '&'.join([f'{k}={v}' for k, v in query_params])
-        precision = int(dict(zip(['s', 'ms', 'us', 'ns'], [1, 1e3, 1e6, 1e9]))[influx_cfg['precision']])
-        self.influx_cfg = (url, headers, precision)
-        print(self.influx_cfg)
+        precision = {'s': 1, 'ms': 1000, 'us': 1_000_000, 'ns': 1_000_000_000}
+        self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
 
     def close(self):
         pass
@@ -302,13 +303,18 @@ class Database(object):
         protocols = self.get_message_protocols(level)
         ret = {k: [] for k in protocols}
         now = datetime.datetime.now()  # no UTC here, we want local time
-        shifters = self.read_from_db('settings', 'shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                     onlyone=True)['shifters']
+        shifters = []
+        for doc in self.read_from_db('settings', 'shifts',
+                                     {'start': {'$lte': now}, 'end': {'$gte': now}}):
+                             shifters += doc['shifters']
         for doc in self.read_from_db('settings', 'contacts',
                                      {'name': {'$in': shifters}}):
             for p in protocols:
-                ret[p].append(doc[p])
+                try:
+                    ret[p].append(doc[p])
+                except KeyError:
+                    contactname = doc['name']
+                    self.logger.info(f"No {p} contact details for {contactname}")
         return ret
 
     def get_heartbeat(self, sensor=None):
@@ -319,7 +325,7 @@ class Database(object):
         """
         Heartbeats the specified sensor or host
         """
-        self.update_db('settings', coll, cuts={'name': sensor},
+        self.update_db('settings', 'sensors', cuts={'name': sensor},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 

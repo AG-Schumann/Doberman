@@ -11,7 +11,6 @@ from .AlarmMonitor import *
 from .Node import *
 from .AlarmNodes import *
 from .ControlNodes import *
-from .HostMonitor import *
 from .SensorMonitor import *
 from .PipelineMonitor import *
 from .Reading import *
