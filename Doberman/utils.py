@@ -265,12 +265,12 @@ def make_hash(*args, hash_length=16):
     """
     Generates a hash from the provided arguments, returns
     a hex string
-    :param *args: bytes objects you want to be hashed
+    :param *args: objects you want to be hashed. Will be converted to bytes
     :param hash_length: how long the returned hash should be. Default 16
     :returns: string
     """
     m = hashlib.sha256()
-    map(m.update, args)
+    map(lambda a: m.update(str(a).encode()), args)
     return m.hexdigest()[:hash_length]
 
 def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):

@@ -30,15 +30,16 @@ class AlarmNode(Doberman.Node):
                 f'since {time_since_start//60} minutes, time to escalate (hash {self.hash})'))
             self.escalation_level += 1
             self.escalation_level = min(len(self.escalation_config) - self.base_level - 1, self.escalation_level)
-            self.alarm_start = time.time()
+            self.alarm_start = time.time()  # reset start time so we don't escalate again immediately
 
     def reset_alarm(self):
         """
         Resets the cached alarm state
         """
         if self.hash is not None:
-            self.logger.info(f'{self.name} resetting alarm f{self.hash}')
+            self.logger.info(f'{self.name} resetting alarm {self.hash}')
             self.hash = None
+            # TODO should we also reset self.alarm_start?
         self.escalation_level = 0
 
     def log_alarm(self, msg, ts=None):
@@ -48,7 +49,7 @@ class AlarmNode(Doberman.Node):
         if not self.is_silent:
             self.logger.debug(msg)
             if self.hash is None:
-                self.hash = Doberman.utils.make_hash(bytes(str(ts or time.time())), bytes(self.pipeline.name))
+                self.hash = Doberman.utils.make_hash(ts or time.time(), self.pipeline.name)
                 self.alarm_start = ts or time.time()
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
@@ -64,12 +65,15 @@ class SensorRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.late_counter = 0
-        self.late_threshold = 3
+        self.late_threshold = 3 # TODO config-ize
+
+    def reset_alarm(self):
+        super().reset_alarm()
+        self.late_counter = 0
 
     def get_package(self):
         try:
             ret = super().get_package()
-            self.late_counter = 0
             self.reset_alarm()
             return ret
         except ValueError as e:
@@ -86,9 +90,8 @@ class SensorRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
                     (f'Is {self.sensor} responding correctly? Time to the last value for {self.input_var} is '
                          f'{now-package["time"]:.1f}s rather than {self.config["readout_interval"]}'),
                     package['time'])
-                self.late_counter = 0
+                self.late_counter = 0 # not an actual reset, just delaying the next message
         else:
-            self.late_counter = 0
             self.reset_alarm()
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
