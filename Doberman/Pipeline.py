@@ -92,30 +92,17 @@ class Pipeline(object):
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
-                    setup_kwargs = {}
-                    if isinstance(n, Doberman.InfluxSourceNode):
-                        reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        setup_kwargs['topic'] = reading_doc['topic']
-                        setup_kwargs['config_doc'] = influx_cfg
-                    if isinstance(n, Doberman.InfluxSinkNode):
-                        setup_kwargs['write_to_influx'] = self.db.write_to_influx
-                    if isinstance(n, Doberman.BufferNode):
-                        setup_kwargs['strict_length'] = kwargs.get('strict', False)
-                    if isinstance(n, Doberman.AlarmNode):
-                        doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        setup_kwargs['description'] = doc['description']
-                        setup_kwargs['log_alarm'] = self.db.log_alarm
-                        setup_kwargs['sensor'] = doc['sensor']
-                        setup_kwargs['strict_length'] = True
-                        setup_kwargs['base_level'] = doc['alarm_level']
-                        setup_kwargs['escalation_config'] = alarm_cfg['escalation_config']
-                        setup_kwargs['silence_duration'] = alarm_cfg['silence_duration']
-                    if isinstance(n, Doberman.ControlNode):
-                        setup_kwargs['log_command'] = self.db.log_command
-                        setup_kwargs['control_target'] = kwargs['control_target']
-                        setup_kwargs['control_value'] = kwargs['control_value']
-                    if setup_kwargs:
-                        n.setup(**kwargs)
+                    setup_kwargs = self.db.get_reading_setting(name=kwargs['input_var'])
+                    setup_kwargs['influx_cfg'] = influx_cfg
+                    setup_kwargs['write_to_influx'] = self.db.write_to_influx
+                    setup_kwargs['log_alarm'] = self.db.log_alarm
+                    setup_kwargs['log_command'] = self.db.log_command
+                    for k in 'target value'.split():
+                        setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
+                    setup_kwargs['strict_length'] = True if isinstance(n, Doberman.AlarmNode) else kwargs.get('strict_length', False)
+                    for k in 'escalation_config silence_duration'.split():
+                        setup_kwargs[k] = alarm_cfg[k]
+                    n.setup(**kwargs)
                     n.load_config(config['node_config'].get(name, {}))
                     self.graph[n.name] = n
                     if isinstance(n, Doberman.BufferNode):

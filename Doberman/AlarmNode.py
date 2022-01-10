@@ -8,11 +8,11 @@ class AlarmNode(Doberman.Node):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.description = kwargs['description']
-        self.sensor = kwargs['sensor']
+        self.device = kwargs['device']
         self._log_alarm = kwargs['log_alarm']
         self.escalation_config = kwargs['escalation_config']
         self.escalation_level = 0
-        self.base_level = kwargs['base_level']
+        self.base_level = kwargs['alarm_level']
         self.auto_silence_duration = kwargs.get('silence_duration', 5*60)
         self.alarm_start = None
         self.hash = None
@@ -22,15 +22,19 @@ class AlarmNode(Doberman.Node):
         Do we escalate? This function decides this
         """
         if self.alarm_start is None:
-            # not sure how we got here, but there's nothing to escalate
+            self.logger.debug('How are you escalating if there is no active alarm?')
             return
         time_since_start = time.time() - self.alarm_start
-        if time_since_start > self.escalation_config[max(self.base_level + self.escalation_level, len(self.escalation_config)-1)]:
+        total_level = self.base_level + self.escalation_level
+        if time_since_start > self.escalation_config[total_level]:
             self.logger.warning((f'{self.name} at level {self.base_level}/{self.escalation_level} '
                 f'since {time_since_start//60} minutes, time to escalate (hash {self.hash})'))
-            self.escalation_level += 1
-            self.escalation_level = min(len(self.escalation_config) - self.base_level - 1, self.escalation_level)
+            max_total_level = len(self.escalation-config)-1
+            self.escalation_level = min(max_total_level - self.base_level, self.escalation_level + 1)
             self.alarm_start = time.time()  # reset start time so we don't escalate again immediately
+        else:
+            self.logger.info((f'{self.name} at level {self.base_level}/{self.escalation_level} '
+                    f'for {time_since_start//60} minutes, not yet escalating'))
 
     def reset_alarm(self):
         """
@@ -39,7 +43,7 @@ class AlarmNode(Doberman.Node):
         if self.hash is not None:
             self.logger.info(f'{self.name} resetting alarm {self.hash}')
             self.hash = None
-            # TODO should we also reset self.alarm_start?
+            self.alarm_start = None
         self.escalation_level = 0
 
     def log_alarm(self, msg, ts=None):
@@ -58,7 +62,7 @@ class AlarmNode(Doberman.Node):
         else:
             self.logger.error(msg)
 
-class SensorRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
+class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
     """
     A simple alarm that makes sure the spice is flowing
     """
@@ -78,8 +82,9 @@ class SensorRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
             return ret
         except ValueError as e:
             self.late_counter += 1
-            if self.late_counter >= self.late_threshold:
-                self.log_alarm(f"Is {self.sensor} responding correctly? We haven't gotten a new value recently")
+            if self.late_counter > self.late_threshold:
+                self.log_alarm(f"Is {self.device} responding correctly? {self.late_counter} values are either missing or late")
+                self.late_counter = 0
             raise
 
     def process(self, package):
@@ -87,7 +92,7 @@ class SensorRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
             self.late_counter += 1
             if self.late_counter > self.late_threshold:
                 self.log_alarm(
-                    (f'Is {self.sensor} responding correctly? Time to the last value for {self.input_var} is '
+                    (f'Is {self.device} responding correctly? Time to the last value for {self.input_var} is '
                          f'{now-package["time"]:.1f}s rather than {self.config["readout_interval"]}'),
                     package['time'])
                 self.late_counter = 0 # not an actual reset, just delaying the next message
