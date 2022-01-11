@@ -27,11 +27,11 @@ class GeneralValveControl(ControlNode):
         if package['low_condition'] and valve_status == 0:
             # value is too low, valve is closed
             self.logger.info('Opening the valve')
-            self.set_output(self.config['output_on'])
+            self.set_output(self.config.get('output_on', 1))
         elif package['high_condition'] and valve_status == 1:
             # value is too high, valve is open
             self.logger.info('Closing the valve')
-            self.set_output(self.config['output_off'])
+            self.set_output(self.config.get('output_off', 1))
 
 class ValveControlNode(ControlNode):
     """
