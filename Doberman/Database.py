@@ -335,7 +335,7 @@ class Database(object):
         """
         doc = {'msg': message, 'acknowledged': 0, 'pipeline': pipeline,
                 'hash': alarm_hash, 'level': base, 'escalation': escalation}
-        if self.insert_into_db('logging', 'alarm_history', document):
+        if self.insert_into_db('logging', 'alarm_history', doc):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0

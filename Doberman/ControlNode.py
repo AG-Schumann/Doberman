@@ -14,8 +14,8 @@ class ControlNode(Doberman.Node):
     def set_output(self, value):
         self.logger.debug(f'Setting output to {value}')
         if not self.is_silent:
-            self._log_command({'name': self.control_target, 'acknowledged': 0,
-                command: f'set {self.control_value} {value}'})
+            self._log_command(f'set {self.control_value} {value}', self.control_target,
+                    self.name)
 
 class ValveControlNode(ControlNode):
     """

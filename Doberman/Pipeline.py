@@ -1,8 +1,5 @@
 import Doberman
-import requests
 import time
-import itertools
-import math
 
 __all__ = 'Pipeline'.split()
 

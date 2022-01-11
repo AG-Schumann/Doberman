@@ -1,4 +1,6 @@
 import Doberman
+import requests
+import itertools
 
 class Node(object):
     """

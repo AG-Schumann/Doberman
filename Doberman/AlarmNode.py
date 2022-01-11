@@ -1,4 +1,5 @@
 import Doberman
+import time
 
 
 class AlarmNode(Doberman.Node):
@@ -29,7 +30,7 @@ class AlarmNode(Doberman.Node):
         if time_since_start > self.escalation_config[total_level]:
             self.logger.warning((f'{self.name} at level {self.base_level}/{self.escalation_level} '
                 f'since {time_since_start//60} minutes, time to escalate (hash {self.hash})'))
-            max_total_level = len(self.escalation-config)-1
+            max_total_level = len(self.escalation_config)-1
             self.escalation_level = min(max_total_level - self.base_level, self.escalation_level + 1)
             self.alarm_start = time.time()  # reset start time so we don't escalate again immediately
         else:
