@@ -89,7 +89,11 @@ class Pipeline(object):
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
-                    setup_kwargs = self.db.get_reading_setting(name=kwargs['input_var'])
+                    if isinstance(kwargs['input_var'], str):
+                        # some things take lists
+                        setup_kwargs = self.db.get_reading_setting(name=kwargs['input_var'])
+                    else:
+                        setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['log_alarm'] = self.db.log_alarm
