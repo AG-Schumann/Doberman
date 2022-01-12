@@ -81,14 +81,11 @@ class SourceNode(Node):
 class InfluxSourceNode(SourceNode):
     """
     Queries InfluxDB for the most recent value in some key
+
+    Setup params:
+    :param topic: the value's topic
     """
     def setup(self, **kwargs):
-        """
-        How we actually make the request changes depending on what version of influx and schema is used
-        :param topic: the reading's topic
-        :param config_doc: the influx document from experiment_config
-        :return: none
-        """
         super().setup(**kwargs)
         config_doc = kwargs['config_doc']
         topic = kwargs['topic']
@@ -138,6 +135,17 @@ class InfluxSourceNode(SourceNode):
         return {'time': timestamp/self.precision, self.output_var: val}
 
 class BufferNode(Node):
+    """
+    A node that supports inputs spanning some range of time
+
+    Setup params:
+    :param length: int, how many values to buffer
+    :param strict_length: bool, default False. Is the node allowed to run without a 
+        full buffer?
+
+    Runtime params:
+    None
+    """
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.strict = kwargs.get('strict_length', False)
@@ -150,7 +158,16 @@ class BufferNode(Node):
 
 class LowPassFilter(BufferNode):
     """
-    Low-pass filters a value by taking the median of its buffer
+    Low-pass filters a value by taking the median of its buffer. If the length is even,
+    the two values adjacent to the middle are averaged.
+
+    Setup params:
+    :param strict_length: bool, default False. Is the node allowed to run without a 
+        full buffer?
+    :param length: int, how many values to buffer
+
+    Runtime params:
+    None
     """
     def process(self, packages):
         values = sorted([p[self.input_var] for p in packages])
@@ -164,7 +181,14 @@ class LowPassFilter(BufferNode):
 
 class MergeNode(BufferNode):
     """
-    Merges packages from two or more upstream nodes into one new package
+    Merges packages from two or more upstream nodes into one new package. This is
+    necessary to merge streams from different Input nodes without mangling timestamps
+
+    Setup params:
+    None
+
+    Runtime params:
+    None
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -198,6 +222,16 @@ class IntegralNode(BufferNode):
     Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
     Divides by the time interval at the end. Supports a 't_offset' config value, which is some time offset
     from the end of the buffer.
+
+    Setup params:
+    :param length: the number of values over which you want the integral calculated.
+        You'll need to do the conversion to time yourself
+    :param strict_length: bool, default False. Is the node allowed to run without a 
+        full buffer?
+
+    Runtime params:
+    :param t_offset: Optional. How many of the most recent values you want to skip.
+        The integral is calculated up to t_offset from the end of the buffer
     """
     def process(self, packages):
         offset = self.config.get('t_offset', 0)
@@ -212,6 +246,15 @@ class DerivativeNode(BufferNode):
     Calculates the derivative of the specified value over the specified duration by a chi-square linear fit to
     minimize the impact of noise. DivideByZero error is impossible as long as there are at least two values in
     the buffer
+
+    Setup params:
+    :param length: The number of values over which you want the derivative calculated.
+        You'll need to do the conversion to time yourself.
+    :param strict_length: bool, default False. Is the node allowed to run without a 
+        full buffer?
+
+    Runtime params:
+    None
     """
     def process(self, packages):
         t_min = packages[0]['time']
@@ -230,6 +273,15 @@ class DerivativeNode(BufferNode):
 class PolynomialNode(Node):
     """
     Does a polynomial transformation on a value
+
+    Setup params:
+    None
+
+    Runtime params:
+    :param transform: list of numbers, the little-endian-ordered coefficients. The
+        calculation is done as a*v**i for i,a in enumerate(transform), so to output a 
+        constant you would specity [value], to leave the input unchanged you would
+        specify [0, 1], a quadratic could be [c, b, a], etc
     """
     def process(self, package):
         xform = self.config.get('transform', [0,1])
@@ -237,29 +289,52 @@ class PolynomialNode(Node):
 
 class InfluxSinkNode(Node):
     """
-    Puts a value back into influx
+    Puts a value back into influx. The sensor tag will be "pipeline"
+
+    Setup params:
+    :param topic: string, the type of measurement (temperature, pressure, etc)
+    :param subsystem: string, optional. The subsystem the quantity belongs to
+
+    Runtime params:
+    None
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.topic = kwargs['topic']
+        self.subsystem = kwargs.get('subsystem')
         self.write_to_influx = kwargs['write_to_influx']
 
     def process(self, package):
         if not self.is_silent:
-            self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
-                                fields={'value': package[self.input_var]}, timestamp=package['time'])
+            self.write_to_influx(topic=self.topic, tags={'reading': self.output_var,
+                'sensor': 'pipeline', 'subsystem': self.subsystem},
+                fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class EvalNode(Node):
     """
-    An evil node that executes an arbitrary operation specified by the user
+    An evil node that executes an arbitrary operation specified by the user.
+    Room for abuse, probably, but we aren't designing for protection against
+    malicious actors with system access.
+
+    Setup params:
+    :param operation: string, the operation you want performed. Input values will be 
+        assembed into a dict "v", and any constant values specified will be available as
+        described below.
+        For instance, "(v['input_1'] > c['min_in1']) and (v['input_2'] < c['max_in2'])"
+        or "math.exp(v['input_1'] + c['offset'])". The math library is available
+        for use.
+    :param output_var: string, the name to assign to the output variable
+
+    Runtime params:
+    :param c: dict, optional. Some constant values you want available for the operation.
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.operation = kwargs['operation']
 
     def process(self, package):
-        v = [package[i] for i in self.input_var]
-        c = self.config.get('c', [])
+        v = {v:package[v] for v in self.input_var}
+        c = self.config.get('c', {})
         return eval(self.operation)
 
 class _Buffer(object):
