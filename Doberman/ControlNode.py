@@ -23,13 +23,12 @@ class GeneralValveControl(ControlNode):
     pipeline.
     """
     def process(self, package):
-        valve_status = package['valve_state']
-        if package['low_condition'] and valve_status == 0:
-            # value is too low, valve is closed
+        if package['low_condition']:
+            # value is too low and valve is probably closed
             self.logger.info('Opening the valve')
             self.set_output(self.config.get('output_on', 1))
-        elif package['high_condition'] and valve_status == 1:
-            # value is too high, valve is open
+        elif package['high_condition']:
+            # value is too high and valve is probably open
             self.logger.info('Closing the valve')
             self.set_output(self.config.get('output_off', 0))
 
