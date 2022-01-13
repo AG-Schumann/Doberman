@@ -104,6 +104,7 @@ class Hypervisor(Doberman.Monitor):
         return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh -s {device}")
 
     def start_pipeline(self, pipeline: str) -> int:
+        # if you end up running pipelines elsewhere, update
         path = self.config['path']
         return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
@@ -113,13 +114,13 @@ class Hypervisor(Doberman.Monitor):
             if cmd.startswith('start'):
                 _, target = cmd.split(' ', maxsplit=1)
                 self.logger.info(f'Hypervisor starting {target}')
-                if target in self.db.distinct('settings', 'devices'):
+                if target in self.db.distinct('settings', 'devices', 'name'):
                     self.start_device(target)
                 else:
                     self.start_pipeline(target)
             elif cmd.startswith('manage'):
                 _, device = cmd.split(' ', maxsplit=1)
-                if device not in self.db.distinct('settings', 'devices')
+                if device not in self.db.distinct('settings', 'devices', 'name')
                     # unlikely but you can never trust users
                     self.logger.info('Management is for devices, not pipelines')
                     continue
@@ -127,7 +128,7 @@ class Hypervisor(Doberman.Monitor):
                 self.update_config(manage=device)
             elif cmd.startswith('unmanage'):
                 _, device = cmd.split(' ', maxsplit=1)
-                if device not in self.db.distinct('settings', 'devices')
+                if device not in self.db.distinct('settings', 'devices', 'name')
                     # unlikely but you can never trust users
                     self.logger.info('Management is for devices, not pipelines')
                     continue
