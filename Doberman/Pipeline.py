@@ -15,6 +15,12 @@ class Pipeline(object):
         self.cycles = 0
         self.last_error = -1
 
+    def stop(self):
+        try:
+            self.db.set_pipeline_value(self.name, [('status', 'inactive')])
+        except Exception as e:
+            pass
+
     def process_cycle(self):
         """
         This function gets Registered with the owning PipelineMonitor
@@ -46,7 +52,8 @@ class Pipeline(object):
                 [('heartbeat', Doberman.utils.dtnow()),
                     ('cycles', self.cycles),
                     ('error', self.last_error),
-                    ('rate', sum(timing.values()))])
+                    ('rate', sum(timing.values())),
+                    ('status', status)])
         return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on)
 
     def build(self, config):
@@ -80,11 +87,11 @@ class Pipeline(object):
                 upstream = kwargs.get('upstream', [])
                 existing_upstream = [self.graph[u] for u in upstream if u in self.graph]
                 if len(upstream) == 0 or len(upstream) == len(existing_upstream):
+                    self.logger.debug(f'{kwargs["name"]} ready for creation')
                     # all this node's requirements are created
                     node_type = kwargs.pop('type')
                     node_kwargs = {
                             'pipeline': self,
-                            'name': name,
                             'logger': self.logger,
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
@@ -95,6 +102,7 @@ class Pipeline(object):
                     else:
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
+                    setup_kwargs['operation'] = kwargs.get('operation')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['log_alarm'] = self.db.log_alarm
                     setup_kwargs['log_command'] = self.db.log_command
@@ -103,8 +111,8 @@ class Pipeline(object):
                     setup_kwargs['strict_length'] = True if isinstance(n, Doberman.AlarmNode) else kwargs.get('strict_length', False)
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
-                    n.setup(**kwargs)
-                    n.load_config(config['node_config'].get(name, {}))
+                    n.setup(**setup_kwargs)
+                    n.load_config(config['node_config'].get(n.name, {}))
                     self.graph[n.name] = n
                     if isinstance(n, Doberman.BufferNode):
                         num_buffer_nodes += 1
@@ -112,14 +120,16 @@ class Pipeline(object):
 
             if (nodes_built := len(self.graph) - start_len) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
-                self.logger.debug(f'Created {list(self.graph.keys())}')
-                self.logger.debug(f'Didn\'t create {list(set(d["name"] for d in pipeline_config)-set(self.graph.keys()))}')
+                created = list(self.graph.keys())
+                all_nodes = set(d['name'] for d in pipeline_config)
+                self.logger.debug(f'Created {created}')
+                self.logger.debug(f'Didn\'t create {list(all_nodes - set(created))}')
                 raise ValueError('Can\'t construct graph! Check config and logs')
             else:
                 self.logger.debug(f'Created {nodes_built} nodes this iter, {len(self.graph)}/{len(pipeline_config)} total')
-        for name, kwargs in pipeline_config.items():
+        for kwargs in pipeline_config:
             for u in kwargs.get('upstream', []):
-                self.graph[u].downstream_nodes.append(self.graph[name])
+                self.graph[u].downstream_nodes.append(self.graph[kwargs['name']])
 
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')

@@ -1,6 +1,8 @@
 import Doberman
 import requests
 import itertools
+import numpy as np
+
 
 class Node(object):
     """
@@ -29,9 +31,7 @@ class Node(object):
         self.logger.debug(f'{self.name} processing')
         self.is_silent = status == 'silent'
         package = self.get_package() # TODO discuss this wrt BufferNodes
-        self.logger.debug(f'{self.name} input {package}')
         ret = self.process(package)
-        self.logger.debug(f'{self.name} output {ret}')
         if ret is None:
             pass
         elif isinstance(ret, dict):
@@ -49,10 +49,12 @@ class Node(object):
         """
         Sends a completed package on to downstream nodes
         """
+        self.logger.debug(f'{self.name} sending downstream {package}')
         for node in self.downstream_nodes:
             node.receive_from_upstream(package)
 
     def receive_from_upstream(self, package):
+        self.logger.debug(f'{self.name} receiving from upstream')
         self.buffer.append(package)
 
     def load_config(self, doc):
@@ -75,7 +77,7 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
-    def process(self):
+    def process(self, *args, **kwargs):
         return None
 
 class InfluxSourceNode(SourceNode):
@@ -87,7 +89,7 @@ class InfluxSourceNode(SourceNode):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        config_doc = kwargs['config_doc']
+        config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
         if config_doc.get('schema', 'new') == 'old':
             variable = self.input_var
@@ -100,33 +102,35 @@ class InfluxSourceNode(SourceNode):
         query = f'SELECT last({variable}) FROM {topic} {where};'
         url = config_doc['url'] + '/query?'
         headers = {'Accept': 'application/csv'}
+        params = {'q': query}
         if (version := config_doc.get('version', 2)) == 1:
-            url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}&q={query}'
-            json = {}
+            params['u'] = config_doc['username']
+            params['p'] = config_doc['password']
+            params['db'] = config_doc['database']
         elif version == 2:
             # even though you're using influxv2 we still use the v1 query endpoint
             # because the v2 query is garbage for our purposes
-            url += f'db={config_doc["org"]}' # org -> db, because reasons
-            headers.update({'Authorization': f'Token {config_doc["auth_token"]}'})
-            json = {'q': query}
+            params['db'] = config_doc['org']
+            params['org'] = config_doc['org']
+            headers['Authorization'] = f'Token {config_doc["token"]}'
         else:
             raise ValueError("Invalid version specified: must be 1 or 2")
         self.precision = int({'s': 1, 'ms': 1e3, 'us': 1e6, 'ns': 1e9}[config_doc['precision']])
 
         self.req_url = url
         self.req_headers = headers
-        self.req_json = json
+        self.req_params = params
         self.last_time = 0
 
     def get_package(self):
-        response = requests.get(self.req_url, headers=self.req_headers, json=self.req_json)
+        response = requests.get(self.req_url, headers=self.req_headers, params=self.req_params)
         try:
             timestamp, val = response.content.decode().splitlines()[1].split(',')[-2:]
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
 
-        timestamp = int(timestamp) # TODO this might be broken because influx and ns
-        # timestamp = int(timestamp[:-(9-int(np.log10(self.precision)))])
+        #timestamp = int(timestamp) # TODO this might be broken because influx and ns
+        timestamp = int(timestamp[:-(9-int(np.log10(self.precision)))])
         val = int(val) if '.' not in val else float(val)
         if self.last_time == timestamp:
             raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
@@ -333,8 +337,11 @@ class EvalNode(Node):
         self.operation = kwargs['operation']
 
     def process(self, package):
-        v = {v:package[v] for v in self.input_var}
         c = self.config.get('c', {})
+        for k, v in c.items():
+            # the website casts things as strings because fuck you, so we float them here
+            c[k] = float(v)
+        v = {k:package[k] for k in self.input_var}
         return eval(self.operation)
 
 class _Buffer(object):

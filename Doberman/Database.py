@@ -39,6 +39,7 @@ class Database(object):
         self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
 
     def close(self):
+        print('DB shutting down')
         pass
 
     def __del__(self):

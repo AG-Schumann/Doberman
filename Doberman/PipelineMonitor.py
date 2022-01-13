@@ -15,7 +15,13 @@ class PipelineMonitor(Doberman.Monitor):
             for name in self.db.get_alarm_pipelines():
                 self.start_pipeline(name)
         else:
-            self.start_pipeline(self.name)
+            if self.start_pipeline(self.name):
+                self.event.set()
+
+    def shutdown(self):
+        self.logger.debug(f'{self.name} shutting down')
+        for p in list(self.pipelines.keys()):
+            self.stop_pipeline(p)
 
     def start_pipeline(self, name):
         if (doc := self.db.get_pipeline(name)) is None:
@@ -25,12 +31,15 @@ class PipelineMonitor(Doberman.Monitor):
         try:
             p.build(doc)
         except Exception as e:
+            self.logger.error(f'{type(e)}: {e}')
             self.logger.error(f'Could not build pipeline {name}, check debug logs')
             return -1
-        self.register(obj=p.process_cycle, name=name, period=doc['period'])
+        self.register(obj=p.process_cycle, name=name, period=1)
         self.pipelines[p.name] = p
+        return 0
 
     def stop_pipeline(self, name):
+        self.pipelines[name].stop()
         self.stop_thread(name)
         del self.pipelines[name]
 

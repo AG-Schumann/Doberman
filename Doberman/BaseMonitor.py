@@ -20,17 +20,13 @@ class Monitor(object):
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
-        if threading.current_thread() is threading.main_thread():
-            self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
+        self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()
         self.register(obj=self.handle_commands, period=1, name='handlecommands')
         self.register(obj=self.check_threads, period=30, name='checkthreads')
 
     def __del__(self):
-        self.close()
-
-    def __exit__(self):
-        self.close()
+        pass
 
     def close(self):
         """
@@ -48,8 +44,7 @@ class Monitor(object):
                 self.logger.debug(f'Can\'t close {thread_number}-thread. {e}')
             else:
                 pop += [thread_number]
-        for p in pop:
-            self.threads.pop(p)
+        map(self.threads.pop, pop)
 
     def register(self, name, obj, period=None, **kwargs):
         self.logger.debug('Registering ' + name)
@@ -64,7 +59,7 @@ class Monitor(object):
                 func = partial(obj, **kwargs)
             else:
                 func = obj
-            t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event, name=name)
+            t = FunctionHandler(func=func, logger=self.logger, period=period, name=name)
         t.start()
         self.threads[name] = t
 
@@ -115,19 +110,17 @@ class Monitor(object):
 class FunctionHandler(threading.Thread):
     def __init__(self, func=None, logger=None, period=None, event=None, name=None):
         threading.Thread.__init__(self)
-        self.event = event
+        self.event = event or threading.Event()
         self.func = func
         self.logger = logger
         self.period = period
         self.name = name
-        if threading.current_thread() is threading.main_thread():
-            self.sh = Doberman.utils.SignalHandler(logger, self.event)
 
     def run(self):
         """
         Spawns a thread to do a function
         """
-        self.logger.debug('Starting')
+        self.logger.debug(f'Starting {self.name}')
         while not self.event.is_set():
             loop_top = time.time()
             self.logger.debug(f'Running {self.name}')
@@ -135,4 +128,4 @@ class FunctionHandler(threading.Thread):
             if isinstance(ret, (int, float)) and 0. < ret:
                 self.period = ret
             self.event.wait(loop_top + self.period - time.time())
-        self.logger.debug('Returning')
+        self.logger.debug(f'Returning {self.name}')
