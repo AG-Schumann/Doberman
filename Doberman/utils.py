@@ -1,4 +1,3 @@
-from subprocess import Popen, PIPE, TimeoutExpired
 import importlib
 import importlib.machinery
 import time
@@ -18,6 +17,8 @@ except ImportError:
 import threading
 import hashlib
 from math import floor, log10
+import itertools
+
 
 dtnow = datetime.datetime.now
 
