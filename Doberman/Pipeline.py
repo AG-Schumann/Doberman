@@ -54,7 +54,8 @@ class Pipeline(object):
                     ('error', self.last_error),
                     ('rate', sum(timing.values())),
                     ('status', status)])
-        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on)
+        drift = 0.001 # 1ms extra per cycle, so we don't accidentally get ahead of the new values
+        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
 
     def build(self, config):
         """

@@ -111,6 +111,7 @@ class Hypervisor(Doberman.Monitor):
         return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh -s {device}")
 
     def start_pipeline(self, pipeline: str) -> int:
+        # if you end up running pipelines elsewhere, update
         path = self.config['path']
         return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
@@ -162,8 +163,10 @@ class Hypervisor(Doberman.Monitor):
             self.logger.info(f'Hypervisor starting {target}')
             if target in self.known_sensors:
                 self.start_device(target)
-            else:
+            elif self.db.count('settings', 'pipelines', target) == 1:
                 self.start_pipeline(target)
+            else:
+                self.logger.error(f'Don\'t know what "{target}" is, can\'t start it')
         elif command.startswith('manage'):
             _, device = command.split(' ', maxsplit=1)
             if device not in self.known_sensors:
