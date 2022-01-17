@@ -3,6 +3,7 @@ import subprocess
 import typing as ty
 import time
 import os.path
+import threading
 
 dtnow = Doberman.utils.dtnow
 
@@ -19,9 +20,15 @@ class Hypervisor(Doberman.Monitor):
         elif rhb == 'receive':
             self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat')
         self.last_restart = {}
+        self.known_sensors = self.db.distinct('settings', 'devices', 'name')
+        self.cv = threading.Condition()
+        self.dispatch_queue = Doberman.utils.SortedBuffer()
+        self.dispatcher = threading.Thread(target=self.dispatch)
+        self.dispatcher.start()
 
     def shutdown(self) -> None:
         self.update_config(status='offline')
+        self.dispatcher.join()
 
     def update_config(self, unmanage=None, manage=None, active=None, heartbeat=None, status=None) -> None:
         updates = {}
@@ -107,31 +114,72 @@ class Hypervisor(Doberman.Monitor):
         path = self.config['path']
         return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
-    def handle_commands(self) -> None:
-        while (doc := self.db.find_command("hypervisor")) is not None:
-            cmd = doc['command']
-            if cmd.startswith('start'):
-                _, target = cmd.split(' ', maxsplit=1)
-                self.logger.info(f'Hypervisor starting {target}')
-                if target in self.db.distinct('settings', 'devices'):
-                    self.start_device(target)
-                else:
-                    self.start_pipeline(target)
-            elif cmd.startswith('manage'):
-                _, device = cmd.split(' ', maxsplit=1)
-                if device not in self.db.distinct('settings', 'devices')
-                    # unlikely but you can never trust users
-                    self.logger.info('Management is for devices, not pipelines')
-                    continue
-                self.logger.info(f'Hypervisor now managing {device}')
-                self.update_config(manage=device)
-            elif cmd.startswith('unmanage'):
-                _, device = cmd.split(' ', maxsplit=1)
-                if device not in self.db.distinct('settings', 'devices')
-                    # unlikely but you can never trust users
-                    self.logger.info('Management is for devices, not pipelines')
-                    continue
-                self.logger.info(f'Hypervisor relinquishing control of {device}')
-                self.update_config(unmanage=device)
+    def dispatch(self):
+        # if there's nothing to do, wait this long
+        dt_large = 1000
+        # process commands if we're within this much of the desired time
+        min_dt = 0.001
+        dt = dt_large
+        predicate = lambda: (len(self.dispatch_queue) > 0 or self.event.is_set())
+        self.logger.debug('Dispatcher starting up')
+        while not self.event.is_set():
+            doc = None
+            try:
+                with self.cv:
+                    self.cv.wait_for(predicate, timeout=dt)
+                    if len(self.dispatch_queue) > 0:
+                        doc = self.dispatch_queue.get_front()
+                        if (dt := (doc['time'] - time.time())) < min_dt:
+                            doc = self.dispatch_queue.pop_front()
+                    else:
+                        dt = dt_large
+                if doc is not None and dt < min_dt:
+                    if doc['to'] == 'hypervisor':
+                        self.process_command(doc['command'])
+                        continue
+                    hn, p = self.db.get_listener_address(doc['to'])
+                    if self.db.get_sensor_setting(name=doc['to'], field='status') != 'online':
+                        self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
+                                f' because it isn\'t online')
+                        continue
+                    self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]}')
+                    with socket.create_connection((hn, p), timeout=0.1) as sock:
+                        sock.sendall(doc['command'].encode())
+            except Exception as e:
+                self.logger.info(f'Dispatcher caught a {type(e)}: {e}')
+        self.logger.debug('Dispatcher shutting down')
+
+    def process_command(self, command) -> None:
+        self.logger.debug(f'Processing {command}')
+        if command[0] == '{':
+            # a json document, this is for the dispatcher
+            with self.cv:
+                self.dispatch_queue.add(json.loads(command))
+                self.cv.nofity()
+            return
+        if command.startswith('start'):
+            _, target = command.split(' ', maxsplit=1)
+            self.logger.info(f'Hypervisor starting {target}')
+            if target in self.known_sensors:
+                self.start_device(target)
             else:
-                self.logger.error(f'Command "{cmd}" not understood')
+                self.start_pipeline(target)
+        elif command.startswith('manage'):
+            _, device = command.split(' ', maxsplit=1)
+            if device not in self.known_sensors:
+                # unlikely but you can never trust users
+                self.logger.error(f'Hypervisor can\'t manage {device}')
+                return
+            self.logger.info(f'Hypervisor now managing {device}')
+            self.update_config(manage=device)
+        elif command.startswith('unmanage'):
+            _, device = command.split(' ', maxsplit=1)
+            if device not in self.known_sensors:
+                # unlikely but you can never trust users
+                self.logger.error(f'Hypervisor can\'t unmanage {device}')
+                return
+            self.logger.info(f'Hypervisor relinquishing control of {device}')
+            self.update_config(unmanage=device)
+        else:
+            self.logger.error(f'Command "{command}" not understood')
+

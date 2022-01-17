@@ -10,7 +10,7 @@ class Node(object):
     """
     def __init__(self, pipeline=None, name=None, logger=None, **kwargs):
         self.pipeline = pipeline
-        self.buffer = _Buffer(1)
+        self.buffer = Doberman.utils.SortedBuffer(1)
         self.name = name
         self.input_var = kwargs.pop('input_var', None)
         self.output_var = kwargs.pop('output_var', self.input_var)
@@ -55,7 +55,7 @@ class Node(object):
 
     def receive_from_upstream(self, package):
         self.logger.debug(f'{self.name} receiving from upstream')
-        self.buffer.append(package)
+        self.buffer.add(package)
 
     def load_config(self, doc):
         """
@@ -343,57 +343,3 @@ class EvalNode(Node):
             c[k] = float(v)
         v = {k:package[k] for k in self.input_var}
         return eval(self.operation)
-
-class _Buffer(object):
-    """
-    A custom semi-fixed-width buffer that keeps itself sorted
-    """
-    def __init__(self, length):
-        self._buf = []
-        self.length = length
-
-    def __len__(self):
-        return len(self._buf)
-
-    def append(self, obj):
-        """
-        Adds a new object to the queue, time-sorted
-        """
-        LARGE_NUMBER = 1e12  # you shouldn't get timestamps larger than this
-        if len(self._buf) == 0:
-            self._buf.append(obj)
-        elif len(self._buf) == 1:
-            if self._buf[0]['time'] >= obj['time']:
-                self._buf.insert(0, obj)
-            else:
-                self._buf.append(obj)
-        else:
-            idx = len(self._buf)//2
-            for i in itertools.count(2):
-                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
-                greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
-                if lesser <= obj['time'] <= greater:
-                    self._buf.insert(idx, obj)
-                    break
-                elif obj['time'] > greater:
-                    idx += max(1, len(self._buf)>>i)
-                elif obj['time'] < lesser:
-                    idx -= max(1, len(self._buf)>>i)
-        if len(self._buf) > self.length:
-            self._buf = self._buf[-self.length:]
-        return
-
-    def pop_front(self):
-        return self._buf.pop(0)
-
-    def __getitem__(self, index):
-        return self._buf[index]
-
-    def set_length(self, length):
-        self.length = length
-
-    def __iter__(self):
-        return self._buf.__iter__()
-
-    def __str__(self):
-        return str(list(map(str, self._buf)))

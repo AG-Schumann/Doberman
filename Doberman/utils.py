@@ -21,7 +21,7 @@ from math import floor, log10
 
 dtnow = datetime.datetime.now
 
-__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs'.split()
+__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs SortedBuffer'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -287,3 +287,59 @@ def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
     minsfs = floor(log10(reading)) + 1 + mindps
     sfs = max(minsfs, 3)
     return f'{reading:.{sfs}g}'
+
+
+class SortedBuffer(object):
+    """
+    A custom semi-fixed-width buffer that keeps itself sorted
+    """
+    def __init__(self, length=None):
+        self._buf = []
+        self.length = length
+
+    def __len__(self):
+        return len(self._buf)
+
+    def add(self, obj):
+        """
+        Adds a new object to the queue, time-sorted
+        """
+        LARGE_NUMBER = 1e12  # you shouldn't get timestamps larger than this
+        if len(self._buf) == 0:
+            self._buf.append(obj)
+        elif len(self._buf) == 1:
+            if self._buf[0]['time'] >= obj['time']:
+                self._buf.insert(0, obj)
+            else:
+                self._buf.append(obj)
+        else:
+            idx = len(self._buf)//2
+            for i in itertools.count(2):
+                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
+                greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
+                if lesser <= obj['time'] <= greater:
+                    self._buf.insert(idx, obj)
+                    break
+                elif obj['time'] > greater:
+                    idx += max(1, len(self._buf)>>i)
+                elif obj['time'] < lesser:
+                    idx -= max(1, len(self._buf)>>i)
+        if self.length is not None and len(self._buf) > self.length:
+            self._buf = self._buf[-self.length:]
+        return
+
+    def pop_front(self):
+        return self._buf.pop(0)
+
+    def get_front(self):
+        return self._buf[0]
+
+    def __getitem__(self, index):
+        return self._buf[index]
+
+    def set_length(self, length):
+        self.length = length
+
+    def __iter__(self):
+        return self._buf.__iter__()
+

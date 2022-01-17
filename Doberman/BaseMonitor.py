@@ -2,6 +2,7 @@ import Doberman
 import threading
 from functools import partial
 import time
+import socket
 
 __all__ = 'Monitor'.split()
 
@@ -22,8 +23,10 @@ class Monitor(object):
         self.threads = {}
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()
-        self.register(obj=self.handle_commands, period=1, name='handlecommands')
         self.register(obj=self.check_threads, period=30, name='checkthreads')
+        hn, port = self.db.get_listener_address(self.name)
+        self.listener = Listener(hn, port, logger, self.event, self.process_command)
+        self.listener.start()
 
     def __del__(self):
         pass
@@ -34,6 +37,7 @@ class Monitor(object):
         """
         self.event.set()
         self.shutdown()
+        self.listener.join()
         pop = []
         thread_numbers = self.threads.keys()
         for thread_number in thread_numbers:
@@ -100,11 +104,14 @@ class Monitor(object):
                 except Exception as e:
                     self.logger.error(f'{n}-thread won\'t quit: {e}')
 
-    def handle_commands(self):
+    def process_command(self, command):
         """
         A function for base classes to implement to handle any commands
-        this instance should address
+        this instance should address.
+
+        :param command: string, something to handle
         """
+        pass
 
 
 class FunctionHandler(threading.Thread):
@@ -129,3 +136,33 @@ class FunctionHandler(threading.Thread):
                 self.period = ret
             self.event.wait(loop_top + self.period - time.time())
         self.logger.debug(f'Returning {self.name}')
+
+class Listener(threading.Thread):
+    """
+    This class listens for incoming commands and handles them
+    """
+    def __init__(self, hostname, port, logger, event, process_command):
+        threading.Thread.__init__(self)
+        self.hostname = hostname
+        self.port = port
+        self.logger = logger
+        self.event = event
+        self.process_command = process_command
+        self.packet_size = 2048
+
+    def run(self):
+        self.logger.debug('Listener starting up')
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(None)
+            sock.bind((self.hostname, self.port))
+            sock.listen()
+            while not self.event.is_set():
+                try:
+                    conn, addr = sock.accept()
+                    with conn:
+                        data = conn.recv(self.packet_size).strip().decode()
+                        self.process_command(data)
+                except Exception as e:
+                    self.logger.info(f'Listener caught a {type(e)}: {e}')
+        self.logger.debug('Listener shutting down')
+

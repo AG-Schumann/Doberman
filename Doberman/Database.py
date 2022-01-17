@@ -1,8 +1,10 @@
 import Doberman
 import datetime
-from socket import getfqdn
+from socket import getfqdn, create_connection
 import time
 import requests
+import json
+
 
 __all__ = 'Database'.split()
 
@@ -185,44 +187,24 @@ class Database(object):
             self.update_db(db_name, collection_name, {'_id': doc['_id']}, updates)
         return doc
 
-    def find_command(self, name):
+    def log_command(self, command, to, issuer, delay=0):
         """
-        Finds the oldest unacknowledged command for the specified entity
-        and updates it as acknowledged. Deletes command documents used in
-        the feedback subsystem
-
-        :param name: the entity to find a command for
-        :returns command document
-        """
-        now = dtnow()
-        doc = self.find_one_and_update('logging', 'commands',
-                                       # the order of terms in the query is important
-                                       cuts={'acknowledged': 0,
-                                             'logged': {'$lte': now},
-                                             'name': name},
-                                       updates={'$set': {'acknowledged': now}},
-                                       sort=[('logged', 1)])
-        if doc and 'by' in doc and doc['by'] == 'feedback':
-            self.delete_documents('logging', 'commands', {'_id': doc['_id']})
-        return doc
-
-    def log_command(self, command, target, issuer, delay=0):
-        """
-        Store a command for someone else
+        Issue a command to someone else
         :param command: the command for them to process
-        :param target: who the command is for
+        :param to: who the command is for
         :param issuer: who is issuing the command
         :param delay: how far into the future the command should happen, default 0
         :returns: None
         """
         doc = {
-                'name': target,
+                'to': to,
                 'command': command,
-                'acknowledged': 0,
                 'by': issuer,
-                'logged': dtnow() + datetime.timedelta(seconds=delay)
+                'time': time.time() + delay
                 }
-        self.insert_into_db('logging', 'commands', doc)
+        hn, p = self.get_listener_address('hypervisor')
+        with create_connection((hn, p), timeout=0.1) as sock:
+            sock.sendall(json.dumps(doc).encode())
 
     def get_experiment_config(self, name, field=None):
         """
@@ -425,6 +407,31 @@ class Database(object):
             self.update_db('settings', 'experiment_config', {'name': 'hypervisor'},
                     updates)
         return
+
+    def get_listener_address(self, name):
+        """
+        Get a hostname and port to communicate over
+
+        :param name: the name of someone
+        :returns: (string, int) tuple of the hostname and port
+        """
+        if name == 'hypervisor':
+            doc = self.get_experiment_config('hypervisor')
+            return doc['host'], doc['dispatch_port']
+        doc = self.get_sensor_setting(name)
+        if (port := doc.get('dispatch_port')) is None:
+            # doesn't have an entry, we make it now
+            min_port = 8943
+            existing_ports = self.distinct('settings', 'devices', 'dispatch_port', cuts={'host': doc['host']})
+            for i in range(64): #TODO reasonable to assume you won't have 64 things read out by one host?
+                if (port := min_port + i) not in existing_ports:
+                    self.set_sensor_setting(name=name, field='dispatch_port', value=port)
+                    break
+                else:
+                    raise ValueError(f'Could not assign a dispatch port for {doc["host"]}:{name}')
+
+        return doc['host'], port
+
 
     def get_host_setting(self, host=None, field=None):
         """
