@@ -1,10 +1,7 @@
 import Doberman
 import requests
 import itertools
-try:
-    import numpy as np
-except ImportError:
-    np = None
+from math import log10
 
 
 class Node(object):
@@ -12,8 +9,6 @@ class Node(object):
     A generic graph node
     """
     def __init__(self, pipeline=None, name=None, logger=None, **kwargs):
-        if np is None:
-            raise ImportError("Can't run pipelines on this host!")
         self.pipeline = pipeline
         self.buffer = _Buffer(1)
         self.name = name
@@ -135,8 +130,8 @@ class InfluxSourceNode(SourceNode):
             raise ValueError(f'Error parsing data: {response.content}')
 
         #timestamp = int(timestamp) # TODO this might be broken because influx and ns
-        timestamp = int(timestamp[:-(9-int(np.log10(self.precision)))])
-        val = int(val) if '.' not in val else float(val)
+        timestamp = int(timestamp[:-(9-int(log10(self.precision)))])
+        val = float(val) # 53 bits of precision and we only ever have small integers
         if self.last_time == timestamp:
             raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
