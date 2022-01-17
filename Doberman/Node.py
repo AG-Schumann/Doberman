@@ -1,7 +1,10 @@
 import Doberman
 import requests
 import itertools
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 
 class Node(object):
@@ -9,6 +12,8 @@ class Node(object):
     A generic graph node
     """
     def __init__(self, pipeline=None, name=None, logger=None, **kwargs):
+        if np is None:
+            raise ImportError("Can't run pipelines on this host!")
         self.pipeline = pipeline
         self.buffer = _Buffer(1)
         self.name = name
