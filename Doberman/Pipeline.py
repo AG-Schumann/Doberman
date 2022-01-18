@@ -1,8 +1,5 @@
 import Doberman
-import requests
 import time
-import itertools
-import math
 
 __all__ = 'Pipeline'.split()
 
@@ -17,6 +14,12 @@ class Pipeline(object):
         self.name = kwargs['name']
         self.cycles = 0
         self.last_error = -1
+
+    def stop(self):
+        try:
+            self.db.set_pipeline_value(self.name, [('status', 'inactive')])
+        except Exception as e:
+            pass
 
     def process_cycle(self):
         """
@@ -49,8 +52,10 @@ class Pipeline(object):
                 [('heartbeat', Doberman.utils.dtnow()),
                     ('cycles', self.cycles),
                     ('error', self.last_error),
-                    ('rate', sum(timing.values()))])
-        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on)
+                    ('rate', sum(timing.values())),
+                    ('status', status)])
+        drift = 0.001 # 1ms extra per cycle, so we don't accidentally get ahead of the new values
+        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
 
     def build(self, config):
         """
@@ -72,7 +77,8 @@ class Pipeline(object):
         self.logger.debug(f'Loading graph config, {len(pipeline_config)} nodes total')
         num_buffer_nodes = 0
         longest_buffer = 0
-        influx_cfg = self.db.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        influx_cfg = self.db.get_experiment_config('influx')
+        alarm_cfg = self.db.get_experiment_config('alarm')
         self.depends_on = config['depends_on']
         while len(self.graph) != len(pipeline_config):
             start_len = len(self.graph)
@@ -82,461 +88,71 @@ class Pipeline(object):
                 upstream = kwargs.get('upstream', [])
                 existing_upstream = [self.graph[u] for u in upstream if u in self.graph]
                 if len(upstream) == 0 or len(upstream) == len(existing_upstream):
+                    self.logger.debug(f'{kwargs["name"]} ready for creation')
                     # all this node's requirements are created
                     node_type = kwargs.pop('type')
                     node_kwargs = {
-                            'name': name,
+                            'pipeline': self,
                             'logger': self.logger,
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
-                    setup_kwargs = {}
-                    if isinstance(n, InfluxSourceNode):
-                        reading_doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        setup_kwargs['topic'] = reading_doc['topic']
-                        setup_kwargs['config_doc'] = influx_cfg
-                    if isinstance(n, InfluxSinkNode):
-                        setup_kwargs['write_to_influx'] = self.db.write_to_influx
-                    if isinstance(n, BufferNode):
-                        setup_kwargs['strict_length'] = kwargs.get('strict', False)
-                    if isinstance(n, AlarmNode):
-                        doc = self.db.get_reading_setting(name=kwargs['input_var'])
-                        setup_kwargs['description'] = doc['description']
-                        setup_kwargs['log_alarm'] = self.db.log_alarm
-                        setup_kwargs['sensor'] = doc['sensor']
-                        setup_kwargs['strict_length'] = True
-                    if isinstance(n, ControlNode):
-                        setup_kwargs['log_command'] = self.db.log_command
-                        setup_kwargs['control_target'] = kwargs['control_target']
-                        setup_kwargs['control_value'] = kwargs['control_value']
-                    if setup_kwargs:
-                        n.setup(**kwargs)
-                    n.load_config(config['node_config'].get(name, {}))
-                    self.graph.append(n)
-                    if isinstance(n, BufferNode):
+                    if isinstance(kwargs['input_var'], str):
+                        # some things take lists
+                        setup_kwargs = self.db.get_reading_setting(name=kwargs['input_var'])
+                    else:
+                        setup_kwargs = {}
+                    setup_kwargs['influx_cfg'] = influx_cfg
+                    setup_kwargs['operation'] = kwargs.get('operation')
+                    setup_kwargs['write_to_influx'] = self.db.write_to_influx
+                    setup_kwargs['log_alarm'] = self.db.log_alarm
+                    setup_kwargs['log_command'] = self.db.log_command
+                    for k in 'target value'.split():
+                        setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
+                    setup_kwargs['strict_length'] = True if isinstance(n, Doberman.AlarmNode) else kwargs.get('strict_length', False)
+                    for k in 'escalation_config silence_duration'.split():
+                        setup_kwargs[k] = alarm_cfg[k]
+                    n.setup(**setup_kwargs)
+                    n.load_config(config['node_config'].get(n.name, {}))
+                    self.graph[n.name] = n
+                    if isinstance(n, Doberman.BufferNode):
                         num_buffer_nodes += 1
                         longest_buffer = max(longest_buffer, n.buffer.length)
 
             if (nodes_built := len(self.graph) - start_len) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
-                self.logger.debug(f'Created {list(self.graph.keys())}')
-                self.logger.debug(f'Didn\'t create {list(set(d["name"] for d in pipeline_config)-set(self.graph.keys()))}')
+                created = list(self.graph.keys())
+                all_nodes = set(d['name'] for d in pipeline_config)
+                self.logger.debug(f'Created {created}')
+                self.logger.debug(f'Didn\'t create {list(all_nodes - set(created))}')
                 raise ValueError('Can\'t construct graph! Check config and logs')
             else:
                 self.logger.debug(f'Created {nodes_built} nodes this iter, {len(self.graph)}/{len(pipeline_config)} total')
-        for name, kwargs in pipeline_config.items():
+        for kwargs in pipeline_config:
             for u in kwargs.get('upstream', []):
-                self.graph[u].downstream_nodes.append(self.graph[name])
+                self.graph[u].downstream_nodes.append(self.graph[kwargs['name']])
 
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
 
     def reconfigure(self, doc):
         for node in self.graph.values():
-            if isinstance(node, AlarmNode):
+            if isinstance(node, Doberman.AlarmNode):
                 rd = self.db.get_reading_setting(name=node.input_var)
                 if node.name not in doc:
                     doc[node.name] = {}
                 doc[node.name].update(alarm_thresholds=rd['alarm_threshold'], readout_interval=rd['readout_interval'])
-            if isinstance(node, SimpleAlarmNode):
+            if isinstance(node, Doberman.SimpleAlarmNode):
                 if node.name not in doc:
                     doc[node.name] = {}
                 doc[node.name].update(length=rd['alarm_recurrence'])
             if node.name in doc:
                 node.load_config(doc[node.name])
 
-
-class Node(object):
-    """
-    A generic graph node
-    """
-    def __init__(self, name=None, logger=None, **kwargs):
-        self.buffer = _Buffer(1)
-        self.name = name
-        self.input_var = kwargs.pop('input_var', None)
-        self.output_var = kwargs.pop('output_var', self.input_var)
-        self.logger = logger
-        self.upstream_nodes = kwargs.pop('_upstream', [])
-        self.downstream_nodes = []
-        self.config = {}
-        self.is_silent = True
-        self.logger.debug(f'{name} constructor')
-
-    def setup(self, **kwargs):
+    def silence_for(self, duration):
         """
-        Allows a child class to do some setup
+        Silence this pipeline for a set amount of time
         """
-        pass
+        self.db.set_pipeline_value(self.name, [('status', 'silent')])
+        self.db.log_command(self.name, f'pipelinectl_active {self.name}', self.name, duration)
 
-    def _process_base(self, status):
-        self.logger.debug(f'{self.name} processing')
-        self.is_silent = status == 'silent'
-        package = self.get_package() # TODO discuss this wrt BufferNodes
-        self.logger.debug(f'{self.name} input {package}')
-        ret = self.process(package)
-        self.logger.debug(f'{self.name} output {ret}')
-        if ret is None:
-            pass
-        elif isinstance(ret, dict):
-            package = ret
-        else:
-            if isinstance(self, BufferNode):
-                package = package[-1]
-            package[self.output_var] = ret
-        self.send_downstream(package)
-
-    def get_package(self):
-        return self.buffer.pop_front()
-
-    def send_downstream(self, package):
-        """
-        Sends a completed package on to downstream nodes
-        """
-        for node in self.downstream_nodes:
-            node.receive_from_upstream(package)
-
-    def receive_from_upstream(self, package):
-        self.buffer.append(package)
-
-    def load_config(self, doc):
-        """
-        Load whatever runtime values are necessary
-        """
-        for k,v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode):
-                self.buffer.set_length(v)
-            else:
-                self.config[k] = v
-
-    def process(self, package):
-        """
-        A function for an end-user to implement to do something with the data package
-        """
-        raise NotImplementedError()
-
-class SourceNode(Node):
-    """
-    A node that adds data into a pipeline, probably by querying a db or something
-    """
-    def process(self):
-        return None
-
-class InfluxSourceNode(SourceNode):
-    """
-    Queries InfluxDB for the most recent value in some key
-    """
-    def setup(self, **kwargs):
-        """
-        How we actually make the request changes depending on what version of influx and schema is used
-        :param topic: the reading's topic
-        :param config_doc: the influx document from experiment_config
-        :return: none
-        """
-        super().setup(**kwargs)
-        config_doc = kwargs['config_doc']
-        topic = kwargs['topic']
-        if config_doc.get('schema', 'new') == 'old':
-            variable = self.input_var
-            where = ''
-        else:
-            variable = 'value'
-            # note that the single quotes in the WHERE clause are very important
-            # see https://docs.influxdata.com/influxdb/v1.8/query_language/explore-data/#a-where-clause-query-unexpectedly-returns-no-data
-            where = f"WHERE reading='{self.input_var}'"
-        query = f'SELECT last({variable}) FROM {topic} {where};'
-        url = config_doc['url'] + '/query?'
-        headers = {'Accept': 'application/csv'}
-        if (version := config_doc.get('version', 2)) == 1:
-            url += f'u={config_doc["username"]}&p={config_doc["password"]}&db={config_doc["database"]}&q={query}'
-            json = {}
-        elif version == 2:
-            # even though you're using influxv2 we still use the v1 query endpoint
-            # because the v2 query is garbage for our purposes
-            url += f'db={config_doc["org"]}' # org -> db, because reasons
-            headers.update({'Authorization': f'Token {config_doc["auth_token"]}'})
-            json = {'q': query}
-        else:
-            raise ValueError("Invalid version specified: must be 1 or 2")
-        self.precision = int({'s': 1, 'ms': 1e3, 'us': 1e6, 'ns': 1e9}[config_doc['precision']])
-
-        self.req_url = url
-        self.req_headers = headers
-        self.req_json = json
-        self.last_time = 0
-
-    def get_package(self):
-        response = requests.get(self.req_url, headers=self.req_headers, json=self.req_json)
-        try:
-            timestamp, val = response.content.decode().splitlines()[1].split(',')[-2:]
-        except Exception as e:
-            raise ValueError(f'Error parsing data: {response.content}')
-
-        timestamp = int(timestamp) # TODO this might be broken because influx and ns
-        # timestamp = int(timestamp[:-(9-int(np.log10(self.precision)))])
-        val = int(val) if '.' not in val else float(val)
-        if self.last_time == timestamp:
-            raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
-        self.last_time = timestamp
-        self.logger.debug(f'{self.name} time {timestamp} value {val}')
-        return {'time': timestamp/self.precision, self.output_var: val}
-
-class BufferNode(Node):
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        self.strict = kwargs.get('strict_length', False)
-
-    def get_package(self):
-        if self.strict and len(self.buffer) != self.buffer.length:
-            raise ValueError(f'{self.name} is not full')
-        # deep copy because the MergeNode will change its input
-        return list(map(dict, self.buffer))
-
-class LowPassFilter(BufferNode):
-    """
-    Low-pass filters a value by taking the median of its buffer
-    """
-    def process(self, packages):
-        values = sorted([p[self.input_var] for p in packages])
-        l = len(values)
-        if l % 2 == 0:
-            # even length, we average the two adjacent to the middle
-            return (values[l//2 - 1] + values[l//2]) / 2
-        else:
-            # odd length
-            return values[l//2]
-
-class MergeNode(BufferNode):
-    """
-    Merges packages from two or more upstream nodes into one new package
-    """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.buffer.set_length(len(self.upstream_nodes))
-
-    def merge_time(self, packages):
-        # TODO: average time? Take newest? Oldest?
-        return sum(p.pop('time') for p in packages)/len(packages)
-
-    def process(self, packages):
-        new_package = {'time': self.merge_time(packages)}
-        common_keys = set(packages[0].keys())
-        for p in packages[1:]:
-            common_keys &= set(p.keys())
-        for key in common_keys:
-            # average other common keys
-            new_package[key] = sum(p.pop(key) for p in packages)/len(packages)
-        for p in packages:
-            for k,v in p.items():
-                new_package[k] = v
-        return new_package
-
-    def load_config(self, config):
-        """
-        No configurable values for a MergeNode
-        """
-        return
-
-class IntegralNode(BufferNode):
-    """
-    Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
-    Divides by the time interval at the end. Supports a 't_offset' config value, which is some time offset
-    from the end of the buffer.
-    """
-    def process(self, packages):
-        offset = self.config.get('t_offset', 0)
-        t = [p['time'] for p in packages]
-        v = [p[self.input_var] for p in packages]
-        integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 for i in range(1, len(packages)-offset))
-        integral /= (t[0] - t[-1-offset])
-        return integral
-
-class DerivativeNode(BufferNode):
-    """
-    Calculates the derivative of the specified value over the specified duration by a chi-square linear fit to
-    minimize the impact of noise. DivideByZero error is impossible as long as there are at least two values in
-    the buffer
-    """
-    def process(self, packages):
-        t_min = packages[0]['time']
-        # we subtract t_min to keep the numbers smaller - result doesn't change and we avoid floating-point
-        # issues that can show up when we multiply large floats together
-        t = [p['time']-t_min for p in packages]
-        y = [p[self.input_var] for p in packages]
-        B = sum(v*v for v in t)
-        C = len(packages)
-        D = sum(tt*vv for (tt,vv) in zip(t,y))
-        E = sum(y)
-        F = sum(t)
-        slope = (D*C-E*F)/(B*C - F*F)
-        return slope
-
-class PolynomialNode(Node):
-    """
-    Does a polynomial transformation on a value
-    """
-    def process(self, package):
-        xform = self.config.get('transform', [0,1])
-        return sum(a*package[self.input_var]**i for i,a in enumerate(xform))
-
-class InfluxSinkNode(Node):
-    """
-    Puts a value back into influx
-    """
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        self.topic = kwargs['topic']
-        self.write_to_influx = kwargs['write_to_influx']
-        self.subsystem = kwargs['subsystem']
-
-    def process(self, package):
-        if not self.is_silent:
-            self.write_to_influx(topic=self.topic, tags={'reading': self.output_var, 'sensor': 'pipeline'},
-                                fields={'value': package[self.input_var]}, timestamp=package['time'])
-
-class ControlNode(Node):
-    """
-    Another empty base class to handle different database access
-    """
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        self._log_command = kwargs['log_command']
-        self.control_target = kwargs['control_target']
-        self.control_value = kwargs['control_value']
-
-    def set_output(self, value):
-        self.logger.debug(f'{self.name} setting output to {value}')
-        if not self.is_silent:
-            self._log_command({'name': self.control_target, 'acknowledged': 0,
-                command: f'set {self.control_value} {value}'})
-
-class EvalNode(Node):
-    """
-    An evil node that executes an arbitrary operation specified by the user
-    """
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        self.operation = kwargs['operation']
-
-    def process(self, package):
-        v = [package[i] for i in self.input_var]
-        c = self.config.get('c', [])
-        return eval(self.operation)
-
-class AlarmNode(Node):
-    """
-    An empty base class to handle database access
-    """
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        self.description = kwargs['description']
-        self.sensor = kwargs['sensor']
-        self._log_alarm = kwargs['log_alarm']
-
-    def log_alarm(self, msg):
-        if not self.is_silent:
-            self._log_alarm(msg)
-        else:
-            self.logger.error(msg)
-
-class SensorRespondingAlarm(InfluxSourceNode, AlarmNode):
-    """
-    A simple alarm that makes sure the spice is flowing
-    """
-    def get_package(self):
-        try:
-            return super().get_package()
-        except ValueError as e:
-            self.log_alarm(f"Is {self.sensor} responding correctly? We haven't gotten a new value recently")
-            raise
-
-    def process(self, package):
-        if (now := time.time()) - package['time'] > 2*self.config['readout_interval']:
-            self.log_alarm(
-                    (f'Is {self.sensor} responding correctly? A value for {self.input_var} is '
-                         f'{now-package["time"]:.1f}s late rather than {self.config["readout_interval"]}'))
-
-class SimpleAlarmNode(BufferNode, AlarmNode):
-    """
-    A simple alarm
-    """
-    def process(self, packages):
-        values = [p[self.input_var] for p in packages]
-        low, high = self.config['alarm_thresholds']
-        if any([low <= v <= high for v in values]):
-            # at least one value is in an acceptable range
-            pass
-        else:
-            msg = f'Alarm for {self.description}. '
-            try:
-                toohigh = values[-1] >= high  # (Or low)
-                msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
-                msgthreshold = Doberman.utils.sensible_sig_figs(high if toohigh else low, low, high)
-                msg += f'{msgval} is {"above" if toohigh else "below"} '
-                msg += f'the threshold {msgthreshold}.'
-            except ValueError:
-                # Sometimes hit a corner case (eg low=high)
-                msg += f'{values[-1]:.3g} is outside allowed range of'
-                msg += f' {low:.3g} to {high:.3g}.'
-            self.log_alarm(msg)
-
-class TimeSinceNode(BufferNode):
-    """
-    Checks to see if the desired value is within a range
-    """
-    def process(self, packages):
-        # TODO
-        pass
-
-class _Buffer(object):
-    """
-    A custom semi-fixed-width buffer that keeps itself sorted
-    """
-    def __init__(self, length):
-        self._buf = []
-        self.length = length
-
-    def __len__(self):
-        return len(self._buf)
-
-    def append(self, obj):
-        """
-        Adds a new object to the queue, time-sorted
-        """
-        LARGE_NUMBER = 1e12  # you shouldn't get timestamps larger than this
-        if len(self._buf) == 0:
-            self._buf.append(obj)
-        elif len(self._buf) == 1:
-            if self._buf[0]['time'] >= obj['time']:
-                self._buf.insert(0, obj)
-            else:
-                self._buf.append(obj)
-        else:
-            idx = len(self._buf)//2
-            for i in itertools.count(2):
-                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
-                greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
-                if lesser <= obj['time'] <= greater:
-                    self._buf.insert(idx, obj)
-                    break
-                elif obj['time'] > greater:
-                    idx += max(1, len(self._buf)>>i)
-                elif obj['time'] < lesser:
-                    idx -= max(1, len(self._buf)>>i)
-        if len(self._buf) > self.length:
-            self._buf = self._buf[-self.length:]
-        return
-
-    def pop_front(self):
-        return self._buf.pop(0)
-
-    def __getitem__(self, index):
-        return self._buf[index]
-
-    def set_length(self, length):
-        self.length = length
-
-    def __iter__(self):
-        return self._buf.__iter__()
-
-    def __str__(self):
-        return str(list(map(str, self._buf)))

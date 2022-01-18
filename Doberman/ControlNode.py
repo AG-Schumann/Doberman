@@ -1,7 +1,38 @@
 import Doberman
 
 
-class ValveControlNode(Doberman.ControlNode):
+class ControlNode(Doberman.Node):
+    """
+    Another empty base class to handle different database access
+    """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self._log_command = kwargs['log_command']
+        self.control_target = kwargs['control_target']
+        self.control_value = kwargs['control_value']
+
+    def set_output(self, value):
+        self.logger.debug(f'Setting output to {value}')
+        if not self.is_silent:
+            self._log_command(f'set {self.control_value} {value}', self.control_target,
+                    self.name)
+
+class GeneralValveControl(ControlNode):
+    """
+    A generalized valve control node that shunts a lot of the logic to something further up in the
+    pipeline.
+    """
+    def process(self, package):
+        if package['condition_a']:
+            # value is too low and valve is probably closed
+            self.logger.info('Condition a met')
+            self.set_output(self.config.get('output_a', 1))
+        elif package['condition_b']:
+            # value is too high and valve is probably open
+            self.logger.info('Condition b met')
+            self.set_output(self.config.get('output_b', 0))
+
+class ValveControlNode(ControlNode):
     """
     A logic node to control a nitrogen level valve, based on a levelmeter and a control valve,
     with optional inhibits from a vacuum or a scale

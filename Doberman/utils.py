@@ -10,17 +10,20 @@ import inspect
 import re
 import logging
 import logging.handlers
+from pytz import utc
 try:
     import serial
     has_serial=True
 except ImportError:
     has_serial=False
 import threading
+import hashlib
 from math import floor, log10
 
-dtnow = datetime.datetime.now
+def dtnow():
+    return datetime.datetime.now(tz=utc) # no timezone nonsense, now
 
-__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger'.split()
+__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -259,6 +262,18 @@ def get_logger(name, db):
     logger.addHandler(DobermanLogger(db, name))
     logger.setLevel(logging.DEBUG)
     return logger
+
+def make_hash(*args, hash_length=16):
+    """
+    Generates a hash from the provided arguments, returns
+    a hex string
+    :param *args: objects you want to be hashed. Will be converted to bytes
+    :param hash_length: how long the returned hash should be. Default 16
+    :returns: string
+    """
+    m = hashlib.sha256()
+    map(lambda a: m.update(str(a).encode()), args)
+    return m.hexdigest()[:hash_length]
 
 def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
     """

@@ -44,22 +44,22 @@ class Hypervisor(Doberman.Monitor):
         # cache these here because they might change during iteration
         managed = self.config['processes']['managed']
         active = self.config['processes']['active']
-        for sensor in managed:
-            if sensor not in active:
-                # sensor isn't running and it's supposed to be
-                if self.start_sensor(sensor):
-                    self.logger.error(f'Problem starting {sensor}, check the debug logs')
-            elif (dt := ((now := dtnow())-self.db.get_heartbeat(sensor=sensor)).total_seconds()) > 2*self.config['period']:
-                # sensor claims to be active but hasn't heartbeated recently
-                self.logger.warning(f'{sensor} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
-                if sensor in self.last_restart and (now - self.last_restart[sensor]).total_seconds() < self.config['restart_timeout']:
-                    self.logger.warning(f'Can\'t restart {sensor}, did so too recently')
-                elif self.start_sensor(sensor):
+        for device in managed:
+            if device not in active:
+                # device isn't running and it's supposed to be
+                if self.start_device(device):
+                    self.logger.error(f'Problem starting {device}, check the debug logs')
+            elif (dt := ((now := dtnow())-self.db.get_heartbeat(sensor=device)).total_seconds()) > 2*self.config['period']:
+                # device claims to be active but hasn't heartbeated recently
+                self.logger.warning(f'{device} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
+                if device in self.last_restart and (now - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
+                    self.logger.warning(f'Can\'t restart {device}, did so too recently')
+                elif self.start_device(device):
                     # nonzero return code, probably something didn't work
-                    self.logger.error(f'Problem starting {sensor}, check the debug logs')
+                    self.logger.error(f'Problem starting {device}, check the debug logs')
             else:
                 # claims to be active and has heartbeated recently
-                self.logger.debug(f'{sensor} last heartbeat {int(dt)} seconds ago')
+                self.logger.debug(f'{device} last heartbeat {int(dt)} seconds ago')
         self.update_config(heartbeat=dtnow())
         return self.config['period']
 
@@ -88,24 +88,25 @@ class Hypervisor(Doberman.Monitor):
             cmd.insert(1, '-p')
             cmd.insert(2, f'{port}')
         self.logger.debug(f'Running "{" ".join(cmd)}"')
-        cp = subprocess.run(cmd, capture_output=True)
+        cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True)
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
             self.logger.debug(f'Stderr: {cp.stderr.decode()}')
         return cp.returncode
 
-    def start_sensor(self, sensor: str) -> int:
+    def start_device(self, device: str) -> int:
         path = self.config['path']
-        doc = self.db.get_sensor_setting(sensor=sensor)
+        doc = self.db.get_sensor_setting(name=device)
         host = doc['host']
-        self.last_restart[sensor] = dtnow()
-        self.update_config(manage=sensor)
-        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh sensor {sensor}")
+        self.last_restart[device] = dtnow()
+        self.update_config(manage=device)
+        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh -s {device}")
 
     def start_pipeline(self, pipeline: str) -> int:
+        # if you end up running pipelines elsewhere, update
         path = self.config['path']
-        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh pipeline {pipeline}')
+        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
     def handle_commands(self) -> None:
         while (doc := self.db.find_command("hypervisor")) is not None:
@@ -113,25 +114,25 @@ class Hypervisor(Doberman.Monitor):
             if cmd.startswith('start'):
                 _, target = cmd.split(' ', maxsplit=1)
                 self.logger.info(f'Hypervisor starting {target}')
-                if target[:3] == 'pl_': # this is a pipeline
-                    self.start_pipeline(target)
+                if target in self.db.distinct('settings', 'devices', 'name'):
+                    self.start_device(target)
                 else:
-                    self.start_sensor(target)
+                    self.start_pipeline(target)
             elif cmd.startswith('manage'):
-                _, sensor = cmd.split(' ', maxsplit=1)
-                if sensor[:3] == 'pl_':
+                _, device = cmd.split(' ', maxsplit=1)
+                if device not in self.db.distinct('settings', 'devices', 'name'):
                     # unlikely but you can never trust users
-                    self.logger.info('Management is for sensors, not pipelines')
+                    self.logger.info('Management is for devices, not pipelines')
                     continue
-                self.logger.info(f'Hypervisor now managing {sensor}')
-                self.update_config(manage=sensor)
+                self.logger.info(f'Hypervisor now managing {device}')
+                self.update_config(manage=device)
             elif cmd.startswith('unmanage'):
-                _, sensor = cmd.split(' ', maxsplit=1)
-                if sensor[:3] == 'pl_':
+                _, device = cmd.split(' ', maxsplit=1)
+                if device not in self.db.distinct('settings', 'devices', 'name'):
                     # unlikely but you can never trust users
-                    self.logger.info('Management is for sensors, not pipelines')
+                    self.logger.info('Management is for devices, not pipelines')
                     continue
-                self.logger.info(f'Hypervisor relinquishing control of {sensor}')
-                self.update_config(unmanage=sensor)
+                self.logger.info(f'Hypervisor relinquishing control of {device}')
+                self.update_config(unmanage=device)
             else:
                 self.logger.error(f'Command "{cmd}" not understood')
