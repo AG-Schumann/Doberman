@@ -3,6 +3,7 @@ import datetime
 from socket import getfqdn
 import time
 import requests
+import pytz
 
 __all__ = 'Database'.split()
 
@@ -320,7 +321,7 @@ class Database(object):
 
     def get_heartbeat(self, sensor=None):
         doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)
-        return doc['heartbeat']
+        return doc['heartbeat'].replace(tzinfo=pytz.utc)
 
     def update_heartbeat(self, sensor=None):
         """

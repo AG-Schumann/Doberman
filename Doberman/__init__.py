@@ -13,5 +13,6 @@ from .AlarmNode import *
 from .ControlNode import *
 from .SensorMonitor import *
 from .PipelineMonitor import *
+from .hypervisor import *
 from .Reading import *
 from .Pipeline import *
