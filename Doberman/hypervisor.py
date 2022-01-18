@@ -59,7 +59,7 @@ class Hypervisor(Doberman.Monitor):
                 # device isn't running and it's supposed to be
                 if self.start_device(device):
                     self.logger.error(f'Problem starting {device}, check the debug logs')
-            elif (dt := ((now := dtnow())-self.db.get_heartbeat(device=device)).total_seconds()) > 2*self.config['period']:
+            elif (dt := ((now := dtnow())-self.db.get_heartbeat(sensor=device)).total_seconds()) > 2*self.config['period']:
                 # device claims to be active but hasn't heartbeated recently
                 self.logger.warning(f'{device} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
                 if device in self.last_restart and (now - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
@@ -98,7 +98,7 @@ class Hypervisor(Doberman.Monitor):
             cmd.insert(1, '-p')
             cmd.insert(2, f'{port}')
         self.logger.debug(f'Running "{" ".join(cmd)}"')
-        cp = subprocess.run(cmd, capture_output=True)
+        cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True)
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
@@ -107,7 +107,7 @@ class Hypervisor(Doberman.Monitor):
 
     def start_device(self, device: str) -> int:
         path = self.config['path']
-        doc = self.db.get_device_setting(device=device)
+        doc = self.db.get_sensor_setting(name=device)
         host = doc['host']
         self.last_restart[device] = dtnow()
         self.update_config(manage=device)

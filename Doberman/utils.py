@@ -9,6 +9,7 @@ import inspect
 import re
 import logging
 import logging.handlers
+from pytz import utc
 try:
     import serial
     has_serial=True
@@ -20,7 +21,8 @@ from math import floor, log10
 import itertools
 
 
-dtnow = datetime.datetime.now
+def dtnow():
+    return datetime.datetime.now(tz=utc) # no timezone nonsense, now
 
 __all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs SortedBuffer'.split()
 

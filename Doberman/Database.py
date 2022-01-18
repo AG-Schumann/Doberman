@@ -4,7 +4,7 @@ from socket import getfqdn, create_connection
 import time
 import requests
 import json
-
+import pytz
 
 __all__ = 'Database'.split()
 
@@ -217,6 +217,35 @@ class Database(object):
             return doc.get(field)
         return doc
 
+    def log_command(self, command, target, issuer, delay=0):
+        """
+        Store a command for someone else
+        :param command: the command for them to process
+        :param target: who the command is for
+        :param issuer: who is issuing the command
+        :param delay: how far into the future the command should happen, default 0
+        :returns: None
+        """
+        doc = {
+                'name': target,
+                'command': command,
+                'acknowledged': 0,
+                'by': issuer,
+                'logged': dtnow() + datetime.timedelta(seconds=delay)
+                }
+        self.insert_into_db('logging', 'commands', doc)
+
+    def get_experiment_config(self, name, field=None):
+        """
+        Gets a document or parameter from the experimental configs
+        :param field: which field you want, default None which gives you all of them
+        :returns: either the whole document or a specific field
+        """
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if doc is not None and field is not None:
+            return doc.get(field)
+        return doc
+
     def get_pipeline(self, name):
         """
         Gets a pipeline config doc
@@ -302,7 +331,7 @@ class Database(object):
 
     def get_heartbeat(self, sensor=None):
         doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor}, onlyone=True)
-        return doc['heartbeat']
+        return doc['heartbeat'].replace(tzinfo=pytz.utc)
 
     def update_heartbeat(self, sensor=None):
         """

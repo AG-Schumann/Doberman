@@ -36,6 +36,7 @@ class PipelineMonitor(Doberman.Monitor):
             return -1
         self.register(obj=p.process_cycle, name=name, period=1)
         self.pipelines[p.name] = p
+        self.db.set_pipeline_value(name, [('status', 'active')])
         return 0
 
     def stop_pipeline(self, name):
