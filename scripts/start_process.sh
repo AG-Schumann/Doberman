@@ -1,27 +1,44 @@
 #!/bin/bash
 
-USAGE="Usage: $0 <sensor|pipeline> <name>"
+USAGE="Usage: $0 [-s <sensor>] [-p <pipeline>] [-h]"
 folder="/global/software/doberman/Doberman"
 
-if [[ $# -ne 2 || -z $2 ]]; then
-  echo $USAGE
-  exit 1
-fi
+x=0
 
-case $1 in
-  sensor )
+while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
+  -s | --sensor )
+    shift
+    name=$1
+    target="sensor"
+    screen_name=$1
+    x=$((x+1))
     ;;
-  pipeline )
+  -p | --pipeline )
+    shift
+    name=$1
+    target="pipeline"
+    screen_name=$1
+    x=$((x+1))
+    ;;
+  -h | --hypervisor )
+    target="hypervisor"
+    screen_name='hypervisor'
+    x=$((x+1))
     ;;
   * )
     echo $USAGE
     exit 1
     ;;
-esac
+esac; shift; done
 
-if [[ -n $(screen -ls | grep $2 ) ]]; then
-  echo "Killing existing screen"
-  screen -S $2 -X quit
+if [[ $x != 1 ]]; then
+  echo $USAGE
+  exit 1
 fi
-echo "Starting $1 $2"
-screen -S $2 -dm /bin/bash -c "cd $folder && ./Monitor.py --$1 $2"
+
+if [[ -n $(screen -ls | grep $screen_name ) ]]; then
+  echo "Killing existing screen"
+  screen -S $screen_name -X quit
+fi
+echo "cd $folder && ./Monitor.py --$target $name"
+screen -S $screen_name -dm /bin/bash -c "cd $folder && ./Monitor.py --$target $name"

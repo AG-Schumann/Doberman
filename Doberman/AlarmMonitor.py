@@ -23,13 +23,11 @@ class AlarmMonitor(Doberman.Monitor):
                                                      {'start': {'$lte': now}, 'end': {'$gte': now}},
                                                      onlyone=True)['shifters']
         self.current_shifters.sort()
-        self.register(obj=self.check_heartbeats, period=30, name='heartbeat')
         self.register(obj=self.check_for_alarms, period=5, name='alarmcheck')
         self.register(obj=self.check_shifters, period=60, name='shiftercheck')
 
     def get_connection_details(self, which):
-        detail_doc = self.db.read_from_db('settings', 'alarm_config',
-                                          {'connection_details': {'$exists': 1}}, onlyone=True)
+        detail_doc = self.db.get_experiment_config('alarm_config')
         try:
             return detail_doc['connection_details'][which]
         except KeyError:
@@ -120,7 +118,7 @@ class AlarmMonitor(Doberman.Monitor):
                 server.login(fromaddr, password)
                 server.sendmail(fromaddr, recipients, msg.as_string())
                 server.quit()
-            self.logger.info(f'Mail (Subject:{subject}) sent')
+            self.logger.info(f'Mail (Subject:{subject}) sent to {",".join(recipients)}')
         except Exception as e:
             self.logger.warning(f'Could not send mail: {e} ({type(e)})')
             return 0
@@ -179,20 +177,18 @@ class AlarmMonitor(Doberman.Monitor):
         db_col = ('logging', 'alarm_history')
         if self.db.count(*db_col, doc_filter) == 0:
             return
-        for doc in self.db.read_from_db(*db_col, doc_filter, sort=[('howbad', -1)]):
-            howbad = int(doc['howbad'])
-            if (howbad,) not in messages:
-                messages[(howbad,)] = []
-            self.db.update_db(*db_col, {'_id': doc['_id']}, updates)
-            messages[(howbad,)].append(doc)
-        if messages:
-            self.logger.warning(f'Found alarms!')
-            for (lvl,), msg_docs in messages.items():
-                message = ''
-                for msg_doc in msg_docs:
-                    time_str = msg_doc['_id'].generation_time.astimezone(None).strftime("%Y-%m-%d %H:%M %Z")
-                    message += f'{time_str}: {msg_doc["msg"]} \n'
-                self.send_message(lvl, message)
+        for doc in self.db._check(*db_col).aggregate([
+            {'$match': doc_filter},
+            {'$group': {
+                '_id': '$howbad',
+                'logged': {'$push': {'$toDate': '$_id'}},
+                'msgs': {'$push': '$msg'}}}]):
+            message = '\n'.join([f'{d.iso_format()}: {m}' for d,m in zip(doc['logged'], doc['msgs'])])
+            self.send_message(doc['_id'], message)
+        # put the update at the end so if something goes wrong with the message sending then the
+        # alarms don't get acknowledged and lost
+        self.db.update_db(*db_col, doc_filter, updates)
+        return
 
     def send_message(self, level, message):
         """
@@ -226,16 +222,6 @@ class AlarmMonitor(Doberman.Monitor):
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
             self.last_message_time = now
 
-    def check_heartbeats(self):
-        hosts = self.db.read_from_db('settings', 'hosts',
-                                     {'status': {'$ne': 'offline'}})
-        now = dtnow()
-        for host in hosts:
-            if (now - host['heartbeat']).total_seconds() > 2 * host['heartbeat_timer']:
-                alarm_doc = {'name': 'alarm_monitor', 'howbad': 1,
-                             'msg': f'Host {host["hostname"]} has no recent heartbeat'}
-                self.db.log_alarm(alarm_doc)
-
     def check_shifters(self):
         """
         Logs a notification (alarm) when the list of shifters changes
@@ -262,3 +248,4 @@ class AlarmMonitor(Doberman.Monitor):
             doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
+

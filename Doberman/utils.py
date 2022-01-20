@@ -10,17 +10,20 @@ import inspect
 import re
 import logging
 import logging.handlers
+from pytz import utc
 try:
     import serial
     has_serial=True
 except ImportError:
     has_serial=False
 import threading
+import hashlib
 from math import floor, log10
 
-dtnow = datetime.datetime.now
+def dtnow():
+    return datetime.datetime.now(tz=utc) # no timezone nonsense, now
 
-__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger'.split()
+__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs'.split()
 
 heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
@@ -185,22 +188,27 @@ class DobermanLogger(logging.Handler):
         self.db_name = 'logging'
         self.collection_name = 'logs'
         self.today = datetime.date.today()
+        self.files = {}
         self.open_files(self.today)
         self.flush_cycle = 0
 
     def rotate(self, when):
-        for f in cls.files.values():
+        for f in self.files.values():
             if f is not None:
                 f.close()
         self.today = datetime.date.today()
         self.open_files(when)
 
     def open_files(self, when):
-        self.files = {'DEBUG': open(os.path.join(self.logdir(when), self.filename(when, 'DEBUG')), 'a'),
-                'INFO': open(os.path.join(self.logdir(when), self.filename(when)), 'a')}
+        self.files = {
+                'DEBUG': open(self.full_file_path(when, 'DEBUG'), 'a'),
+                'INFO': open(self.full_file_path(when), 'a')}
         for k in 'WARNING ERROR FATAL'.split():
             # copy for INFO and higher
             self.files[k] = self.files['INFO']
+
+    def full_file_path(self, when, level=None):
+        return os.path.join(self.logdir(when), self.filename(when, level))
 
     def filename(self, when, level=None):
         lvl = '' if level is None else f'{level}_'
@@ -255,9 +263,21 @@ def get_logger(name, db):
     logger.setLevel(logging.DEBUG)
     return logger
 
-def sensible_sig_figs(sensor, lowlim, upplim, defaultsigfigs=3):
+def make_hash(*args, hash_length=16):
     """
-    Rounds sensor measurement to a sensible number of significant figures.
+    Generates a hash from the provided arguments, returns
+    a hex string
+    :param *args: objects you want to be hashed. Will be converted to bytes
+    :param hash_length: how long the returned hash should be. Default 16
+    :returns: string
+    """
+    m = hashlib.sha256()
+    map(lambda a: m.update(str(a).encode()), args)
+    return m.hexdigest()[:hash_length]
+
+def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
+    """
+    Rounds a sensor measurement to a sensible number of significant figures.
 
     In general rounds to defaultsigfigs significant figures.
     If the lowlim and upplim are rather close, have at least
@@ -269,3 +289,4 @@ def sensible_sig_figs(sensor, lowlim, upplim, defaultsigfigs=3):
     minsfs = floor(log10(sensor)) + 1 + mindps
     sfs = max(minsfs, 3)
     return f'{sensor:.{sfs}g}'
+

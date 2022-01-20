@@ -88,7 +88,7 @@ class Hypervisor(Doberman.Monitor):
             cmd.insert(1, '-p')
             cmd.insert(2, f'{port}')
         self.logger.debug(f'Running "{" ".join(cmd)}"')
-        cp = subprocess.run(cmd, capture_output=True)
+        cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True)
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
@@ -101,11 +101,12 @@ class Hypervisor(Doberman.Monitor):
         host = doc['host']
         self.last_restart[device] = dtnow()
         self.update_config(manage=device)
-        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh device {device}")
+        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh -d {device}")
 
     def start_pipeline(self, pipeline: str) -> int:
+        # if you end up running pipelines elsewhere, update
         path = self.config['path']
-        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh pipeline {pipeline}')
+        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
     def handle_commands(self) -> None:
         while (doc := self.db.find_command("hypervisor")) is not None:
@@ -113,13 +114,13 @@ class Hypervisor(Doberman.Monitor):
             if cmd.startswith('start'):
                 _, target = cmd.split(' ', maxsplit=1)
                 self.logger.info(f'Hypervisor starting {target}')
-                if target[:3] == 'pl_': # this is a pipeline
-                    self.start_pipeline(target)
-                else:
+                if target in self.db.distinct('settings', 'devices', 'name'):
                     self.start_device(target)
+                else:
+                    self.start_pipeline(target)
             elif cmd.startswith('manage'):
                 _, device = cmd.split(' ', maxsplit=1)
-                if device[:3] == 'pl_':
+                if device not in self.db.distinct('settings', 'devices', 'name'):
                     # unlikely but you can never trust users
                     self.logger.info('Management is for devices, not pipelines')
                     continue
@@ -127,7 +128,7 @@ class Hypervisor(Doberman.Monitor):
                 self.update_config(manage=device)
             elif cmd.startswith('unmanage'):
                 _, device = cmd.split(' ', maxsplit=1)
-                if device[:3] == 'pl_':
+                if device not in self.db.distinct('settings', 'devices', 'name'):
                     # unlikely but you can never trust users
                     self.logger.info('Management is for devices, not pipelines')
                     continue

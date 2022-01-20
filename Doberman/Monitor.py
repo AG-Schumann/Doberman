@@ -44,7 +44,7 @@ def main(mongo_client):
         if 'Test' in args.device:
             db.experiment_name = 'testing'
     elif args.pipeline:
-        kwargs['name'] = f'pl_{args.pipeline}'
+        kwargs['name'] = f'{args.pipeline}'
         ctor = Doberman.PipelineMonitor
     elif args.status:
         pprint.pprint(db.get_current_status())
@@ -56,11 +56,10 @@ def main(mongo_client):
     db.logger = logger
     kwargs['logger'] = logger
     monitor = ctor(**kwargs)
-    if threading.current_thread() is threading.main_thread():
-        while not monitor.sh.event.is_set():
-            monitor.event.wait(1)
+    monitor.event.wait()
     print('Shutting down')
-    monitor.shutdown()
+    monitor.close()
+    del monitor
     print('Main returning')
 
 
