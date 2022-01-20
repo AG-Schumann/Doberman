@@ -367,6 +367,18 @@ class Database(object):
         self.update_db('settings', 'devices', cuts={'name': name},
                        updates={'$set': {field: value}})
 
+    def get_sensor_setting(self, name, field=None):
+        """
+        Gets a value for one sensor
+
+        :param name: the name of the sensor
+        :param field: a specific field, default None which return the whole doc
+        :returns: named field, or the whole doc
+        """
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': name},
+                onlyone=True)
+        return doc[field] if field is not None and field in doc else doc
+
     def get_runmode_setting(self, runmode=None, field=None):
         """
         Reads default Doberman settings from database.

@@ -97,7 +97,7 @@ class Hypervisor(Doberman.Monitor):
 
     def start_device(self, device: str) -> int:
         path = self.config['path']
-        doc = self.db.get_device_setting(device=device)
+        doc = self.db.get_device_setting(device)
         host = doc['host']
         self.last_restart[device] = dtnow()
         self.update_config(manage=device)
