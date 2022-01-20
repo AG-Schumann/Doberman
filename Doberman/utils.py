@@ -275,7 +275,7 @@ def make_hash(*args, hash_length=16):
     map(lambda a: m.update(str(a).encode()), args)
     return m.hexdigest()[:hash_length]
 
-def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
+def sensible_sig_figs(value, lowlim, upplim, defaultsigfigs=3):
     """
     Rounds a sensor measurement to a sensible number of significant figures.
 
@@ -288,5 +288,5 @@ def sensible_sig_figs(reading, lowlim, upplim, defaultsigfigs=3):
     mindps = 1 - floor(log10(upplim - lowlim))
     minsfs = floor(log10(sensor)) + 1 + mindps
     sfs = max(minsfs, 3)
-    return f'{sensor:.{sfs}g}'
+    return f'{value:.{sfs}g}'
 

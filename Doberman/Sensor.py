@@ -16,7 +16,7 @@ class Sensor(threading.Thread):
         self.logger = kwargs.pop('logger')
         self.cv = threading.Condition()
         self.device_name = kwargs['device_name']
-        self.device_process = kwargs['device'].process_one_reading
+        self.device_process = kwargs['device'].process_one_value
         self.schedule = kwargs['device'].add_to_schedule
         doc = self.db.get_sensor_setting(name=self.name)
         self.setup(doc)

@@ -99,7 +99,7 @@ class Pipeline(object):
                     n = getattr(Doberman, node_type)(**node_kwargs)
                     if isinstance(kwargs['input_var'], str):
                         # some things take lists
-                        setup_kwargs = self.db.get_reading_setting(name=kwargs['input_var'])
+                        setup_kwargs = self.db.get_sensor_setting(name=kwargs['input_var'])
                     else:
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
