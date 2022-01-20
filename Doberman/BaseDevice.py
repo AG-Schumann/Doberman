@@ -119,11 +119,11 @@ class Device(object):
             self.cv.notify()
         return
 
-    def process_one_reading(self, name=None, data=None):
+    def process_one_value(self, name=None, data=None):
         """
         Takes the raw data as returned by send_recv and parses
         it for the (probably) float. Does not need to catch exceptions.
-        If the data is "simple", add a 'reading_pattern' member that is a
+        If the data is "simple", add a 'value_pattern' member that is a
         regex with a named 'value' group that is float-castable, like:
         re.compile(('OK;(?P<value>%s)' % utils.number_regex).encode())
 
@@ -131,8 +131,8 @@ class Device(object):
         :param data: the raw bytes string
         :returns: probably a float. Device-dependent
         """
-        if hasattr(self, 'reading_pattern'):
-            return float(self.reading_pattern.search(data).group('value'))
+        if hasattr(self, 'value_pattern'):
+            return float(self.value_pattern.search(data).group('value'))
         raise NotImplementedError()
 
     def send_recv(self, message):

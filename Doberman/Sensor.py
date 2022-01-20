@@ -94,7 +94,7 @@ class Sensor(threading.Thread):
         This function sends data upstream to wherever it should end up
         """
         low, high = self.alarms
-        tags = {'sensor': self.name, 'device': self.device_name, 'subsystem': self.subsystem}
+        tags = {'reading': self.name, 'sensor': self.device_name, 'subsystem': self.subsystem}
         fields = {'value': value}
         if low is not None:
             fields['alarm_low'] = low
@@ -107,8 +107,8 @@ class MultiSensor(Sensor):
     """
     A special class to handle devices that return multiple values for each
     readout cycle (smartec_uti, caen mainframe, etc). This works this way:
-    one reading is designated the "primary" and the others are "secondaries".
-    Only the primary is actually read out, but the assumption is that the reading
+    one sensor is designated the "primary" and the others are "secondaries".
+    Only the primary is actually read out, but the assumption is that the sensor
     of the primary also brings the values of the secondary with it. The secondaries
     must have entries in the database but these are "shadow" entries and most of the
     fields will be ignored, the only ones mattering are any alarm values or transform values.
