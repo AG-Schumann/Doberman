@@ -153,7 +153,7 @@ class Listener(threading.Thread):
     def run(self):
         self.logger.debug('Listener starting up')
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(None)
+            sock.settimeout(1)
             sock.bind((self.hostname, self.port))
             sock.listen()
             while not self.event.is_set():
@@ -162,6 +162,8 @@ class Listener(threading.Thread):
                     with conn:
                         data = conn.recv(self.packet_size).strip().decode()
                         self.process_command(data)
+                except socket.timeout:
+                    pass
                 except Exception as e:
                     self.logger.info(f'Listener caught a {type(e)}: {e}')
         self.logger.debug('Listener shutting down')

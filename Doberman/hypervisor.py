@@ -30,6 +30,8 @@ class Hypervisor(Doberman.Monitor):
         self.dispatcher.start()
 
     def shutdown(self) -> None:
+        with self.cv:
+            self.cv.notify()
         self.update_config(status='offline')
         self.dispatcher.join()
 
@@ -159,7 +161,7 @@ class Hypervisor(Doberman.Monitor):
             # a json document, this is for the dispatcher
             with self.cv:
                 self.dispatch_queue.add(json.loads(command))
-                self.cv.nofity()
+                self.cv.notify()
             return
         if command.startswith('start'):
             _, target = command.split(' ', maxsplit=1)

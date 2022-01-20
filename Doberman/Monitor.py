@@ -3,9 +3,9 @@ import Doberman
 from pymongo import MongoClient
 import argparse
 import os
-import threading
 import datetime
 import pprint
+from pytz import utc
 
 
 def main(mongo_client):
@@ -32,7 +32,7 @@ def main(mongo_client):
     elif args.hypervisor:
         doc = db.get_experiment_config(name='hypervisor')
         if doc['status'] == 'online':
-            if (Doberman.utils.dtnow()-doc['heartbeat']).total_seconds < 2*doc['period']:
+            if (Doberman.utils.dtnow()-doc['heartbeat'].replace(tzinfo=utc)).total_seconds() < 2*doc['period']:
                 print('Hypervisor already running')
                 return
             print(f'Hypervisor crashed?')
