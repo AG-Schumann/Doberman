@@ -94,7 +94,7 @@ class Sensor(threading.Thread):
         This function sends data upstream to wherever it should end up
         """
         low, high = self.alarms
-        tags = {'reading': self.name, 'sensor': self.device_name, 'subsystem': self.subsystem}
+        tags = {'subsystem': self.subsystem, 'device': self.device_name, 'sensor': self.name}
         fields = {'value': value}
         if low is not None:
             fields['alarm_low'] = low
