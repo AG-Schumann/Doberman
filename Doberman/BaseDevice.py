@@ -8,12 +8,12 @@ import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
 
-__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor TestSensor'.split()
+__all__ = 'Device SoftwareDevice SerialDevice LANDevice TestDevice'.split()
 
 
-class Sensor(object):
+class Device(object):
     """
-    Generic sensor class. Defines the interface with Doberman
+    Generic device class. Defines the interface with Doberman
     """
     _msg_start = ''
     _msg_end = ''
@@ -22,14 +22,14 @@ class Sensor(object):
         """
         opts is the document from the database
         """
-        logger.debug('Sensor base ctor')
+        logger.debug('Device base ctor')
         if 'address' in opts:
             for k, v in opts['address'].items():
                 setattr(self, k, v)
         if 'additional_params' in opts:
             for k, v in opts['additional_params'].items():
                 setattr(self, k, v)
-        self.readings = opts['readings']
+        self.sensors = opts['sensors']
         self.logger = logger
         self.event = event
         self.cv = threading.Condition()
@@ -58,13 +58,13 @@ class Sensor(object):
 
     def set_parameters(self):
         """
-        A function for a sensor to set its operating parameters (commands,
+        A function for a device to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
 
     def setup(self):
         """
-        If a sensor needs to receive a command after opening but
+        If a device needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
 
@@ -79,8 +79,8 @@ class Sensor(object):
         """
         Pulls tasks from the command queue and deals with them. If the queue is empty
         it waits until it isn't. This function returns when the event is set.
-        While the sensor is in normal operation, this is the only
-        function that should call SendRecv to avoid issues with simultaneous
+        While the device is in normal operation, this is the only
+        function that should call send_recv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
         self.logger.debug('Readout scheduler starting')
@@ -92,9 +92,9 @@ class Sensor(object):
                     command, ret = self.cmd_queue.pop(0)
             if command is not None:
                 self.logger.debug(f'Executing {command}')
-                t_start = time.time() # we don't want perf_counter because we care about
+                t_start = time.time()  # we don't want perf_counter because we care about
                 pkg = self.send_recv(command)
-                t_stop = time.time() # the clock time when the data came out not cpu time
+                t_stop = time.time()  # the clock time when the data came out not cpu time
                 pkg['time'] = 0.5*(t_start + t_stop)
                 if ret is not None:
                     d, cv = ret
@@ -109,35 +109,35 @@ class Sensor(object):
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
-        :param command: the command to issue to the sensor, or the name of a reading
+        :param command: the command to issue to the device, or the name of a sensor
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
         self.logger.debug(f'Scheduling {command}')
         with self.cv:
-            self.cmd_queue.append((self.readings.get(command, command), ret))
+            self.cmd_queue.append((self.sensors.get(command, command), ret))
             self.cv.notify()
         return
 
-    def process_one_reading(self, name=None, data=None):
+    def process_one_value(self, name=None, data=None):
         """
-        Takes the raw data as returned by SendRecv and parses
+        Takes the raw data as returned by send_recv and parses
         it for the (probably) float. Does not need to catch exceptions.
-        If the data is "simple", add a 'reading_pattern' member that is a
+        If the data is "simple", add a 'value_pattern' member that is a
         regex with a named 'value' group that is float-castable, like:
         re.compile(('OK;(?P<value>%s)' % utils.number_regex).encode())
 
-        :param name: the name of the reading
+        :param name: the name of the sensor
         :param data: the raw bytes string
-        :returns: probably a float. Sensor-dependent
+        :returns: probably a float. Device-dependent
         """
-        if hasattr(self, 'reading_pattern'):
-            return float(self.reading_pattern.search(data).group('value'))
+        if hasattr(self, 'value_pattern'):
+            return float(self.value_pattern.search(data).group('value'))
         raise NotImplementedError()
 
     def send_recv(self, message):
         """
-        General sensor interface. Returns a dict with retcode -1 if sensor not connected,
+        General device interface. Returns a dict with retcode -1 if device not connected,
         -2 if there is an exception, (larger numbers also possible) and whatever data was read.
         Adds _msg_start and _msg_end to the message before sending it
         """
@@ -145,7 +145,7 @@ class Sensor(object):
 
     def _execute_command(self, command):
         """
-        Allows Doberman to issue commands to the sensor (change setpoints, valve
+        Allows Doberman to issue commands to the device (change setpoints, valve
         positions, etc)
         """
         try:
@@ -176,9 +176,9 @@ class Sensor(object):
         self.close()
 
 
-class SoftwareSensor(Sensor):
+class SoftwareDevice(Device):
     """
-    Class for software-only sensors (heartbeats, webcams, etc)
+    Class for software-only devices (heartbeats, webcams, etc)
     """
 
     def send_recv(self, command, timeout=1, **kwargs):
@@ -198,9 +198,9 @@ class SoftwareSensor(Sensor):
         return ret
 
 
-class SerialSensor(Sensor):
+class SerialDevice(Device):
     """
-    Serial sensor class. Implements more direct serial connection specifics
+    Serial device class. Implements more direct serial connection specifics
     """
 
     def setup_child(self):
@@ -234,7 +234,7 @@ class SerialSensor(Sensor):
 
     def is_this_me(self, dev):
         """
-        Makes sure the specified sensor is the correct one
+        Makes sure the specified device is the correct one
         """
         raise NotImplementedError()
 
@@ -260,9 +260,9 @@ class SerialSensor(Sensor):
         return ret
 
 
-class LANSensor(Sensor):
+class LANDevice(Device):
     """
-    Class for LAN-connected sensors
+    Class for LAN-connected devices
     """
 
     def setup_child(self):
@@ -284,7 +284,7 @@ class LANSensor(Sensor):
         ret = {'retcode': 0, 'data': None}
 
         if not self._connected:
-            self.logger.error('No sensor connected, can\'t send message %s' % message)
+            self.logger.error('No device connected, can\'t send message %s' % message)
             ret['retcode'] = -1
             return ret
         message = str(message).rstrip()
@@ -300,11 +300,12 @@ class LANSensor(Sensor):
         try:
             ret['data'] = self._device.recv(1024)
         except socket.error as e:
-            self.logger.fatal('Could not receive data from sensor. Error: %s' % e)
+            self.logger.fatal('Could not receive data from device. Error: %s' % e)
             ret['retcode'] = -2
         return ret
 
-class TestSensor(LANSensor):
+
+class TestDevice(LANDevice):
     """
     The TestSensorServer expects a new socket for each connection, so we do that here
     """
