@@ -55,7 +55,7 @@ class Pipeline(object):
                     ('rate', sum(timing.values())),
                     ('status', status)])
         drift = 0.001 # 1ms extra per cycle, so we don't accidentally get ahead of the new values
-        return max(self.db.get_reading_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
+        return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
 
     def build(self, config):
         """
@@ -99,7 +99,7 @@ class Pipeline(object):
                     n = getattr(Doberman, node_type)(**node_kwargs)
                     if isinstance(kwargs['input_var'], str):
                         # some things take lists
-                        setup_kwargs = self.db.get_reading_setting(name=kwargs['input_var'])
+                        setup_kwargs = self.db.get_sensor_setting(name=kwargs['input_var'])
                     else:
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
@@ -138,7 +138,7 @@ class Pipeline(object):
     def reconfigure(self, doc):
         for node in self.graph.values():
             if isinstance(node, Doberman.AlarmNode):
-                rd = self.db.get_reading_setting(name=node.input_var)
+                rd = self.db.get_sensor_setting(name=node.input_var)
                 if node.name not in doc:
                     doc[node.name] = {}
                 doc[node.name].update(alarm_thresholds=rd['alarm_threshold'], readout_interval=rd['readout_interval'])
@@ -154,5 +154,5 @@ class Pipeline(object):
         Silence this pipeline for a set amount of time
         """
         self.db.set_pipeline_value(self.name, [('status', 'silent')])
-        self.db.log_command(self.name, f'pipelinectl_active {self.name}', self.name, duration)
+        self.db.log_command(f'pipelinectl_active {self.name}', self.name, self.name, duration)
 

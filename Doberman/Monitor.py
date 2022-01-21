@@ -13,7 +13,7 @@ def main(mongo_client):
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
     group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
-    group.add_argument('--sensor', help='Start the specified sensor monitor')
+    group.add_argument('--device', help='Start the specified device monitor')
     group.add_argument('--pipeline', help='Start a pipeline monitor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
@@ -38,10 +38,10 @@ def main(mongo_client):
             print(f'Hypervisor crashed?')
         ctor = Doberman.Hypervisor
         kwargs['name'] = 'hypervisor'
-    elif args.sensor:
-        ctor = Doberman.SensorMonitor
-        kwargs['name'] = args.sensor
-        if 'Test' in args.sensor:
+    elif args.device:
+        ctor = Doberman.DeviceMonitor
+        kwargs['name'] = args.device
+        if 'Test' in args.device:
             db.experiment_name = 'testing'
     elif args.pipeline:
         kwargs['name'] = f'{args.pipeline}'
