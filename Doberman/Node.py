@@ -86,19 +86,34 @@ class InfluxSourceNode(SourceNode):
 
     Setup params:
     :param topic: the value's topic
+    :param influx_cfg: the document containing influx config params
+    :param accept_old: bool, default False. If you don't get a new value from the database,
+        is this ok?
+
+    Required params in the influx config doc:
+    :param url: http://address:port
+    :param version: which major version of InfluxDB you use, either 1 or 2 (note that v1.8 counts as 2)
+    :param db: the mapped database name corresponding to your bucket and retention policy,
+        see https://docs.influxdata.com/influxdb/cloud/query-data/influxql/ (InfluxDB >= v1.8)
+    :param org: the name of the organization (probably your experiment name) (InfluxDB >= v1.8)
+    :param token: the auth token (InfluxDB >= v1.8)
+    :param username: the username (InfluxDB < 1.8)
+    :param password: the password (InfluxDB < 1.8)
+    :param database: the database (InfluxDB < 1.8)
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        self.accept_old = kwargs.get('accept_old', False)
         config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
-        if config_doc.get('schema', 'new') == 'old':
+        if config_doc.get('schema', 'v2') == 'v1':
             variable = self.input_var
             where = ''
         else:
             variable = 'value'
             # note that the single quotes in the WHERE clause are very important
             # see https://docs.influxdata.com/influxdb/v1.8/query_language/explore-data/#a-where-clause-query-unexpectedly-returns-no-data
-            where = f"WHERE reading='{self.input_var}'"
+            where = f"WHERE sensor='{self.input_var}'"
         query = f'SELECT last({variable}) FROM {topic} {where};'
         url = config_doc['url'] + '/query?'
         headers = {'Accept': 'application/csv'}
@@ -109,13 +124,12 @@ class InfluxSourceNode(SourceNode):
             params['db'] = config_doc['database']
         elif version == 2:
             # even though you're using influxv2 we still use the v1 query endpoint
-            # because the v2 query is garbage for our purposes
-            params['db'] = config_doc['org']
+            # because the v2 query is bad and should feel bad
+            params['db'] = config_doc['db']
             params['org'] = config_doc['org']
             headers['Authorization'] = f'Token {config_doc["token"]}'
         else:
             raise ValueError("Invalid version specified: must be 1 or 2")
-        self.precision = int({'s': 1, 'ms': 1e3, 'us': 1e6, 'ns': 1e9}[config_doc['precision']])
 
         self.req_url = url
         self.req_headers = headers
@@ -129,14 +143,13 @@ class InfluxSourceNode(SourceNode):
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
 
-        #timestamp = int(timestamp) # TODO this might be broken because influx and ns
-        timestamp = int(timestamp[:-(9-int(log10(self.precision)))])
+        timestamp = int(timestamp)
         val = float(val) # 53 bits of precision and we only ever have small integers
-        if self.last_time == timestamp:
+        if self.last_time == timestamp and not self.accept_old:
             raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
         self.logger.debug(f'{self.name} time {timestamp} value {val}')
-        return {'time': timestamp/self.precision, self.output_var: val}
+        return {'time': timestamp*(10**-9), self.output_var: val}
 
 class BufferNode(Node):
     """
@@ -298,6 +311,7 @@ class InfluxSinkNode(Node):
     Setup params:
     :param topic: string, the type of measurement (temperature, pressure, etc)
     :param subsystem: string, optional. The subsystem the quantity belongs to
+    :param device: string, optional. The name of the device this quantity "comes from"
 
     Runtime params:
     None
@@ -307,11 +321,12 @@ class InfluxSinkNode(Node):
         self.topic = kwargs['topic']
         self.subsystem = kwargs.get('subsystem')
         self.write_to_influx = kwargs['write_to_influx']
+        self.device = kwargs.get('device', 'pipeline')
 
     def process(self, package):
         if not self.is_silent:
-            self.write_to_influx(topic=self.topic, tags={'reading': self.output_var,
-                'sensor': 'pipeline', 'subsystem': self.subsystem},
+            self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
+                'sensor': self.device, 'subsystem': self.subsystem},
                 fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class EvalNode(Node):
@@ -325,8 +340,7 @@ class EvalNode(Node):
         assembed into a dict "v", and any constant values specified will be available as
         described below.
         For instance, "(v['input_1'] > c['min_in1']) and (v['input_2'] < c['max_in2'])"
-        or "math.exp(v['input_1'] + c['offset'])". The math library is available
-        for use.
+        or "math.exp(v['input_1'] + c['offset'])". The math library is available for use.
     :param output_var: string, the name to assign to the output variable
 
     Runtime params:

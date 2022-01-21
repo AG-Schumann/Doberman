@@ -23,19 +23,19 @@ class Database(object):
         influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
         url = influx_cfg['url']
         query_params = [('precision', influx_cfg.get('precision', 'ms'))]
-        if influx_cfg.get('version', 2) == 1:
+        if (influx_version := influx_cfg.get('version', 2)) == 1:
             query_params += [('u', influx_cfg['username']),
                             ('p', influx_cfg['password']),
                             ('db', influx_cfg['org'])]
             url += '/write?'
             headers = {}
-        elif influx_cfg['version'] == 2:
+        elif influx_version == 2:
             query_params += [('org', influx_cfg['org']),
                             ('bucket', bucket_override or influx_cfg['bucket'])]
             url += '/api/v2/write?'
             headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
-            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg.get("version")}"')
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_version}"')
         url += '&'.join([f'{k}={v}' for k, v in query_params])
         precision = {'s': 1, 'ms': 1000, 'us': 1_000_000, 'ns': 1_000_000_000}
         self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
