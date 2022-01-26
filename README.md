@@ -9,6 +9,10 @@ University of Freiburg
 
 Doberman is a versatile monitoring and process control ("slow control") package designed for mid-scale operations (O(10)-O(100) distinct quantities) but capable of rather more. Each quantity from each physical hardware module is read out independently where possible and stored individually.
 
+## Documentation ##
+
+See the [wiki](https://github.com/AG-Schumann/Doberman/wiki) on Github
+
 ## Prerequisites ##
 
 The code is designed for >=python3.8 on linux but would probably work on other OSs but not older python versions. A limited number of libraries are required for the core operation (`pymongo`, `requests`, `psutil`, and `python-dateutil`), and some additional libraries may be necessary for your sensor hardware. Sensors accessed via RS-232 require the `pyserial` library.
