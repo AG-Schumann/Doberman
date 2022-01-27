@@ -6,6 +6,7 @@ import os.path
 import threading
 import socket
 import json
+import datetime
 
 
 dtnow = Doberman.utils.dtnow
@@ -18,6 +19,7 @@ class Hypervisor(Doberman.Monitor):
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
+        self.register(obj=self.compress_logs, period=86400, name='log_compactor')
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat')
         elif rhb == 'receive':
@@ -120,6 +122,11 @@ class Hypervisor(Doberman.Monitor):
         path = self.config['path']
         return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
+    def compress_logs(self):
+        p = self.logger.handlers[0].logdir(dtnow() - datetime.timedelta(days=7))
+        self.logger.info(f'Compressing logs')
+        self.run_over_ssh(f'doberman@localhost', f'cd {p} && gzip *.log')
+
     def dispatch(self):
         # if there's nothing to do, wait this long
         dt_large = 1000
@@ -200,7 +207,7 @@ class Hypervisor(Doberman.Monitor):
                 self.run_over_ssh(host, f"screen -S {thing} -X quit")
             else:
                 # assume it's a pipeline?
-                self.run_over_ssh('localhost', f"screen -S {thing} -X quit")
+                self.run_over_ssh('doberman@localhost', f"screen -S {thing} -X quit")
         else:
             self.logger.error(f'Command "{command}" not understood')
 
