@@ -23,7 +23,7 @@ class Hypervisor(Doberman.Monitor):
         elif rhb == 'receive':
             self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat')
         self.last_restart = {}
-        self.known_sensors = self.db.distinct('settings', 'devices', 'name')
+        self.known_devices = self.db.distinct('settings', 'devices', 'name')
         self.cv = threading.Condition()
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
@@ -163,31 +163,44 @@ class Hypervisor(Doberman.Monitor):
                 self.dispatch_queue.add(json.loads(command))
                 self.cv.notify()
             return
+
         if command.startswith('start'):
             _, target = command.split(' ', maxsplit=1)
             self.logger.info(f'Hypervisor starting {target}')
-            if target in self.known_sensors:
+            if target in self.known_devices:
                 self.start_device(target)
             elif self.db.count('settings', 'pipelines', target) == 1:
                 self.start_pipeline(target)
             else:
                 self.logger.error(f'Don\'t know what "{target}" is, can\'t start it')
+
         elif command.startswith('manage'):
             _, device = command.split(' ', maxsplit=1)
-            if device not in self.known_sensors:
+            if device not in self.known_devices:
                 # unlikely but you can never trust users
                 self.logger.error(f'Hypervisor can\'t manage {device}')
                 return
             self.logger.info(f'Hypervisor now managing {device}')
             self.update_config(manage=device)
+
         elif command.startswith('unmanage'):
             _, device = command.split(' ', maxsplit=1)
-            if device not in self.known_sensors:
+            if device not in self.known_devices:
                 # unlikely but you can never trust users
                 self.logger.error(f'Hypervisor can\'t unmanage {device}')
                 return
             self.logger.info(f'Hypervisor relinquishing control of {device}')
             self.update_config(unmanage=device)
+
+        elif command.startswith('kill'):
+            # I'm sure this will be useful at some point
+            _, thing = command.split(' ', maxsplit=1)
+            if thing in self.known_devices:
+                host = self.db.get_device_setting(thing, field='host')
+                self.run_over_ssh(host, f"screen -S {thing} -X quit")
+            else:
+                # assume it's a pipeline?
+                self.run_over_ssh('localhost', f"screen -S {thing} -X quit")
         else:
             self.logger.error(f'Command "{command}" not understood')
 

@@ -44,29 +44,39 @@ class PipelineMonitor(Doberman.Monitor):
         self.stop_thread(name)
         del self.pipelines[name]
 
-    def handle_commands(self):
-        while (doc := self.db.find_command(self.name)) is not None:
-            self.logger.debug(f'Found command: {doc["command"]}')
-            try:
-                command = doc['command']
-                if command == 'pipelinectl_start':
-                    _, name = command.split(' ')
-                    self.start_pipeline(name)
-                elif command == 'pipelinectl_stop':
-                    _, name = command.split(' ')
+    def process_command(self, command):
+        self.logger.debug(f'Found command: {doc["command"]}')
+        try:
+            if command == 'pipelinectl_start':
+                _, name = command.split(' ')
+                self.start_pipeline(name)
+            elif command == 'pipelinectl_stop':
+                _, name = command.split(' ')
+                if name not in self.pipelines:
+                    self.logger.error(f'I don\'t control the "{name}" pipeline')
+                else:
                     self.stop_pipeline(name)
-                elif command == 'pipelinectl_restart':
-                    _, name = command.split(' ')
+            elif command == 'pipelinectl_restart':
+                _, name = command.split(' ')
+                if name not in self.pipelines:
+                    self.logger.error(f'I don\'t control the "{name}" pipeline')
+                else:
                     self.stop_pipeline(name)
                     self.start_pipeline(name)
-                elif command == 'pipelinectl_silent':
-                    _, name = command.split(' ')
+            elif command == 'pipelinectl_silent':
+                _, name = command.split(' ')
+                if name not in self.pipelines:
+                    self.logger.error(f'I don\'t control the "{name}" pipeline')
+                else:
                     self.db.set_pipeline_value(name, [('status', 'silent')])
-                elif command == 'pipelinectl_active':
-                    _, name = command.split(' ')
+            elif command == 'pipelinectl_active':
+                _, name = command.split(' ')
+                if name not in self.pipelines:
+                    self.logger.error(f'I don\'t control the "{name}" pipeline')
+                else:
                     self.db.set_pipeline_value(name, [('status', 'active')])
-                elif command == 'stop':
-                    self.sh.event.set()
-                    return
-            except Exception as e:
-                self.logger.error(f'Received malformed command: {doc["command"]}')
+            elif command == 'stop':
+                self.sh.event.set()
+                return
+        except Exception as e:
+            self.logger.error(f'Received malformed command: {doc["command"]}')
