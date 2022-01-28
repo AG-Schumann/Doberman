@@ -1,4 +1,5 @@
 import Doberman
+import inspect
 
 __all__ = 'DeviceMonitor'.split()
 
@@ -22,7 +23,7 @@ class DeviceMonitor(Doberman.Monitor):
 
     def start_sensor(self, rd):
         self.logger.debug('Constructing ' + rd)
-        sensor_doc = self.db.get_sensor_setting(self.name, rd)
+        sensor_doc = self.db.get_sensor_setting(rd)
         kwargs = {'sensor_name': rd, 'logger': self.logger, 'db': self.db,
                   'device_name': self.name, 'event': self.event, 'device': self.device}
         if 'multi_sensor' in sensor_doc and isinstance(sensor_doc['multi_sensor'], list):
