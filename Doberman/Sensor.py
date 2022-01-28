@@ -74,10 +74,12 @@ class Sensor(threading.Thread):
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
             self.logger.debug(f'{self.name} got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
-        self.logger.debug(f'{self.name} measured {value}')
         if value is not None:
             value = self.more_processing(value)
+            self.logger.debug(f'{self.name} measured {value}')
             self.send_upstream(value, pkg['time'])
+        else:
+            self.logger.debug(f'{self.name} got None')
         return
 
     def more_processing(self, value):
@@ -100,7 +102,7 @@ class Sensor(threading.Thread):
             fields['alarm_low'] = low
         if high is not None:
             fields['alarm_high'] = high
-        self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields)
+        self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
 
 
 class MultiSensor(Sensor):
@@ -153,5 +155,5 @@ class MultiSensor(Sensor):
                 fields['alarm_low'] = low
             if high is not None:
                 fields['alarm_high'] = high
-            self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields)
+            self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
 

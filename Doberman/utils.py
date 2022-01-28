@@ -29,7 +29,6 @@ __all__ = 'dtnow find_plugin number_regex get_logger make_hash sensible_sig_figs
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
-
 def find_plugin(name, path):
     """
     Finds the device constructor with the specified name, in the specified paths.

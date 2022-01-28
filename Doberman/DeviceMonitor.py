@@ -22,7 +22,7 @@ class DeviceMonitor(Doberman.Monitor):
 
     def start_sensor(self, rd):
         self.logger.debug('Constructing ' + rd)
-        sensor_doc = self.db.get_sensor_setting(self.name, rd)
+        sensor_doc = self.db.get_sensor_setting(rd)
         kwargs = {'sensor_name': rd, 'logger': self.logger, 'db': self.db,
                   'device_name': self.name, 'event': self.event, 'device': self.device}
         if 'multi_sensor' in sensor_doc and isinstance(sensor_doc['multi_sensor'], list):
@@ -66,6 +66,7 @@ class DeviceMonitor(Doberman.Monitor):
         self.db.update_heartbeat(device=self.name)
         return self.db.get_experiment_config(name='hypervisor', field='period')
 
+<<<<<<< HEAD
     def process_command(self, command):
         self.logger.info(f"Found command '{command}'")
         if command == 'reload sensors':
@@ -82,11 +83,35 @@ class DeviceMonitor(Doberman.Monitor):
             self.device._execute_command(quantity, value)
         else:
             self.logger.error(f"Command '{command}' not accepted")
+=======
+    def handle_commands(self):
+        while (doc := self.db.find_command(self.name)) is not None:
+            command = doc['command']
+            self.logger.info(f"Found command '{command}'")
+            if command == 'reload sensors':
+                self.device.setattr('sensors',
+                                    self.db.get_device_setting(self.name, field='sensors'))
+                self.reload_sensors()
+            elif command == 'stop':
+                self.event.set()
+                # only unmanage from HV if asked to stop
+                self.db.notify_hypervisor(unmanage=self.name)
+            elif self.device is not None:
+                self.device._execute_command(command=command)
+            else:
+                self.logger.error(f"Command '{command}' not accepted")
+>>>>>>> experimental
 
     def reload_sensors(self):
         sensors_doc = self.db.get_device_setting(self.name, 'sensors')
         for sensor_name in sensors_doc.values():
+<<<<<<< HEAD
             if sensor_name in list(self.threads.keys()):
                 self.stop_thread(sensor_name)
                 self.start_sensor(sensor_name)
 
+=======
+            if sensor_name in self.threads.keys():
+                self.stop_thread(sensor_name)
+                self.start_sensor(sensor_name)
+>>>>>>> experimental

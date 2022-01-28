@@ -1,15 +1,15 @@
 #!/bin/bash
 
-USAGE="Usage: $0 [-s <sensor>] [-p <pipeline>] [-h]"
+USAGE="Usage: $0 [-d <device>] [-p <pipeline>] [--hypervisor]"
 folder="/global/software/doberman/Doberman"
 
 x=0
 
 while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
-  -s | --sensor )
+  -d | --device )
     shift
     name=$1
-    target="sensor"
+    target="device"
     screen_name=$1
     x=$((x+1))
     ;;
@@ -20,7 +20,7 @@ while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
     screen_name=$1
     x=$((x+1))
     ;;
-  -h | --hypervisor )
+  --hypervisor )
     target="hypervisor"
     screen_name='hypervisor'
     x=$((x+1))

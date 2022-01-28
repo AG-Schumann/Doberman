@@ -2,7 +2,7 @@ import random
 import time
 import socket
 import threading
-import numpy as np
+from math import sin
 import sys
 
 # constants
@@ -24,7 +24,7 @@ def outside_temp(when=None):
     temp_variation = 4  # K
     t_period = 86400  # s
     t_phase = 2.135  # peak at 1600h
-    return temp_base + temp_variation * np.sin((when or time.time()) / t_period - t_phase)
+    return temp_base + temp_variation * sin((when or time.time()) / t_period - t_phase)
 
 
 class Thermosiphon(object):
