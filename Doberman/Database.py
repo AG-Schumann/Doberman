@@ -5,6 +5,7 @@ import time
 import requests
 import json
 import pytz
+import itertools
 
 __all__ = 'Database'.split()
 
@@ -212,17 +213,6 @@ class Database(object):
                 }
         self.insert_into_db('logging', 'commands', doc)
 
-    def get_experiment_config(self, name, field=None):
-        """
-        Gets a document or parameter from the experimental configs
-        :param field: which field you want, default None which gives you all of them
-        :returns: either the whole document or a specific field
-        """
-        doc = self.read_from_db('experiment_config', {'name': name}, onlyone=True)
-        if doc is not None and field is not None:
-            return doc.get(field)
-        return doc
-
     def get_pipeline(self, name):
         """
         Gets a pipeline config doc
@@ -401,30 +391,32 @@ class Database(object):
 
     def get_listener_address(self, name):
         """
-        Get a hostname and port to communicate over
+        Get a hostname and port to communicate over. If 'name' doesn't have a port assigned yet
+        then the next available number is chosen.
 
         :param name: the name of someone
         :returns: (string, int) tuple of the hostname and port
         """
-        if name == 'hypervisor':
-            doc = self.get_experiment_config('hypervisor')
-            return doc['host'], doc['dispatch_port']
-        if name == 'alarm_monitor':
-            pass
-        doc = self.get_sensor_setting(name)
-        if (port := doc.get('dispatch_port')) is None:
-            # doesn't have an entry, we make it now
-            min_port = 8943
-            existing_ports = self.distinct('devices', 'dispatch_port', cuts={'host': doc['host']})
-            for i in range(64): #TODO reasonable to assume you won't have 64 things read out by one host?
-                if (port := min_port + i) not in existing_ports:
-                    self.set_sensor_setting(name=name, field='dispatch_port', value=port)
-                    break
-                else:
-                    raise ValueError(f'Could not assign a dispatch port for {doc["host"]}:{name}')
-
-        return doc['host'], port
-
+        doc = self.get_experiment_config('hypervisor', field='global_dispatch')
+        # doc looks like { name: [host, port], ...}
+        if name not in doc:
+            # doesn't have an entry, we make one now
+            if name in self.distinct('devices', 'name'):
+                # this is a device
+                host = self.get_device_setting(name, field='host')
+            else:
+                # probably a pipeline, assume it runs on the master host
+                host = doc['hypervisor'][0]
+            existing_ports = [p for (hn, p) in doc.values() if hn == host] or [doc['hypervisor'][1]]
+            for port in itertools.count(min(existing_ports)):
+                if port in existing_ports:
+                    continue
+                break
+            self.logger.info(f'Assigning {host}:{port} to {name}')
+            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
+        else:
+            host, port = doc[name]
+        return host, port
 
     def get_host_setting(self, host=None, field=None):
         """

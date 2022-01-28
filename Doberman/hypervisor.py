@@ -17,6 +17,7 @@ class Hypervisor(Doberman.Monitor):
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
+        self.username = config['username']
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat')
@@ -78,15 +79,15 @@ class Hypervisor(Doberman.Monitor):
     def send_remote_heartbeat(self) -> None:
         # touch a file on a remote server just so someone else knows we're still alive
         if (addr := self.config.get('remote_heartbeat', {}).get('address')) is not None:
-            self.run_over_ssh(addr, r'date +%s > /scratch/remote_hb', port=self.config['remote_heartbeat'].get('port', 22))
+            self.run_over_ssh(addr, r'date +%s > /scratch/remote_hb_'+self.db.experiment_name, port=self.config['remote_heartbeat'].get('port', 22))
 
     def check_remote_heartbeat(self):
-        if os.path.exists('/scratch/remote_hb'):
-            with open('/scratch/remote_hb', 'r') as f:
+        for p in os.listdir('/scratch/remote_hb_*'):
+            with open(f'/scratch/{p}', 'r') as f:
                 time_str = f.read().strip()
             if time.time() - int(time_str) > 3*60:
                 # timestamp is too old, the other server is having problems
-                self.db.log_alarm(msg="The other server hasn't heartbeated recently, maybe let someone know?")
+                self.db.log_alarm(msg=f"{p.split('_',maxsplit=2)[3]} hasn't heartbeated recently, maybe let someone know?")
 
     def run_over_ssh(self, address: str, command: str, port=22) -> int:
         """
@@ -113,12 +114,12 @@ class Hypervisor(Doberman.Monitor):
         host = doc['host']
         self.last_restart[device] = dtnow()
         self.update_config(manage=device)
-        return self.run_over_ssh(f'doberman@{host}', f"cd {path} && ./start_process.sh -d {device}")
+        return self.run_over_ssh(f'{self.username}@{host}', f"cd {path} && ./start_process.sh -d {device}")
 
     def start_pipeline(self, pipeline: str) -> int:
         # if you end up running pipelines elsewhere, update
         path = self.config['path']
-        return self.run_over_ssh(f'doberman@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
+        return self.run_over_ssh(f'{self.username}@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
 
     def dispatch(self):
         # if there's nothing to do, wait this long
@@ -143,12 +144,18 @@ class Hypervisor(Doberman.Monitor):
                     if doc['to'] == 'hypervisor':
                         self.process_command(doc['command'])
                         continue
-                    hn, p = self.db.get_listener_address(doc['to'])
-                    if self.db.get_sensor_setting(name=doc['to'], field='status') != 'online':
+                    if doc['to'] in self.known_devices and \
+                            self.db.get_device_setting(name=doc['to'], field='status') != 'online':
+                        self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
+                                f' because it isn\'t online')
+                        continue
+                    if doc['to'] in self.db.distinct('pipelines', 'name') and \
+                            self.db.get_pipeline(doc['to'])['status'] == 'inactive':
                         self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
                                 f' because it isn\'t online')
                         continue
                     self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]}')
+                    hn, p = self.db.get_listener_address(doc['to'])
                     with socket.create_connection((hn, p), timeout=0.1) as sock:
                         sock.sendall(doc['command'].encode())
             except Exception as e:
@@ -199,8 +206,9 @@ class Hypervisor(Doberman.Monitor):
                 host = self.db.get_device_setting(thing, field='host')
                 self.run_over_ssh(host, f"screen -S {thing} -X quit")
             else:
-                # assume it's a pipeline?
+                # assume it's running on localhost?
                 self.run_over_ssh('localhost', f"screen -S {thing} -X quit")
+
         else:
             self.logger.error(f'Command "{command}" not understood')
 
