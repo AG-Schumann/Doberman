@@ -4,44 +4,44 @@ try:
 except ImportError:
     has_serial = False
 import socket
-import queue
 import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
 
-__all__ = 'Sensor SoftwareSensor SerialSensor LANSensor'.split()
+__all__ = 'Device SoftwareDevice SerialDevice LANDevice TestDevice'.split()
 
 
-class Sensor(object):
+class Device(object):
     """
-    Generic sensor class. Defines the interface with Doberman
+    Generic device class. Defines the interface with Doberman
     """
     _msg_start = ''
     _msg_end = ''
 
-    def __init__(self, opts, logger):
+    def __init__(self, opts, logger, event):
         """
         opts is the document from the database
         """
-        logger.debug('Sensor base ctor')
+        logger.debug('Device base ctor')
         if 'address' in opts:
             for k, v in opts['address'].items():
                 setattr(self, k, v)
         if 'additional_params' in opts:
             for k, v in opts['additional_params'].items():
                 setattr(self, k, v)
-        self.readings = opts['readings']
+        self.sensors = opts['sensors']
         self.logger = logger
+        self.event = event
+        self.cv = threading.Condition()
+        self.cmd_queue = []
         self.set_parameters()
         self.base_setup()
 
     def base_setup(self):
-        self.cmd_queue = queue.Queue()
         try:
             self.setup_child()
             self.setup()
             time.sleep(0.2)
-            self.event = threading.Event()
             self.readout_thread = threading.Thread(target=self.readout_scheduler)
             self.readout_thread.start()
         except Exception as e:
@@ -58,13 +58,13 @@ class Sensor(object):
 
     def set_parameters(self):
         """
-        A function for a sensor to set its operating parameters (commands,
+        A function for a device to set its operating parameters (commands,
         _ms_start token, etc). Will be called by the c'tor
         """
 
     def setup(self):
         """
-        If a sensor needs to receive a command after opening but
+        If a device needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
 
@@ -78,86 +78,94 @@ class Sensor(object):
     def readout_scheduler(self):
         """
         Pulls tasks from the command queue and deals with them. If the queue is empty
-        it sleeps for 1ms and retries. This function returns when self.running
-        becomes False. While the sensor is in normal operation, this is the only
-        function that should call SendRecv to avoid issues with simultaneous
+        it waits until it isn't. This function returns when the event is set.
+        While the device is in normal operation, this is the only
+        function that should call send_recv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
         self.logger.debug('Readout scheduler starting')
         while not self.event.is_set():
-            try:
-                command, retq = self.cmd_queue.get(timeout=0.001)
-                ret = self.send_recv(command)
-                self.cmd_queue.task_done()
-                if retq is not None:
-                    retq.put(ret)
-            except queue.Empty:
-                pass
+            command = None
+            with self.cv:
+                self.cv.wait_for(lambda: (len(self.cmd_queue) > 0 or self.event.is_set()))
+                if len(self.cmd_queue) > 0:
+                    command, ret = self.cmd_queue.pop(0)
+            if command is not None:
+                self.logger.debug(f'Executing {command}')
+                t_start = time.time()  # we don't want perf_counter because we care about
+                pkg = self.send_recv(command)
+                t_stop = time.time()  # the clock time when the data came out not cpu time
+                pkg['time'] = 0.5*(t_start + t_stop)
+                if ret is not None:
+                    d, cv = ret
+                    with cv:
+                        d.update(pkg)
+                        cv.notify()
         self.logger.debug('Readout scheduler returning')
 
-    def add_to_schedule(self, reading_name=None, command=None, retq=None):
+    def add_to_schedule(self, command=None, ret=None):
         """
         Adds one thing to the command queue. This is the only function called
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
-        :param reading_name: the name of the reading to schedule
-        :param command: the command to issue to the sensor
-        :param retq: a queue to put the result for asynchronous processing.
-            Required for reading_name != None
+        :param command: the command to issue to the device, or the name of a sensor
+        :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        if reading_name is not None:
-            if retq is None:
-                return
-            self.cmd_queue.put((self.readings[reading_name], retq))
-        elif command is not None:
-            self.cmd_queue.put((command, None))
+        self.logger.debug(f'Scheduling {command}')
+        with self.cv:
+            self.cmd_queue.append((self.sensors.get(command, command), ret))
+            self.cv.notify()
         return
 
-    def process_one_reading(self, name=None, data=None):
+    def process_one_value(self, name=None, data=None):
         """
-        Takes the raw data as returned by SendRecv and parses
+        Takes the raw data as returned by send_recv and parses
         it for the (probably) float. Does not need to catch exceptions.
-        If the data is "simple", add a 'reading_pattern' member that is a
+        If the data is "simple", add a 'value_pattern' member that is a
         regex with a named 'value' group that is float-castable, like:
         re.compile(('OK;(?P<value>%s)' % utils.number_regex).encode())
 
-        :param name: the name of the reading
+        :param name: the name of the sensor
         :param data: the raw bytes string
-        :returns: probably a float. Sensor-dependent
+        :returns: probably a float. Device-dependent
         """
-        if hasattr(self, 'reading_pattern'):
-            return float(self.reading_pattern.search(data).group('value'))
+        if hasattr(self, 'value_pattern'):
+            return float(self.value_pattern.search(data).group('value'))
         raise NotImplementedError()
 
     def send_recv(self, message):
         """
-        General sensor interface. Returns a dict with retcode -1 if sensor not connected,
-        -2 if there is an exception, (larger numbers also possible) and whatever data was read. Adds _msg_start and _msg_end
-        to the message before sending it
+        General device interface. Returns a dict with retcode -1 if device not connected,
+        -2 if there is an exception, (larger numbers also possible) and whatever data was read.
+        Adds _msg_start and _msg_end to the message before sending it
         """
         raise NotImplementedError()
 
-    def execute_command(self, command):
+    def _execute_command(self, command):
         """
-        Allows Doberman to issue commands to the sensor (change setpoints, valve
+        Allows Doberman to issue commands to the device (change setpoints, valve
         positions, etc)
         """
-        if not hasattr(self, 'command_patterns'):
-            self.logger.error("I don't accept specific commands")
-            return
-        for pattern, func in self.command_patterns:
-            m = pattern.search(command)
-            if not m:
-                continue
-            self.add_to_schedule(command=func(m))
-            return
-        self.logger.error("Did not understand command '%s'" % command)
+        try:
+            cmd = self.execute_command(command)
+        except Exception as e:
+            self.logger.info(f'Tried to process command "{command}", got a {type(e)}: {e}')
+            cmd = None
+        if cmd is not None:
+            self.add_to_schedule(command=cmd)
+
+    def execute_command(self, command):
+        """
+        Implemented by a child class
+        """
 
     def close(self):
         self.event.set()
         if hasattr(self, 'readout_thread'):
+            with self.cv:
+                self.cv.notify()
             self.readout_thread.join()
         self.shutdown()
 
@@ -168,9 +176,9 @@ class Sensor(object):
         self.close()
 
 
-class SoftwareSensor(Sensor):
+class SoftwareDevice(Device):
     """
-    Class for software-only sensors (heartbeats, webcams, etc)
+    Class for software-only devices (heartbeats, webcams, etc)
     """
 
     def send_recv(self, command, timeout=1, **kwargs):
@@ -190,9 +198,9 @@ class SoftwareSensor(Sensor):
         return ret
 
 
-class SerialSensor(Sensor):
+class SerialDevice(Device):
     """
-    Serial sensor class. Implements more direct serial connection specifics
+    Serial device class. Implements more direct serial connection specifics
     """
 
     def setup_child(self):
@@ -204,11 +212,14 @@ class SerialSensor(Sensor):
         self._device.stopbits = serial.STOPBITS_ONE
         self._device.timeout = 0  # nonblocking mode
         self._device.write_timeout = 1
+        if not hasattr(self, 'msg_sleep'):
+            # so we can more easily change this later
+            self.msg_sleep = 1.0
 
         if self.tty == '0':
             raise ValueError('No tty port specified!')
         try:
-            if self.tty.startswith('/'): # Full path to device TTY specified
+            if self.tty.startswith('/'):  # Full path to device TTY specified
                 self._device.port = self.tty
             else:
                 self._device.port = f'/dev/tty{self.tty}'
@@ -223,7 +234,7 @@ class SerialSensor(Sensor):
 
     def is_this_me(self, dev):
         """
-        Makes sure the specified sensor is the correct one
+        Makes sure the specified device is the correct one
         """
         raise NotImplementedError()
 
@@ -233,7 +244,7 @@ class SerialSensor(Sensor):
         try:
             message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(1.0)
+            time.sleep(self.msg_sleep)
             if device.in_waiting:
                 s = device.read(device.in_waiting)
                 ret['data'] = s
@@ -249,9 +260,9 @@ class SerialSensor(Sensor):
         return ret
 
 
-class LANSensor(Sensor):
+class LANDevice(Device):
     """
-    Class for LAN-connected sensors
+    Class for LAN-connected devices
     """
 
     def setup_child(self):
@@ -260,7 +271,8 @@ class LANSensor(Sensor):
             self._device.settimeout(1)
             self._device.connect((self.ip, int(self.port)))
         except socket.error as e:
-            self.logger.error('Couldn\'t connect to %s:%i' % (self.ip, self.port))
+            self.logger.error(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
+            self._connected = False
             return False
         self._connected = True
         return True
@@ -272,7 +284,7 @@ class LANSensor(Sensor):
         ret = {'retcode': 0, 'data': None}
 
         if not self._connected:
-            self.logger.error('No sensor connected, can\'t send message %s' % message)
+            self.logger.error('No device connected, can\'t send message %s' % message)
             ret['retcode'] = -1
             return ret
         message = str(message).rstrip()
@@ -288,6 +300,24 @@ class LANSensor(Sensor):
         try:
             ret['data'] = self._device.recv(1024)
         except socket.error as e:
-            self.logger.fatal('Could not receive data from sensor. Error: %s' % e)
+            self.logger.fatal('Could not receive data from device. Error: %s' % e)
             ret['retcode'] = -2
         return ret
+
+
+class TestDevice(LANDevice):
+    """
+    The TestSensorServer expects a new socket for each connection, so we do that here
+    """
+    def setup_child(self):
+        self._device = None
+        self._connected = True
+        return True
+
+    def shutdown(self):
+        return
+
+    def send_recv(self, message):
+        with socket.create_connection((self.ip, int(self.port)), 1) as self._device:
+            return super().send_recv(message)
+

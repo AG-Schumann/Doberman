@@ -11,33 +11,22 @@ class Monitor(object):
     A base monitor class
     """
 
-    def __init__(self, db=None, _name=None, loglevel='INFO'):
+    def __init__(self, db=None, name=None, logger=None):
         """
         """
         self.db = db
-        if isinstance(self, Doberman.HostMonitor):
-            self.name = db.hostname
-        elif isinstance(self, Doberman.AlarmMonitor):
-            self.name = 'AlarmMonitor'
-        elif isinstance(self, Doberman.SensorMonitor):
-            self.name = _name
-
-        self.logger = Doberman.utils.logger(name=self.name, db=db, loglevel=loglevel)
+        self.logger = logger
+        self.name = name
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
         self.threads = {}
-        self.loglevel = loglevel
-        if threading.current_thread() is threading.main_thread():
-            self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
+        self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()
         self.register(obj=self.handle_commands, period=1, name='handlecommands')
         self.register(obj=self.check_threads, period=30, name='checkthreads')
 
     def __del__(self):
-        self.close()
-
-    def __exit__(self):
-        self.close()
+        pass
 
     def close(self):
         """
@@ -46,7 +35,7 @@ class Monitor(object):
         self.event.set()
         self.shutdown()
         pop = []
-        thread_numbers  = self.threads.keys()
+        thread_numbers = self.threads.keys()
         for thread_number in thread_numbers:
             try:
                 self.threads[thread_number].event.set()
@@ -55,8 +44,7 @@ class Monitor(object):
                 self.logger.debug(f'Can\'t close {thread_number}-thread. {e}')
             else:
                 pop += [thread_number]
-        for p in pop:
-            self.threads.pop(p)
+        map(self.threads.pop, pop)
 
     def register(self, name, obj, period=None, **kwargs):
         self.logger.debug('Registering ' + name)
@@ -71,7 +59,7 @@ class Monitor(object):
                 func = partial(obj, **kwargs)
             else:
                 func = obj
-            t = FunctionHandler(func=func, logger=self.logger, period=period, event=self.event)
+            t = FunctionHandler(func=func, logger=self.logger, period=period, name=name)
         t.start()
         self.threads[name] = t
 
@@ -92,9 +80,12 @@ class Monitor(object):
         """
         Stops a specific thread. Thread is removed from thread dictionary
         """
-        self.threads[name].event.set()
-        self.threads[name].join()
-        del self.threads[name]
+        if name in self.threads:
+            self.threads[name].event.set()
+            self.threads[name].join()
+            del self.threads[name]
+        else:
+            self.logger.info(f'Asked to stop thread {name}, but it isn\'t in the dict')
 
     def check_threads(self):
         """
@@ -117,24 +108,24 @@ class Monitor(object):
 
 
 class FunctionHandler(threading.Thread):
-    def __init__(self, func=None, logger=None, period=None, event=None):
+    def __init__(self, func=None, logger=None, period=None, event=None, name=None):
         threading.Thread.__init__(self)
-        self.event = event
+        self.event = event or threading.Event()
         self.func = func
         self.logger = logger
         self.period = period
-        if threading.current_thread() is threading.main_thread():
-            self.sh = Doberman.utils.SignalHandler(logger, self.event)
+        self.name = name
 
     def run(self):
         """
         Spawns a thread to do a function
         """
-        self.logger.debug('Starting')
+        self.logger.debug(f'Starting {self.name}')
         while not self.event.is_set():
             loop_top = time.time()
+            self.logger.debug(f'Running {self.name}')
             ret = self.func()
             if isinstance(ret, (int, float)) and 0. < ret:
                 self.period = ret
             self.event.wait(loop_top + self.period - time.time())
-        self.logger.debug('Returning')
+        self.logger.debug(f'Returning {self.name}')

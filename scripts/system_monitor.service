@@ -1,0 +1,18 @@
+[Unit]
+Description=System monitor service
+Requires=network.target
+#Requires=network.target mongod.service influxdbv2.service
+After=network.target
+#After=network.target mongod.service influxdbv2.service
+# remove mongod and influxdbv2 if you aren't on the db host
+
+[Service]
+Type=simple
+EnvironmentFile=/global/etc/env_vars
+ExecStart=/global/software/doberman/scripts/system_monitor.py
+RestartSec=20s
+TimeoutStartSec=5s
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

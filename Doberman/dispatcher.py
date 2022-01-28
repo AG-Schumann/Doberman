@@ -16,18 +16,18 @@ __all__ = 'PrintHelp ProcessCommand'.split()
 def print_help(db, name):
     print('Accepted commands:')
     print('help [<plugin_name>]: help [for specific plugin]')
-    print('add <config_file>: add a sensor to the Database')
+    print('add <config_file>: add a device to the Database')
     print('start <plugin_name> [<runmode>]: starts a plugin [in the specified runmode]')
     print('stop <plugin_name>: stops a plugin')
     print('restart <plugin_name>: restarts a plugin')
     print()
     print('Available plugins:')
-    names = db.distinct('settings', 'sensors', 'name')
+    names = db.distinct('settings', 'devices', 'name')
     print(' | '.join(names))
     print()
     print('Plugin commands:')
-    print('<plugin_name> [<reading_name>] runmode <runmode>: '
-          + 'changes the active runmode for the specified sensor\'s reading (\'all\' accepted)')
+    print('<device_name> [<sensor_name>] runmode <runmode>: '
+          + 'changes the active runmode for the specified device\'s sensor (\'all\' accepted)')
     print()
     if name:
         print('Commands specific to %s:' % name)
@@ -54,7 +54,7 @@ def process_command(db, command_str, user=None):
     :param command_str: the string as received from the command line
     :param user: a dict of info from the web interface
     """
-    names = db.distinct('settings', 'sensors', 'name')
+    names = db.distinct('settings', 'devices', 'name')
     names_ = '|'.join(names + ['all'])
     runmodes_ = '|'.join(db.distinct('settings', 'runmodes', 'mode'))
     if command_str.startswith('help'):
@@ -99,11 +99,11 @@ def step_two(db, m, user=None):
     names = {'None': ['doberman']}
     if name != 'None':
         names.update({name: [name]})
-    online = db.distinct('settings', 'sensors', 'name', {'status': 'online'})
-    offline = db.distinct('settings', 'sensors', 'name', {'status': 'offline'})
-    asleep = db.distinct('settings', 'sensors', 'name', {'status': 'sleep'})
+    online = db.distinct('settings', 'devices', 'name', {'status': 'online'})
+    offline = db.distinct('settings', 'devices', 'name', {'status': 'offline'})
+    asleep = db.distinct('settings', 'devices', 'name', {'status': 'sleep'})
     if command == 'add':
-        add_sensor(db, m['file'])
+        add_device(db, m['file'])
     if command in ['start', 'stop', 'restart', 'sleep', 'wake', 'runmode']:
         names.update({'all': {
             'start': offline,
@@ -153,29 +153,30 @@ def step_three(db, name, command, future=None, user=None):
         command_doc['logged'] += future
     db.insert_into_db('logging', 'commands', command_doc)
 
-def add_sensor(db, file):
+
+def add_device(db, file):
     try:
         with open(file) as f:
             data = json.load(f)
     except Exception as e:
         print(f"Couldn't find or interpret file '{f}'. Got an {type(e)} error: {e}")
     try:
-        sensor_doc = {"name": data["name"],
+        device_doc = {"name": data["name"],
                       "address": data["address"],
-                      "readings": {}
+                      "sensors": {}
                       }
         if "additional_params" in data:
-            sensor_doc["additional_params"] = data["additional_params"]
-        reading_docs = []
-        for reading in data["readings"]:
-            sensor_doc["readings"][reading] = reading["msg"]
-            reading_doc = {"description": data["readings"][reading]["description"],
-                           "name": reading,
-                           "readout_interval": data["readings"][reading]["readout_interval"],
-                           "sensor": data["name"],
+            device_doc["additional_params"] = data["additional_params"]
+        sensor_docs = []
+        for sensor in data["sensors"]:
+            device_doc["sensors"][sensor] = sensor["msg"]
+            sensor_doc = {"description": data["sensors"][sensor]["description"],
+                           "name": sensor,
+                           "readout_interval": data["sensors"][sensor]["readout_interval"],
+                           "device": data["name"],
                            "runmode": "testing",
                            "status": "offline",
-                           "topic": data["readings"][reading]["topic"],
+                           "topic": data["sensors"][sensor]["topic"],
                            "alarms": [
                                {
                                    "type": "pid",
@@ -196,7 +197,7 @@ def add_sensor(db, file):
                                    "enabled": "false",
                                    "lower_threshold": 0,
                                    "upper_threshold": 0,
-                                   "max_duration": [1,]
+                                   "max_duration": [1, ]
                                },
                                {
                                    "type": "simple",
@@ -208,12 +209,14 @@ def add_sensor(db, file):
                                }
                            ]
                            }
-            reading_docs.append(reading_doc)
+            sensor_docs.append(sensor_doc)
     except KeyError as e:
         print(f"Incomplete config file: {e}")
-    db.insert_into_db('settings', 'sensors', sensor_doc)
-    for reading_doc in reading_docs:
-        db.insert_into_db('settings', 'readings', reading_doc)
+    db.insert_into_db('settings', 'devices', device_doc)
+    for sensor_doc in sensor_docs:
+        db.insert_into_db('settings', 'sensors', sensor_doc)
+
+
 def main(mongo_client):
     command = ' '.join(sys.argv[1:])
     db = Doberman.Database(mongo_client, experiment_name=os.environ['DOBERMAN_EXPERIMENT_NAME'])

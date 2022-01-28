@@ -7,6 +7,7 @@ import time
 import os
 from pymongo import MongoClient
 
+
 def cuts(delay, level):
     then = datetime.datetime.now() - datetime.timedelta(seconds=delay)
     return {'when': {'$gte': then}, 'level': {'$gte': level}}

@@ -1,31 +1,13 @@
 import Doberman
 import datetime
 from socket import getfqdn
-from functools import partial
 import time
-
-try:
-    from kafka import KafkaProducer
-
-    has_kafka = True
-except ImportError:
-    has_kafka = False
-
-dtnow = datetime.datetime.utcnow
+import requests
+import pytz
 
 __all__ = 'Database'.split()
 
-
-class FakeKafka(object):
-    """
-    Something for testing on platforms without the Kafka driver
-    """
-
-    def send(self, *args, **kwargs):
-        pass
-
-    def close(self, *args, **kwargs):
-        pass
+dtnow = Doberman.utils.dtnow
 
 
 class Database(object):
@@ -33,29 +15,33 @@ class Database(object):
     Class to handle interfacing with the Doberman database
     """
 
-    def __init__(self, mongo_client, loglevel='INFO', experiment_name=None):
+    def __init__(self, mongo_client, experiment_name=None, bucket_override=None):
         self.client = mongo_client
-        self.logger = Doberman.utils.logger(name='Database', db=self, loglevel=loglevel)
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
-        if has_kafka:
-            self.has_kafka = True
-            kafka_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'kafka'}, onlyone=True)
-            try:
-                self.kafka = KafkaProducer(bootstrap_servers=kafka_cfg['bootstrap_servers'],
-                                           value_serializer=partial(bytes, encoding='utf-8'))
-                self.logger.debug(f" Connected to Kafka: {kafka_cfg['bootstrap_servers']}")
-            except Exception as e:
-                self.logger.debug(f"Connection to Kafka couldn't be established: {e}. I will run in independent mode")
-                self.kafka = FakeKafka()
-                self.has_kafka = False
+        influx_cfg = self.read_from_db('settings', 'experiment_config', {'name': 'influx'}, onlyone=True)
+        url = influx_cfg['url']
+        query_params = [('precision', influx_cfg.get('precision', 'ms'))]
+        if influx_cfg.get('version', 2) == 1:
+            query_params += [('u', influx_cfg['username']),
+                            ('p', influx_cfg['password']),
+                            ('db', influx_cfg['org'])]
+            url += '/write?'
+            headers = {}
+        elif influx_cfg['version'] == 2:
+            query_params += [('org', influx_cfg['org']),
+                            ('bucket', bucket_override or influx_cfg['bucket'])]
+            url += '/api/v2/write?'
+            headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
-            self.logger.debug(f"Could not import KafkaProducer. I will run in independent mode.")
-            self.kafka = FakeKafka()
-            self.has_kafka = False
+            raise ValueError(f'I only take influx versions 1 or 2, not "{influx_cfg.get("version")}"')
+        url += '&'.join([f'{k}={v}' for k, v in query_params])
+        precision = {'s': 1, 'ms': 1000, 'us': 1_000_000, 'ns': 1_000_000_000}
+        self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
 
     def close(self):
-        self.kafka.close()
+        print('DB shutting down')
+        pass
 
     def __del__(self):
         self.close()
@@ -159,20 +145,17 @@ class Database(object):
         collection = self._check(db_name, collection_name)
         collection.delete_many(cuts)
 
-    def delete_alarm(self, reading_name, alarm_type):
+    def get_experiment_config(self, name, field=None):
         """
-        Delete alarm of specific type from a reading
-        :param reading_name: name of the reading
-        :param alarm_type: alarm type to be removed
+        Gets an experiment config document
+        :param name: the name of the document
+        :param field: a specific field
+        :returns: The whole document if field = None, either just the field
         """
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$pull': {'alarms': {'type': alarm_type}}})
-
-    def update_alarm(self, reading_name, alarm_doc):
-        alarm_type = alarm_doc['type']
-        self.delete_alarm(reading_name, alarm_type)
-        self.update_db('settings', 'readings', {'name': reading_name},
-                       {'$push': {'alarms': alarm_doc}})
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if doc and field and field in doc:
+            return doc[field]
+        return doc
 
     def distinct(self, db_name, collection_name, field, cuts={}, **kwargs):
         """
@@ -214,21 +197,71 @@ class Database(object):
         """
         now = dtnow()
         doc = self.find_one_and_update('logging', 'commands',
-                                       cuts={'name': name,
-                                             'acknowledged': {'$exists': 0},
-                                             'logged': {'$lte': now}},
+                                       # the order of terms in the query is important
+                                       cuts={'acknowledged': 0,
+                                             'logged': {'$lte': now},
+                                             'name': name},
                                        updates={'$set': {'acknowledged': now}},
                                        sort=[('logged', 1)])
         if doc and 'by' in doc and doc['by'] == 'feedback':
             self.delete_documents('logging', 'commands', {'_id': doc['_id']})
         return doc
 
-    def log_command(self, doc):
+    def log_command(self, command, target, issuer, delay=0):
         """
+        Store a command for someone else
+        :param command: the command for them to process
+        :param target: who the command is for
+        :param issuer: who is issuing the command
+        :param delay: how far into the future the command should happen, default 0
+        :returns: None
         """
-        if 'logged' not in doc:
-            doc['logged'] = dtnow()
+        doc = {
+                'name': target,
+                'command': command,
+                'acknowledged': 0,
+                'by': issuer,
+                'logged': dtnow() + datetime.timedelta(seconds=delay)
+                }
         self.insert_into_db('logging', 'commands', doc)
+
+    def get_experiment_config(self, name, field=None):
+        """
+        Gets a document or parameter from the experimental configs
+        :param field: which field you want, default None which gives you all of them
+        :returns: either the whole document or a specific field
+        """
+        doc = self.read_from_db('settings', 'experiment_config', {'name': name}, onlyone=True)
+        if doc is not None and field is not None:
+            return doc.get(field)
+        return doc
+
+    def get_pipeline(self, name):
+        """
+        Gets a pipeline config doc
+        :param name: the name of the pipeline
+        """
+        return self.read_from_db('settings', 'pipelines', {'name': name}, onlyone=True)
+
+    def get_alarm_pipelines(self, inactive=False):
+        """
+        Returns a list of names of pipelines.
+        :param inactive: bool, include currently inactive pipelines in the return
+        :yields: names of pipelines
+        """
+        query = {'name': {'$regex': 'alarm'}, 'status': {'$in': ['active', 'silent']}}
+        if inactive:
+            del query['status']
+        for doc in self.read_from_db('settings', 'pipelines', query):
+            yield doc['name']
+
+    def set_pipeline_value(self, name, kvp):
+        """
+        Updates a pipeline config
+        :param name: the name of the pipeline
+        :param kvp: a list of (key, value) pairs to set
+        """
+        return self.update_db('settings', 'pipelines', {'name': name}, {'$set': dict(kvp)})
 
     def get_message_protocols(self, level):
         """
@@ -256,109 +289,95 @@ class Database(object):
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
+        if level == 'ohshit':
+            # shit shit fire ze missiles!
+            protocols = set()
+            for doc in self.read_from_db('settings', 'alarm_config', {'level': {'$gte': 0}}):
+                protocols |= set(doc['protocols'])
+            ret = {k: [] for k in protocols}
+            for doc in self.read_from_db('settings', 'contacts'):
+                for p in protocols:
+                    try:
+                        ret[p].append(doc[p])
+                    except KeyError:
+                        pass
+            return ret
         protocols = self.get_message_protocols(level)
         ret = {k: [] for k in protocols}
         now = datetime.datetime.now()  # no UTC here, we want local time
-        shifters = self.read_from_db('settings', 'shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                     onlyone=True)['shifters']
+        shifters = []
+        for doc in self.read_from_db('settings', 'shifts',
+                                     {'start': {'$lte': now}, 'end': {'$gte': now}}):
+                             shifters += doc['shifters']
         for doc in self.read_from_db('settings', 'contacts',
                                      {'name': {'$in': shifters}}):
             for p in protocols:
-                ret[p].append(doc[p])
+                try:
+                    ret[p].append(doc[p])
+                except KeyError:
+                    contactname = doc['name']
+                    self.logger.info(f"No {p} contact details for {contactname}")
         return ret
 
-    def get_heartbeat(self, host=None, sensor=None):
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        doc = self.read_from_db('settings', coll, cuts=cuts, onlyone=True)
-        return doc['heartbeat']
+    def get_heartbeat(self, device=None):
+        doc = self.read_from_db('settings', 'devices', cuts={'name': device}, onlyone=True)
+        return doc['heartbeat'].replace(tzinfo=pytz.utc)
 
-    def update_heartbeat(self, host=None, sensor=None):
+    def update_heartbeat(self, device=None):
         """
-        Heartbeats the specified sensor or host
+        Heartbeats the specified device or host
         """
-        if host is not None:
-            cuts = {'hostname': host}
-            coll = 'hosts'
-        elif sensor is not None:
-            cuts = {'name': sensor}
-            coll = 'sensors'
-        self.update_db('settings', coll, cuts=cuts,
+        self.update_db('settings', 'devices', cuts={'name': device},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
-    def log_alarm(self, document):
+    def log_alarm(self, message, pipeline=None, alarm_hash=None, base=None, escalation=None):
         """
         Adds the alarm to the history.
         """
-        if self.insert_into_db('logging', 'alarm_history', document):
+        doc = {'msg': message, 'acknowledged': 0, 'pipeline': pipeline,
+                'hash': alarm_hash, 'level': base, 'escalation': escalation}
+        if self.insert_into_db('logging', 'alarm_history', doc):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0
 
-    def log_update(self, **kwargs):
+    def get_device_setting(self, name, field=None):
         """
-        Logs changes submitted from the website
-        """
-        self.insert_into_db('logging', 'updates', kwargs)
+        Gets a specific setting from one device
 
-    def get_sensor_setting(self, name, field=None):
-        """
-        Gets a specific setting from one sensor
-
-        :param name: the name of the sensor
+        :param name: the name of the device
         :param field: the field you want
         :returns: the value of the named field
         """
-        doc = self.read_from_db('settings', 'sensors', cuts={'name': name},
+        doc = self.read_from_db('settings', 'devices', cuts={'name': name},
                                 onlyone=True)
         if field is not None:
             return doc[field]
         return doc
 
-    def set_sensor_setting(self, name, field, value):
+    def set_device_setting(self, name, field, value):
         """
-        Updates the setting from one sensor
+        Updates the setting from one device
+
+        :param name: the name of the device
+        :param field: the specific field to update
+        :param value: the new value
+        """
+        self.update_db('settings', 'devices', cuts={'name': name},
+                       updates={'$set': {field: value}})
+
+    def get_sensor_setting(self, name, field=None):
+        """
+        Gets a value for one sensor
 
         :param name: the name of the sensor
-        :param field: the specific field to update
-        :param value: the new value
+        :param field: a specific field, default None which return the whole doc
+        :returns: named field, or the whole doc
         """
-        self.update_db('settings', 'sensors', cuts={'name': name},
-                       updates={'$set': {field: value}})
-
-    def get_reading_setting(self, sensor=None, name=None, field=None):
-        """
-        Gets the document from one reading
-
-        :param sensor: the name of the sensor
-        :param name: the name of the reading
-        :param field: the specific field to return
-        :returns: reading document
-        """
-        doc = self.read_from_db('settings', 'readings',
-                                cuts={'sensor': sensor, 'name': name}, onlyone=True)
-        if field is not None:
-            return doc[field]
-        return doc
-
-    def set_reading_setting(self, sensor=None, name=None, field=None, value=None):
-        """
-        Updates a parameter for a reading, used only by the web interface
-
-        :param sensor: the name of the sensor
-        :param name: the name of the reading
-        :param field: the specific field to update
-        :param value: the new value
-        """
-        self.update_db('settings', 'readings',
-                       cuts={'sensor': sensor, 'name': name},
-                       updates={'$set': {field: value}})
+        doc = self.read_from_db('settings', 'sensors', cuts={'name': name},
+                onlyone=True)
+        return doc[field] if field is not None and field in doc else doc
 
     def get_runmode_setting(self, runmode=None, field=None):
         """
@@ -373,6 +392,25 @@ class Database(object):
         if field is not None:
             return doc[field]
         return doc
+
+    def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
+        """
+        A way for devices to tell the hypervisor when they start and stop and stuff
+        :param active: the name of a device that's just starting up
+        :param inactive: the name of a device that's stopping
+        :param unmanage: the name of a device that doesn't need to be monitored
+        """
+        updates = {}
+        if active:
+            updates['$addToSet'] = {'processes.active': active}
+        if inactive:
+            updates['$pull'] = {'processes.active': inactive}
+        if unmanage:
+            updates['$pull'] = {'processes.managed': unmanage}
+        if updates:
+            self.update_db('settings', 'experiment_config', {'name': 'hypervisor'},
+                           updates)
+        return
 
     def get_host_setting(self, host=None, field=None):
         """
@@ -397,22 +435,36 @@ class Database(object):
         self.update_db('settings', 'hosts', {'hostname': host},
                        updates={f'${k}': v for k, v in kwargs.items()})
 
-    def get_unmonitored_sensors(self):
+    def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """
-        Returns list of sensors that are not in 'default' of any host (i.e. not read out by any host)
+        Writes the specified data to Influx. See
+        https://docs.influxdata.com/influxdb/v2.0/write-data/developer-tools/api/
+        for more info. The URL and access credentials are stored in the database and cached for use
+        :param topic: the named named type of measurement (temperature, pressure, etc)
+        :param tags: a dict of tag names and values, usually 'subsystem' and 'sensor'
+        :param fields: a dict of field names and values, usually 'value', required
+        :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
         """
-        all_sensors = self.distinct('settings', 'sensors', 'name')
-        hosts = self.distinct('common', 'hosts', 'hostname')
-        monitored = []
-        for host in hosts:
-            monitored.extend(self.get_host_setting(host, 'default'))
-        return list(set(all_sensors) - set(monitored))
-
-    def get_kafka(self, topic):
-        """
-        Returns a setup kafka producer to whoever wants it
-        """
-        return partial(self.kafka.send, topic=f'{self.experiment_name}_{topic}')
+        url, headers, precision = self.influx_cfg
+        if topic is None or fields is None:
+            raise ValueError('Missing required fields for influx insertion')
+        data = f'{topic}' if self.experiment_name != 'testing' else 'testing'
+        if tags is not None:
+            data += ',' + ','.join([f'{k}={v}' for k, v in tags.items()])
+        data += ' '
+        data += ','.join([
+            f'{k}={v}i' if isinstance(v, int) else f'{k}={v}' for k, v in fields.items()
+        ])
+        timestamp = timestamp or time.time()
+        data += f' {int(timestamp * precision)}'
+        r = requests.post(url, headers=headers, data=data)
+        if r.status_code not in [200, 204]:
+            # something went wrong
+            self.logger.error(f'Got status code {r.status_code} instead of 200/204')
+            try:
+                self.logger.error(r.json())
+            except:
+                self.logger.error(r.content)
 
     def get_current_status(self):
         """
@@ -425,28 +477,28 @@ class Database(object):
             status[hostname] = {
                 'status': host_doc['status'],
                 'last_heartbeat': (now - host_doc['heartbeat']).total_seconds(),
-                'sensors': {}
+                'devices': {}
             }
-            for sensor_name in host_doc['default']:
+            for device_name in host_doc['default']:
                 try:
-                    sensor_doc = self.read_from_db('settings', 'sensors', cuts={'name': sensor_name}, onlyone=True)
-                    status[hostname]['sensors'][sensor_name] = {
-                        'last_heartbeat': (now - sensor_doc['heartbeat']).total_seconds(),
-                        'readings': {}
+                    device_doc = self.read_from_db('settings', 'devices', cuts={'name': device_name}, onlyone=True)
+                    status[hostname]['devices'][device_name] = {
+                        'last_heartbeat': (now - device_doc['heartbeat']).total_seconds(),
+                        'sensors': {}
                     }
-                    if 'multi' in sensor_doc:
-                        readings = sensor_doc['multi']
+                    if 'multi' in device_doc:
+                        sensors = device_doc['multi']
                     else:
-                        readings = sensor_doc['readings']
-                    for reading_name in readings:
-                        reading_doc = self.get_reading_setting(sensor_name, reading_name)
-                        status[hostname]['sensors'][sensor_name]['readings'][reading_name] = {
-                            'description': reading_doc['description'],
-                            'status': reading_doc['status'],
+                        sensors = device_doc['sensors']
+                    for sensor_name in sensors:
+                        sensor_doc = self.get_sensor_setting(device_name, sensor_name)
+                        status[hostname]['devices'][device_name]['sensors'][sensor_name] = {
+                            'description': sensor_doc['description'],
+                            'status': sensor_doc['status'],
                         }
-                        if reading_doc['status'] == 'online':
-                            status[hostname]['sensors'][sensor_name]['readings'][reading_name]['runmode'] \
-                                = reading_doc['runmode']
-                except TypeError as e:
+                        if sensor_doc['status'] == 'online':
+                            status[hostname]['devices'][device_name]['sensors'][sensor_name]['runmode'] \
+                                = sensor_doc['runmode']
+                except TypeError:
                     pass
         return status
