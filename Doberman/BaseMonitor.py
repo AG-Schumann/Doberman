@@ -154,7 +154,7 @@ class Listener(threading.Thread):
         self.logger.debug('Listener starting up')
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
-            sock.bind((self.hostname, self.port))
+            sock.bind(('', self.port))
             sock.listen()
             while not self.event.is_set():
                 try:

@@ -424,7 +424,7 @@ class Database(object):
         """
         if host is None:
             host = self.hostname
-        doc = self.read_from_db('hosts', {'hostname': host}, onlyone=True)
+        doc = self.read_from_db('hosts', {'name': host}, onlyone=True)
         if field is not None:
             return doc[field]
         return doc
@@ -437,7 +437,7 @@ class Database(object):
         """
         if host is None:
             host = self.hostname
-        self.update_db('hosts', {'hostname': host},
+        self.update_db('hosts', {'name': host},
                        updates={f'${k}': v for k, v in kwargs.items()})
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
