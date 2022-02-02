@@ -7,14 +7,14 @@ from email.mime.text import MIMEText
 
 import Doberman
 
-dtnow = datetime.utcnow
+dtnow = Doberman.utils.dtnow
 
 __all__ = 'AlarmMonitor'.split()
 
 
 class AlarmMonitor(Doberman.Monitor):
     """
-    Class that sends monitors for alarms and sends messages
+    Class that monitors for alarms and sends messages
     """
 
     def setup(self):
@@ -31,7 +31,7 @@ class AlarmMonitor(Doberman.Monitor):
         try:
             return detail_doc['connection_details'][which]
         except KeyError:
-            self.logger.critical('Could not load connection details for %s' % which)
+            self.logger.critical(f'Could not load connection details for {which}')
             return None
 
     def send_phonecall(self, phone_numbers, message):
@@ -194,15 +194,6 @@ class AlarmMonitor(Doberman.Monitor):
         """
         Sends 'message' to the contacts specified by 'level'
         """
-        now = dtnow()
-        message_time = self.db.get_runmode_setting(runmode='default',
-                                                   field='message_time')
-        if hasattr(self, 'last_message_time') and self.last_message_time is not None:
-            dt = (now - self.last_message_time).total_seconds() / 60
-            if dt < message_time:
-                self.logger.warning(f'Sent a message too recently ({dt:.0f} minutes). '
-                                    f'Message timer at {message_time:.0f}')
-                return
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
                 message = f'{self.db.experiment_name.upper()} {message}'
@@ -220,7 +211,6 @@ class AlarmMonitor(Doberman.Monitor):
                     self.logger.error('Unable to make call: {type(e)}, {e}')
             else:
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
-            self.last_message_time = now
 
     def check_shifters(self):
         """

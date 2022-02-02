@@ -22,7 +22,7 @@ class AlarmNode(Doberman.Node):
         """
         Do we escalate? This function decides this
         """
-        if self.messages_this_level == 0:
+        if self.hash is None:
             self.logger.debug('How are you escalating if there is no active alarm?')
             return
         total_level = self.base_level + self.escalation_level
@@ -31,10 +31,10 @@ class AlarmNode(Doberman.Node):
                 f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
             max_total_level = len(self.escalation_config)-1
             self.escalation_level = min(max_total_level - self.base_level, self.escalation_level + 1)
-            self.messages_this_level = 0  # reset start time so we don't escalate again immediately
+            self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
             self.logger.info((f'{self.name} at level {self.base_level}/{self.escalation_level} '
-                    f'for {self.messages_this_level} messages, not yet escalating'))
+                    f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} to escalate'))
 
     def reset_alarm(self):
         """
@@ -59,7 +59,7 @@ class AlarmNode(Doberman.Node):
             self.escalate()
             self._log_alarm(msg, self.pipeline.name, self.hash, self.base_level, self.escalation_level)
             self.pipeline.silence_for(self.auto_silence_duration)
-            self.messages_this_level += 1 # TODO order here wrt L25
+            self.messages_this_level += 1
         else:
             self.logger.error(msg)
 
