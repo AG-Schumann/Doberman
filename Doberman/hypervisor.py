@@ -17,14 +17,14 @@ class Hypervisor(Doberman.Monitor):
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
-        self.username = config['username']
+        self.username = self.config['username']
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat')
         elif rhb == 'receive':
             self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat')
         self.last_restart = {}
-        self.known_devices = self.db.distinct('settings', 'devices', 'name')
+        self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
@@ -49,7 +49,7 @@ class Hypervisor(Doberman.Monitor):
         if status:
             updates['$set'] = {'status': status}
         if updates:
-            self.db.update_db('settings', 'experiment_config', {'name': 'hypervisor'}, updates)
+            self.db.update_db('experiment_config', {'name': 'hypervisor'}, updates)
 
     def hypervise(self) -> None:
         self.logger.debug('Hypervising')
@@ -144,18 +144,13 @@ class Hypervisor(Doberman.Monitor):
                     if doc['to'] == 'hypervisor':
                         self.process_command(doc['command'])
                         continue
-                    if doc['to'] in self.known_devices and \
-                            self.db.get_device_setting(name=doc['to'], field='status') != 'online':
-                        self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
-                                f' because it isn\'t online')
-                        continue
                     if doc['to'] in self.db.distinct('pipelines', 'name') and \
                             self.db.get_pipeline(doc['to'])['status'] == 'inactive':
                         self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
                                 f' because it isn\'t online')
                         continue
-                    self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]}')
                     hn, p = self.db.get_listener_address(doc['to'])
+                    self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]} at {hn}:{p}')
                     with socket.create_connection((hn, p), timeout=0.1) as sock:
                         sock.sendall(doc['command'].encode())
             except Exception as e:
