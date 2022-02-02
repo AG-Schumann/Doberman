@@ -143,20 +143,22 @@ class Device(object):
         """
         raise NotImplementedError()
 
-    def _execute_command(self, command):
+    def _execute_command(self, quantity, value):
         """
         Allows Doberman to issue commands to the device (change setpoints, valve
         positions, etc)
+        :param quantity: string, the thing you want changed
+        :param value: string, the value you want {quantity} changed to
         """
         try:
-            cmd = self.execute_command(command)
+            cmd = self.execute_command(quantity, value)
         except Exception as e:
             self.logger.info(f'Tried to process command "{command}", got a {type(e)}: {e}')
             cmd = None
         if cmd is not None:
             self.add_to_schedule(command=cmd)
 
-    def execute_command(self, command):
+    def execute_command(self, quantity, value):
         """
         Implemented by a child class
         """

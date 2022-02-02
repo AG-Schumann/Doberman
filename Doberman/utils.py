@@ -1,4 +1,3 @@
-from subprocess import Popen, PIPE, TimeoutExpired
 import importlib
 import importlib.machinery
 import time
@@ -19,109 +18,16 @@ except ImportError:
 import threading
 import hashlib
 from math import floor, log10
+import itertools
+
 
 def dtnow():
     return datetime.datetime.now(tz=utc) # no timezone nonsense, now
 
-__all__ = 'find_plugin heartbeat_timer number_regex doberman_dir get_logger make_hash sensible_sig_figs'.split()
+__all__ = 'dtnow find_plugin number_regex get_logger make_hash sensible_sig_figs SortedBuffer'.split()
 
-heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-
-
-def refresh_tty(db):
-    """
-    Brute-force matches devices to ttyUSB assignments by trying
-    all possible combinations, and updates the database
-    """
-    if not has_serial:
-        raise ValueError('No serial library, can\'t do this')
-    cuts = {'status': 'online', 'address.tty': {'$exists': 1, '$regex': 'USB'}}
-    if db.count('settings', 'devices', cuts):
-        print('Some USB devices are running! Stopping them now')
-        running_devices = db.distinct('settings', 'devices', 'name', cuts)
-        for name in running_devices:
-            db.ProcessCommandStepOne('stop %s' % name)
-        time.sleep(heartbeat_timer * 1.2)
-    else:
-        running_devices = []
-    db.update_db('settings', 'devices',
-                 cuts={'address.tty': {'$exists': 1, '$regex': '^0|USB[1-9]?[0-9]'}},
-                 updates={'$set': {'address.tty': '0'}})
-    print('Refreshing ttyUSB mapping...')
-    proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
-    try:
-        out, err = proc.communicate(timeout=5)
-    except TimeoutExpired:
-        proc.kill()
-        out, err = proc.communicate()
-    if not out or err:
-        raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
-    tty_usbs = out.decode().splitlines()
-    cursor = db.read_from_db('settings', 'devices',
-                             cuts={'address.tty': {'$exists': 1, '$regex': '^0|USB[1-9]?[0-9]'}})
-    device_config = {row['name']: row for row in cursor}
-    device_names = list(device_config.keys())
-    devices = {name: None for name in device_names}
-    matched = {'devices': [], 'ttys': []}
-    for device in device_names:
-        opts = SensorOpts(device_config[device])  # TODO this does not work.
-        devices[device] = find_plugin(device, [doberman_dir])(opts)
-    dev = serial.Serial()
-    for tty in tty_usbs:
-        tty_num = int(re.search('USB([1-9]?[0-9])', tty).group(1))
-        print('Checking %s' % tty)
-        dev.port = tty
-        try:
-            dev.open()
-        except serial.SerialException as e:
-            print('Could not connect to %s: %s' % (tty, e))
-            continue
-        for name, device in devices.items():
-            if name in matched['devices']:
-                continue
-            if device.is_this_me(dev):
-                print('Matched %s to %s' % (tty, name))
-                matched['devices'].append(name)
-                matched['ttys'].append(tty)
-                db.update_db('settings', 'devices', {'name': name},
-                             {'$set': {'address.tty': 'USB%i' % tty_num}})
-                dev.close()
-                break
-            # print('Not %s' % name)
-            time.sleep(0.5)  # devices are slow
-        else:
-            print('Could not assign %s!' % tty)
-        dev.close()
-    if len(matched['devices']) == len(devices) - 1:  # n-1 case
-        try:
-            name = (set(devices.keys()) - set(matched['devices'])).pop()
-            tty = (set(tty_usbs) - set(matched['ttys'])).pop()
-            print('Matched %s to %s via n-1' % (name, tty))
-            db.update_db('settings', 'devices', {'name': name},
-                         {'$set': {'address.tty': tty.split('tty')[-1]}})
-        except:
-            pass
-    elif len(matched['devices']) != len(devices):
-        print('Didn\'t find the expected number of devices!')
-        print('Devices unmatched:')
-        l = set(devices.keys()) - set(matched['devices'])
-        print('\n'.join(l))
-        print()
-        print('tty ports unmatched:')
-        l = set(tty_usbs) - set(matched['ttys'])
-        print('\n'.join(l))
-        return False
-    # for usb, name in zip(matched['ttys'],matched['devices']):
-    #        db.updateDatabase('settings','devices', {'name' : name},
-    #                {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
-
-    db.update_db('settings', 'current_status', {}, {'$set': {'tty_update': dtnow()}})
-    for name in running_devices:
-        db.ParseCommand('start %s' % name)
-    return True
-
 
 def find_plugin(name, path):
     """
@@ -251,7 +157,7 @@ class DobermanLogger(logging.Handler):
                 lineno=record.lineno,
                 date=msg_datetime,
                 )
-            self.db.insert_into_db(self.db_name, self.collection_name, rec)
+            self.db.insert_into_db(self.collection_name, rec)
 
     def format_message(self, when, level, func_name, lineno, msg):
         return f'{when.isoformat(sep=" ")} | {str(level).upper()} | {self.name} | {func_name} | {lineno} | {msg}'
@@ -287,6 +193,61 @@ def sensible_sig_figs(value, lowlim, upplim, defaultsigfigs=3):
     """
     mindps = 1 - floor(log10(upplim - lowlim))
     minsfs = floor(log10(sensor)) + 1 + mindps
-    sfs = max(minsfs, 3)
+    sfs = max(minsfs, defaultsigfigs)
     return f'{value:.{sfs}g}'
+
+
+class SortedBuffer(object):
+    """
+    A custom semi-fixed-width buffer that keeps itself sorted
+    """
+    def __init__(self, length=None):
+        self._buf = []
+        self.length = length
+
+    def __len__(self):
+        return len(self._buf)
+
+    def add(self, obj):
+        """
+        Adds a new object to the queue, time-sorted
+        """
+        LARGE_NUMBER = 1e12  # you shouldn't get timestamps larger than this
+        if len(self._buf) == 0:
+            self._buf.append(obj)
+        elif len(self._buf) == 1:
+            if self._buf[0]['time'] >= obj['time']:
+                self._buf.insert(0, obj)
+            else:
+                self._buf.append(obj)
+        else:
+            idx = len(self._buf)//2
+            for i in itertools.count(2):
+                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
+                greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
+                if lesser <= obj['time'] <= greater:
+                    self._buf.insert(idx, obj)
+                    break
+                elif obj['time'] > greater:
+                    idx += max(1, len(self._buf)>>i)
+                elif obj['time'] < lesser:
+                    idx -= max(1, len(self._buf)>>i)
+        if self.length is not None and len(self._buf) > self.length:
+            self._buf = self._buf[-self.length:]
+        return
+
+    def pop_front(self):
+        return self._buf.pop(0)
+
+    def get_front(self):
+        return self._buf[0]
+
+    def __getitem__(self, index):
+        return self._buf[index]
+
+    def set_length(self, length):
+        self.length = length
+
+    def __iter__(self):
+        return self._buf.__iter__()
 

@@ -19,7 +19,7 @@ class AlarmMonitor(Doberman.Monitor):
 
     def setup(self):
         now = dtnow()
-        self.current_shifters = self.db.read_from_db('settings', 'shifts',
+        self.current_shifters = self.db.read_from_db('shifts',
                                                      {'start': {'$lte': now}, 'end': {'$gte': now}},
                                                      onlyone=True)['shifters']
         self.current_shifters.sort()
@@ -228,7 +228,7 @@ class AlarmMonitor(Doberman.Monitor):
         """
 
         now = dtnow()
-        shift = self.db.read_from_db('settings', 'shifts',
+        shift = self.db.read_from_db('shifts',
                                      {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
         if shift is None:
             self.current_shifters = []
