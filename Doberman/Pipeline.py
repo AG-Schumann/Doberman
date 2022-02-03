@@ -52,8 +52,7 @@ class Pipeline(object):
                 [('heartbeat', Doberman.utils.dtnow()),
                     ('cycles', self.cycles),
                     ('error', self.last_error),
-                    ('rate', sum(timing.values())),
-                    ('status', status)])
+                    ('rate', sum(timing.values()))])
         drift = 0.001 # 1ms extra per cycle, so we don't accidentally get ahead of the new values
         return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
 
@@ -113,7 +112,7 @@ class Pipeline(object):
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     n.setup(**setup_kwargs)
-                    n.load_config(config['node_config'].get(n.name, {}))
+                    n.load_config(config.get('node_config', {}).get(n.name, {}))
                     self.graph[n.name] = n
                     if isinstance(n, Doberman.BufferNode):
                         num_buffer_nodes += 1
