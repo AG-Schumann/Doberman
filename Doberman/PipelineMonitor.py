@@ -46,29 +46,29 @@ class PipelineMonitor(Doberman.Monitor):
 
     def process_command(self, command):
         try:
-            if command == 'pipelinectl_start':
+            if command.startswith('pipelinectl_start'):
                 _, name = command.split(' ')
                 self.start_pipeline(name)
-            elif command == 'pipelinectl_stop':
+            elif command.startswith('pipelinectl_stop'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
                     self.stop_pipeline(name)
-            elif command == 'pipelinectl_restart':
+            elif command.startswith('pipelinectl_restart'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
                     self.stop_pipeline(name)
                     self.start_pipeline(name)
-            elif command == 'pipelinectl_silent':
+            elif command.startswith('pipelinectl_silent'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
                     self.db.set_pipeline_value(name, [('status', 'silent')])
-            elif command == 'pipelinectl_active':
+            elif command.startswith('pipelinectl_active'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
@@ -76,6 +76,7 @@ class PipelineMonitor(Doberman.Monitor):
                     self.db.set_pipeline_value(name, [('status', 'active')])
             elif command == 'stop':
                 self.sh.event.set()
-                return
+            else:
+                self.logger.info(f'I don\'t understand command "{command}"')
         except Exception as e:
             self.logger.error(f'Received malformed command: {command}')
