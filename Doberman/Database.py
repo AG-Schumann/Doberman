@@ -424,21 +424,10 @@ class Database(object):
         """
         if host is None:
             host = self.hostname
-        doc = self.read_from_db('hosts', {'hostname': host}, onlyone=True)
-        if field is not None:
+        doc = self.read_from_db('hosts', {'name': host}, onlyone=True)
+        if doc is not None and field is not None and field in doc:
             return doc[field]
         return doc
-
-    def set_host_setting(self, host=None, **kwargs):
-        """
-        Updates the setting document of the specified host. Kwargs should be one
-        of the Mongo commands (set, unset, push, pull) without the $ char.
-        Ex: set={field:value}
-        """
-        if host is None:
-            host = self.hostname
-        self.update_db('hosts', {'hostname': host},
-                       updates={f'${k}': v for k, v in kwargs.items()})
 
     def write_to_influx(self, topic=None, tags=None, fields=None, timestamp=None):
         """

@@ -149,7 +149,7 @@ class DobermanLogger(logging.Handler):
                 lineno=record.lineno,
                 date=msg_datetime,
                 )
-            self.db.insert_into_db(self.db_name, self.collection_name, rec)
+            self.db.insert_into_db(self.collection_name, rec)
 
     def format_message(self, when, level, func_name, lineno, msg):
         return f'{when.isoformat(sep=" ")} | {str(level).upper()} | {self.name} | {func_name} | {lineno} | {msg}'

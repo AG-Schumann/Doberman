@@ -6,7 +6,6 @@ import os.path
 import threading
 import socket
 import json
-import datetime
 
 
 dtnow = Doberman.utils.dtnow
@@ -18,7 +17,8 @@ class Hypervisor(Doberman.Monitor):
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
-        self.username = config['username']
+        self.username = self.config.get('username', 'doberman')
+        self.localhost = self.config['host']
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
         self.register(obj=self.compress_logs, period=86400, name='log_compactor')
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
@@ -26,7 +26,7 @@ class Hypervisor(Doberman.Monitor):
         elif rhb == 'receive':
             self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat')
         self.last_restart = {}
-        self.known_devices = self.db.distinct('settings', 'devices', 'name')
+        self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
@@ -51,7 +51,7 @@ class Hypervisor(Doberman.Monitor):
         if status:
             updates['$set'] = {'status': status}
         if updates:
-            self.db.update_db('settings', 'experiment_config', {'name': 'hypervisor'}, updates)
+            self.db.update_db('experiment_config', {'name': 'hypervisor'}, updates)
 
     def hypervise(self) -> None:
         self.logger.debug('Hypervising')
@@ -110,23 +110,31 @@ class Hypervisor(Doberman.Monitor):
             self.logger.debug(f'Stderr: {cp.stderr.decode()}')
         return cp.returncode
 
+    def run_locally(self, command):
+        """
+        Some commands don't want to run via ssh?
+        """
+        cp = subprocess.run(command, shell=True, capture_output=True)
+        if cp.stdout:
+            self.logger.debug(f'Stdout: {cp.stdout.decode()}')
+        if cp.stderr:
+            self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+        return cp.returncode
+
     def start_device(self, device: str) -> int:
         path = self.config['path']
         doc = self.db.get_device_setting(device)
         host = doc['host']
         self.last_restart[device] = dtnow()
         self.update_config(manage=device)
-        return self.run_over_ssh(f'{self.username}@{host}', f"cd {path} && ./start_process.sh -d {device}")
+        command = f"cd {path} && ./start_process.sh -d {device}"
+        if host == self.localhost:
+            return self.run_locally(command)
+        return self.run_over_ssh(f'{self.username}@{host}', command)
 
     def start_pipeline(self, pipeline: str) -> int:
-        # if you end up running pipelines elsewhere, update
         path = self.config['path']
-        return self.run_over_ssh(f'{self.username}@localhost', f'cd {path} && ./start_process.sh -p {pipeline}')
-
-    def compress_logs(self):
-        p = self.logger.handlers[0].logdir(dtnow() - datetime.timedelta(days=7))
-        self.logger.info(f'Compressing logs')
-        self.run_locally(f'cd {p} && gzip *.log')
+        return self.run_locally(f'cd {path} && ./start_process.sh -p {pipeline}')
 
     def dispatch(self):
         # if there's nothing to do, wait this long
@@ -151,18 +159,15 @@ class Hypervisor(Doberman.Monitor):
                     if doc['to'] == 'hypervisor':
                         self.process_command(doc['command'])
                         continue
-                    if doc['to'] in self.known_devices and \
-                            self.db.get_device_setting(name=doc['to'], field='status') != 'online':
-                        self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
-                                f' because it isn\'t online')
-                        continue
                     if doc['to'] in self.db.distinct('pipelines', 'name') and \
                             self.db.get_pipeline(doc['to'])['status'] == 'inactive':
-                        self.logger.warning(f'Can\'t send command "{doc["command"]}" to {doc["to"]} '
-                                f' because it isn\'t online')
+                        self.logger.warning(f'Can\'t send command to {doc["to"]} because it isn\'t online')
                         continue
-                    self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]}')
+                    if doc['to'] in self.known_devices and doc['to'] not in self.config['processes']['active']:
+                        self.logger.warning(f'Can\'t send command to {doc["to"]} because it isn\'t online')
+                        continue
                     hn, p = self.db.get_listener_address(doc['to'])
+                    self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]} at {hn}:{p}')
                     with socket.create_connection((hn, p), timeout=0.1) as sock:
                         sock.sendall(doc['command'].encode())
             except Exception as e:
@@ -183,7 +188,7 @@ class Hypervisor(Doberman.Monitor):
             self.logger.info(f'Hypervisor starting {target}')
             if target in self.known_devices:
                 self.start_device(target)
-            elif self.db.count('settings', 'pipelines', target) == 1:
+            elif self.db.count('pipelines', {'name': target}) == 1:
                 self.start_pipeline(target)
             else:
                 self.logger.error(f'Don\'t know what "{target}" is, can\'t start it')
@@ -213,8 +218,9 @@ class Hypervisor(Doberman.Monitor):
                 host = self.db.get_device_setting(thing, field='host')
                 self.run_over_ssh(host, f"screen -S {thing} -X quit")
             else:
-                # assume it's on localhost?
-                self.run_over_ssh(f'{self.username}@localhost', f"screen -S {thing} -X quit")
+                # assume it's running on localhost?
+                self.run_over_ssh('localhost', f"screen -S {thing} -X quit")
+
         else:
             self.logger.error(f'Command "{command}" not understood')
 

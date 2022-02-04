@@ -22,7 +22,7 @@ while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
     ;;
   --hypervisor )
     target="hypervisor"
-    screen_name='hypervisor'
+    screen_name="hypervisor"
     x=$((x+1))
     ;;
   * )

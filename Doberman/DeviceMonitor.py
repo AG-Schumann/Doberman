@@ -76,7 +76,7 @@ class DeviceMonitor(Doberman.Monitor):
             self.event.set()
             # only unmanage from HV if asked to stop
             self.db.notify_hypervisor(unmanage=self.name)
-        elif command[:3] == 'set':
+        elif command.startswith('set '):
             # this one is for the device
             quantity, value = command[4:].rsplit(' ', maxsplit=1)
             self.device._execute_command(quantity, value)
@@ -85,7 +85,7 @@ class DeviceMonitor(Doberman.Monitor):
 
     def reload_sensors(self):
         sensors_doc = self.db.get_device_setting(self.name, 'sensors')
-        for sensor_name in sensors_doc.values():
+        for sensor_name in list(sensors_doc.keys()):
             if sensor_name in self.threads.keys():
                 self.stop_thread(sensor_name)
                 self.start_sensor(sensor_name)

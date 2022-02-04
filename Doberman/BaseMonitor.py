@@ -24,8 +24,8 @@ class Monitor(object):
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()
         self.register(obj=self.check_threads, period=30, name='checkthreads')
-        hn, port = self.db.get_listener_address(self.name)
-        self.listener = Listener(hn, port, logger, self.event, self.process_command)
+        _, port = self.db.get_listener_address(self.name)
+        self.listener = Listener(port, logger, self.event, self.process_command)
         self.listener.start()
 
     def __del__(self):
@@ -141,9 +141,8 @@ class Listener(threading.Thread):
     """
     This class listens for incoming commands and handles them
     """
-    def __init__(self, hostname, port, logger, event, process_command):
+    def __init__(self, port, logger, event, process_command):
         threading.Thread.__init__(self)
-        self.hostname = hostname
         self.port = port
         self.logger = logger
         self.event = event
@@ -154,7 +153,7 @@ class Listener(threading.Thread):
         self.logger.debug('Listener starting up')
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
-            sock.bind((self.hostname, self.port))
+            sock.bind(('', self.port))
             sock.listen()
             while not self.event.is_set():
                 try:
