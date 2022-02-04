@@ -17,7 +17,7 @@ class Hypervisor(Doberman.Monitor):
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
-        self.username = self.config['username']
+        self.username = self.config.get('username', 'doberman')
         self.localhost = self.config['host']
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':

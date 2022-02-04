@@ -14,28 +14,27 @@ class AlarmNode(Doberman.Node):
         self.escalation_config = kwargs['escalation_config']
         self.escalation_level = 0
         self.base_level = kwargs['alarm_level']
-        self.auto_silence_duration = kwargs.get('silence_duration', 5*60)
-        self.alarm_start = None
+        self.auto_silence_duration = kwargs['silence_duration']
+        self.messages_this_level = 0
         self.hash = None
 
     def escalate(self):
         """
         Do we escalate? This function decides this
         """
-        if self.alarm_start is None:
+        if self.hash is None:
             self.logger.debug('How are you escalating if there is no active alarm?')
             return
-        time_since_start = time.time() - self.alarm_start
         total_level = self.base_level + self.escalation_level
-        if time_since_start > self.escalation_config[total_level]:
+        if self.messages_this_level > self.escalation_config[total_level]:
             self.logger.warning((f'{self.name} at level {self.base_level}/{self.escalation_level} '
-                f'since {time_since_start//60} minutes, time to escalate (hash {self.hash})'))
+                f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
             max_total_level = len(self.escalation_config)-1
             self.escalation_level = min(max_total_level - self.base_level, self.escalation_level + 1)
-            self.alarm_start = time.time()  # reset start time so we don't escalate again immediately
+            self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
             self.logger.info((f'{self.name} at level {self.base_level}/{self.escalation_level} '
-                    f'for {time_since_start//60} minutes, not yet escalating'))
+                    f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} to escalate'))
 
     def reset_alarm(self):
         """
@@ -44,7 +43,7 @@ class AlarmNode(Doberman.Node):
         if self.hash is not None:
             self.logger.info(f'{self.name} resetting alarm {self.hash}')
             self.hash = None
-            self.alarm_start = None
+            self.messages_this_level = 0
         self.escalation_level = 0
 
     def log_alarm(self, msg, ts=None):
@@ -60,6 +59,7 @@ class AlarmNode(Doberman.Node):
             self.escalate()
             self._log_alarm(msg, self.pipeline.name, self.hash, self.base_level, self.escalation_level)
             self.pipeline.silence_for(self.auto_silence_duration)
+            self.messages_this_level += 1
         else:
             self.logger.error(msg)
 
