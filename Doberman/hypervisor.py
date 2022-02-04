@@ -126,7 +126,7 @@ class Hypervisor(Doberman.Monitor):
     def compress_logs(self):
         p = self.logger.handlers[0].logdir(dtnow() - datetime.timedelta(days=7))
         self.logger.info(f'Compressing logs')
-        self.run_over_ssh(f'doberman@localhost', f'cd {p} && gzip *.log')
+        self.run_locally(f'cd {p} && gzip *.log')
 
     def dispatch(self):
         # if there's nothing to do, wait this long
