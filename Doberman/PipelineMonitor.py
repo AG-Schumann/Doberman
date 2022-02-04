@@ -45,7 +45,6 @@ class PipelineMonitor(Doberman.Monitor):
         del self.pipelines[name]
 
     def process_command(self, command):
-        self.logger.debug(f'Found command: {doc["command"]}')
         try:
             if command == 'pipelinectl_start':
                 _, name = command.split(' ')
@@ -79,4 +78,4 @@ class PipelineMonitor(Doberman.Monitor):
                 self.sh.event.set()
                 return
         except Exception as e:
-            self.logger.error(f'Received malformed command: {doc["command"]}')
+            self.logger.error(f'Received malformed command: {command}')
