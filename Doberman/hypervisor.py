@@ -6,6 +6,7 @@ import os.path
 import threading
 import socket
 import json
+import datetime
 
 
 dtnow = Doberman.utils.dtnow
@@ -20,6 +21,7 @@ class Hypervisor(Doberman.Monitor):
         self.username = self.config.get('username', 'doberman')
         self.localhost = self.config['host']
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
+        self.register(obj=self.compress_logs, period=86400, name='log_compactor')
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat')
         elif rhb == 'receive':
@@ -134,6 +136,12 @@ class Hypervisor(Doberman.Monitor):
     def start_pipeline(self, pipeline: str) -> int:
         path = self.config['path']
         return self.run_locally(f'cd {path} && ./start_process.sh -p {pipeline}')
+
+    def compress_logs(self) -> None:
+        then = dtnow()-datetime.timedelta(days=7)
+        self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
+        p = self.logger.handlers[0].logdir(dtnow()-datetime.timedelta(days=7))
+        self.run_locally(f'cd {p} && gzip --best *.log')
 
     def dispatch(self):
         # if there's nothing to do, wait this long

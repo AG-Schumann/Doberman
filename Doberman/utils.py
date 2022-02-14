@@ -94,31 +94,24 @@ class DobermanLogger(logging.Handler):
         self.db_name = 'logging'
         self.collection_name = 'logs'
         self.today = datetime.date.today()
-        self.files = {}
+        self.f = None
         self.open_files(self.today)
         self.flush_cycle = 0
 
     def rotate(self, when):
-        for f in self.files.values():
-            if f is not None:
-                f.close()
+        if self.f is not None:
+            self.f.close()
         self.today = datetime.date.today()
         self.open_files(when)
 
     def open_files(self, when):
-        self.files = {
-                'DEBUG': open(self.full_file_path(when, 'DEBUG'), 'a'),
-                'INFO': open(self.full_file_path(when), 'a')}
-        for k in 'WARNING ERROR FATAL'.split():
-            # copy for INFO and higher
-            self.files[k] = self.files['INFO']
+        self.f = open(self.full_file_path(when), 'a')
 
-    def full_file_path(self, when, level=None):
-        return os.path.join(self.logdir(when), self.filename(when, level))
+    def full_file_path(self, when):
+        return os.path.join(self.logdir(when), self.filename(when))
 
-    def filename(self, when, level=None):
-        lvl = '' if level is None else f'{level}_'
-        return f'{lvl}{self.name}.log'
+    def filename(self, when):
+        return f'{self.name}.log'
 
     def logdir(self, when):
         """
@@ -140,13 +133,12 @@ class DobermanLogger(logging.Handler):
                 # it's a brand new day, and the sun is high...
                 self.rotate(msg_date)
             print(m)
-            self.files.get(str(record.levelname).upper(), self.files['INFO']).write(m + '\n')
+            self.f.write(m + '\n')
             self.flush_cycle += 1
             if self.flush_cycle > 10: # TODO make config value?
                 # if we don't regularly flush the buffers, messages will sit around in memory rather than actually
                 # get pushed to disk, and we don't want this. If we do it too frequently it's slow
-                for f in self.files.values():
-                    f.flush()
+                self.f.flush()
                 self.flush_cycle = 0
         if record.levelno > logging.INFO:
             rec = dict(
