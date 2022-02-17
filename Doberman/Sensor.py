@@ -13,7 +13,7 @@ class Sensor(threading.Thread):
         self.db = kwargs['db']
         self.event = kwargs['event']
         self.name = kwargs['sensor_name']
-        self.logger = kwargs.['logger']
+        self.logger = kwargs['logger']
         self.device_name = kwargs['device_name']
         self.device_process = kwargs['device'].process_one_value
         self.schedule = kwargs['device'].add_to_schedule
