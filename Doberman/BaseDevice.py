@@ -8,7 +8,7 @@ import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
 
-__all__ = 'Device SoftwareDevice SerialDevice LANDevice TestDevice'.split()
+__all__ = 'Device SoftwareDevice SerialDevice LANDevice CheapSocketDevice'.split()
 
 
 class Device(object):

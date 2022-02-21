@@ -68,7 +68,7 @@ class Sensor(threading.Thread):
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info('{self.name} didn\'t get anything from the device!')
+            self.logger.info(f'{self.name} didn\'t get anything from the device!')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])

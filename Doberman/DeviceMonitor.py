@@ -14,7 +14,7 @@ class DeviceMonitor(Doberman.Monitor):
         self.device = None
         cfg_doc = self.db.get_device_setting(self.name)
         self.open_device()
-        for rd in cfg_doc['sensors'].keys():
+        for rd in cfg_doc['sensors']:
             self.start_sensor(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
                       period=self.db.get_experiment_config(name='hypervisor', field='period'))
