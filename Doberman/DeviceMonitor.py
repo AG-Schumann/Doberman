@@ -14,7 +14,7 @@ class DeviceMonitor(Doberman.Monitor):
         self.device = None
         cfg_doc = self.db.get_device_setting(self.name)
         self.open_device()
-        for rd in cfg_doc['sensors'].keys():
+        for rd in cfg_doc['sensors']:
             self.start_sensor(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
                       period=self.db.get_experiment_config(name='hypervisor', field='period'))
@@ -69,8 +69,6 @@ class DeviceMonitor(Doberman.Monitor):
     def process_command(self, command):
         self.logger.info(f"Found command '{command}'")
         if command == 'reload sensors':
-            self.device.setattr('sensors',
-                                self.db.get_device_setting(self.name, field='sensors'))
             self.reload_sensors()
         elif command == 'stop':
             self.event.set()
@@ -84,8 +82,8 @@ class DeviceMonitor(Doberman.Monitor):
             self.logger.error(f"Command '{command}' not accepted")
 
     def reload_sensors(self):
-        sensors_doc = self.db.get_device_setting(self.name, 'sensors')
-        for sensor_name in list(sensors_doc.keys()):
+        sensors = self.db.get_device_setting(self.name, 'sensors')
+        for sensor_name in sensors:
             if sensor_name in self.threads.keys():
                 self.stop_thread(sensor_name)
                 self.start_sensor(sensor_name)

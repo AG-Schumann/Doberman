@@ -8,7 +8,7 @@ import time
 import threading
 from subprocess import PIPE, Popen, TimeoutExpired
 
-__all__ = 'Device SoftwareDevice SerialDevice LANDevice TestDevice'.split()
+__all__ = 'Device SoftwareDevice SerialDevice LANDevice CheapSocketDevice'.split()
 
 
 class Device(object):
@@ -103,19 +103,19 @@ class Device(object):
                         cv.notify()
         self.logger.debug('Readout scheduler returning')
 
-    def add_to_schedule(self, command=None, ret=None):
+    def add_to_schedule(self, command, ret=None):
         """
         Adds one thing to the command queue. This is the only function called
         by the owning Plugin (other than [cd]'tor, obv), so everything else
         works around this function.
 
-        :param command: the command to issue to the device, or the name of a sensor
+        :param command: the command to issue to the device
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
         self.logger.debug(f'Scheduling {command}')
         with self.cv:
-            self.cmd_queue.append((self.sensors.get(command, command), ret))
+            self.cmd_queue.append((command, ret))
             self.cv.notify()
         return
 
@@ -125,7 +125,7 @@ class Device(object):
         it for the (probably) float. Does not need to catch exceptions.
         If the data is "simple", add a 'value_pattern' member that is a
         regex with a named 'value' group that is float-castable, like:
-        re.compile(('OK;(?P<value>%s)' % utils.number_regex).encode())
+        re.compile((f'OK;(?P<value>{utils.number_regex})').encode())
 
         :param name: the name of the sensor
         :param data: the raw bytes string
@@ -268,6 +268,7 @@ class LANDevice(Device):
     """
 
     def setup_child(self):
+        self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self._device.settimeout(1)
@@ -286,7 +287,7 @@ class LANDevice(Device):
         ret = {'retcode': 0, 'data': None}
 
         if not self._connected:
-            self.logger.error('No device connected, can\'t send message %s' % message)
+            self.logger.error(f'No device connected, can\'t send message {message}')
             ret['retcode'] = -1
             return ret
         message = str(message).rstrip()
@@ -300,16 +301,16 @@ class LANDevice(Device):
         time.sleep(0.01)
 
         try:
-            ret['data'] = self._device.recv(1024)
+            ret['data'] = self._device.recv(self.packet_bytes)
         except socket.error as e:
             self.logger.fatal('Could not receive data from device. Error: %s' % e)
             ret['retcode'] = -2
         return ret
 
 
-class TestDevice(LANDevice):
+class CheapSocketDevice(LANDevice):
     """
-    The TestSensorServer expects a new socket for each connection, so we do that here
+    Some hardware treats sockets as disposable and expects a new one for each connection, so we do that here
     """
     def setup_child(self):
         self._device = None
@@ -320,6 +321,6 @@ class TestDevice(LANDevice):
         return
 
     def send_recv(self, message):
-        with socket.create_connection((self.ip, int(self.port)), 1) as self._device:
+        with socket.create_connection((self.ip, int(self.port)), timeout=0.1) as self._device:
             return super().send_recv(message)
 

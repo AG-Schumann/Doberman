@@ -13,11 +13,11 @@ class Sensor(threading.Thread):
         self.db = kwargs['db']
         self.event = kwargs['event']
         self.name = kwargs['sensor_name']
-        self.logger = kwargs.pop('logger')
-        self.cv = threading.Condition()
+        self.logger = kwargs['logger']
         self.device_name = kwargs['device_name']
         self.device_process = kwargs['device'].process_one_value
         self.schedule = kwargs['device'].add_to_schedule
+        self.cv = threading.Condition()
         doc = self.db.get_sensor_setting(name=self.name)
         self.setup(doc)
         self.update_config(doc)
@@ -41,6 +41,7 @@ class Sensor(threading.Thread):
         self.is_int = 'is_int' in config_doc
         self.topic = config_doc['topic']
         self.subsystem = config_doc['subsystem']
+        self.readout_command = config_doc['readout_command'] # TODO here or in update_config?
 
     def update_config(self, doc):
         """
@@ -59,7 +60,7 @@ class Sensor(threading.Thread):
         Asks the device for data, unpacks it, and sends it to the database
         """
         pkg = {}
-        self.schedule(command=self.name, ret=(pkg, self.cv))
+        self.schedule(self.readout_command, ret=(pkg, self.cv))
         with self.cv:
             if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
                 failed = False
@@ -67,7 +68,7 @@ class Sensor(threading.Thread):
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info('{self.name} didn\'t get anything from the device!')
+            self.logger.info(f'{self.name} didn\'t get anything from the device!')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])
