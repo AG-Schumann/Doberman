@@ -126,6 +126,7 @@ class MultiSensor(Sensor):
     def setup(self, doc):
         super().setup(doc)
         self.all_names = doc['multi_sensor']
+        self.all_topics = [self.db.get_sensor_setting(name=n, field='topic') for n in self.all_names]
 
     def update_config(self, doc):
         super().update_config(doc)
@@ -148,13 +149,13 @@ class MultiSensor(Sensor):
         return values
 
     def send_upstream(self, values, timestamp):
-        for n, v in zip(self.all_names, values):
-            tags = {'sensor': n, 'subsystem': self.subsystem}
+        for n, v, t in zip(self.all_names, values, self.all_topics):
+            tags = {'sensor': n, 'subsystem': self.subsystem, 'device': self.device_name}
             low, high = self.alarms[n]
             fields = {'value': v}
             if low is not None:
                 fields['alarm_low'] = low
             if high is not None:
                 fields['alarm_high'] = high
-            self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
+            self.db.write_to_influx(topic=t, tags=tags, fields=fields, timestamp=timestamp)
 

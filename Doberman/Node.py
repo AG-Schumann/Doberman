@@ -309,12 +309,12 @@ class PolynomialNode(Node):
 
 class InfluxSinkNode(Node):
     """
-    Puts a value back into influx. The sensor tag will be "pipeline"
+    Puts a value back into influx.
 
     Setup params:
     :param topic: string, the type of measurement (temperature, pressure, etc)
-    :param subsystem: string, optional. The subsystem the quantity belongs to
-    :param device: string, optional. The name of the device this quantity "comes from"
+    :param subsystem: string, the subsystem the quantity belongs to
+    :param device: string, optional. The name of the device this quantity "comes from", defaults to "pipeline"
 
     Runtime params:
     None
@@ -322,14 +322,14 @@ class InfluxSinkNode(Node):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.topic = kwargs['topic']
-        self.subsystem = kwargs.get('subsystem')
+        self.subsystem = kwargs['subsystem']
         self.write_to_influx = kwargs['write_to_influx']
         self.device = kwargs.get('device', 'pipeline')
 
     def process(self, package):
         if not self.is_silent:
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
-                'sensor': self.device, 'subsystem': self.subsystem},
+                'device': self.device, 'subsystem': self.subsystem},
                 fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class EvalNode(Node):
