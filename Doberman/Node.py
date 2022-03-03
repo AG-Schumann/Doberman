@@ -205,7 +205,7 @@ class MergeNode(BufferNode):
     necessary to merge streams from different Input nodes without mangling timestamps
 
     Setup params:
-    None
+    :param merge_how: string, how to merge timestamps, one of "avg", "min", "max", "newest", or "oldest". Default 'avg'
 
     Runtime params:
     None
@@ -214,20 +214,36 @@ class MergeNode(BufferNode):
         super().__init__(**kwargs)
         self.buffer.set_length(len(self.upstream_nodes))
 
-    def merge_time(self, packages):
-        # TODO: average time? Take newest? Oldest?
-        return sum(p.pop('time') for p in packages)/len(packages)
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.method = kwargs.get('merge_how', 'avg')
+
+    def merge_field(self, field, packages):
+        how = self.method
+        if how == 'avg':
+            return sum(p[field] for p in packages)/len(packages)
+        if how == 'min':
+            return min(p[field] for p in packages)
+        if how == 'max':
+            return max(p[field] for p in packages)
+        v = sorted([(p['time'], p[field]) for p in packages], key=lambda p: p['time'])
+        if how == 'newest':
+            return v[-1][field]
+        if how == 'oldest':
+            return v[0][field]
+        raise ValueError(f'Invalid merge method given: {how}. Must be "avg", "max", "min", "newest", or "oldest"')
 
     def process(self, packages):
-        new_package = {'time': self.merge_time(packages)}
+        new_package = {}
         common_keys = set(packages[0].keys())
         for p in packages[1:]:
             common_keys &= set(p.keys())
         for key in common_keys:
-            # average other common keys
-            new_package[key] = sum(p.pop(key) for p in packages)/len(packages)
+            new_package[key] = self.merge_field(key, packages)
         for p in packages:
             for k,v in p.items():
+                if k in common_keys:
+                    continue
                 new_package[k] = v
         return new_package
 
