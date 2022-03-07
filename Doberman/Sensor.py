@@ -126,7 +126,8 @@ class MultiSensor(Sensor):
     def setup(self, doc):
         super().setup(doc)
         self.all_names = doc['multi_sensor']
-        self.all_topics = [self.db.get_sensor_setting(name=n, field='topic') for n in self.all_names]
+        self.all_topics = {n: self.db.get_sensor_setting(name=n, field='topic') for n in self.all_names}
+        self.is_int = {n: self.db.get_sensor_setting(name=n).get('is_int', False) for n in self.all_names}
 
     def update_config(self, doc):
         super().update_config(doc)
@@ -142,14 +143,21 @@ class MultiSensor(Sensor):
             self.xform[n] = rdoc.get('value_xform', [0, 1])
 
     def more_processing(self, values):
-        for i, (n, v) in enumerate(zip(self.all_names, values)):
-            values[i] = sum(a*v**j for j, a in enumerate(self.xform[n]))
-        if self.is_int:
-            values = list(map(int, values))
-        return values
+        """
+        Convert from a list to a dict here
+        """
+        f = {n: int if self.is_int[n] else float for n in self.all_names}
+        _values = {
+                n: f[n](sum(a*v**j for j, a in enumerate(self.xform[n])))
+                for n, v in zip(self.all_names, values)
+                }
+        return _values
 
     def send_upstream(self, values, timestamp):
-        for n, v, t in zip(self.all_names, values, self.all_topics):
+        """
+        values is the dict we produce in more_processing
+        """
+        for n, v in values.items():
             tags = {'sensor': n, 'subsystem': self.subsystem, 'device': self.device_name}
             low, high = self.alarms[n]
             fields = {'value': v}
@@ -157,5 +165,5 @@ class MultiSensor(Sensor):
                 fields['alarm_low'] = low
             if high is not None:
                 fields['alarm_high'] = high
-            self.db.write_to_influx(topic=t, tags=tags, fields=fields, timestamp=timestamp)
+            self.db.write_to_influx(topic=self.all_topics[n], tags=tags, fields=fields, timestamp=timestamp)
 
