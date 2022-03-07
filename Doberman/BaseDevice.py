@@ -313,6 +313,7 @@ class CheapSocketDevice(LANDevice):
     Some hardware treats sockets as disposable and expects a new one for each connection, so we do that here
     """
     def setup_child(self):
+        self.packet_bytes = 1024
         self._device = None
         self._connected = True
         return True

@@ -25,7 +25,7 @@ class Monitor(object):
         self.setup()
         self.register(obj=self.check_threads, period=30, name='checkthreads')
         _, port = self.db.get_listener_address(self.name)
-        self.listener = Listener(port, logger, self.event, self.process_command)
+        self.listener = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.listener.start()
 
     def __del__(self):
