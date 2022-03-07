@@ -86,4 +86,4 @@ class DeviceMonitor(Doberman.Monitor):
         for sensor_name in sensors:
             if sensor_name in self.threads.keys():
                 self.stop_thread(sensor_name)
-                self.start_sensor(sensor_name)
+            self.start_sensor(sensor_name)
