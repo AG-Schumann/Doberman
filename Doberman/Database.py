@@ -399,24 +399,30 @@ class Database(object):
         """
         doc = self.get_experiment_config('hypervisor', field='global_dispatch')
         # doc looks like { name: [host, port], ...}
-        if name not in doc:
-            # doesn't have an entry, we make one now
-            if name in self.distinct('devices', 'name'):
-                # this is a device
-                host = self.get_device_setting(name, field='host')
-            else:
-                # probably a pipeline, assume it runs on the master host
-                host = doc['hypervisor'][0]
-            existing_ports = [p for (hn, p) in doc.values() if hn == host] or [doc['hypervisor'][1]]
-            for port in itertools.count(min(existing_ports)):
-                if port in existing_ports:
-                    continue
-                break
-            self.logger.info(f'Assigning {host}:{port} to {name}')
-            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
+        if name in doc:
+            # probably the hypervisor
+            return doc[name]
+        if name in self.distinct('devices', 'name'):
+            # this is a device
+            host = self.get_device_setting(name, field='host')
         else:
-            host, port = doc[name]
+            # probably a pipeline, assume it runs on the master host
+            host = doc['hypervisor'][0]
+        existing_ports = [p for (hn, p) in doc.values() if hn == host] or [doc['hypervisor'][1]]
+        for port in itertools.count(min(existing_ports)):
+            if port in existing_ports:
+                continue
+            break
+        self.logger.info(f'Assigning {host}:{port} to {name}')
+        self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
         return host, port
+
+    def release_listener_port(self, name):
+        """
+        Return the port used by <name> to the pool
+        """
+        if name != 'hypervisor':
+            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$unset': {f'global_dispatch.{name}': 1}})
 
     def get_host_setting(self, host=None, field=None):
         """

@@ -38,6 +38,7 @@ class Monitor(object):
         self.event.set()
         self.shutdown()
         self.listener.join()
+        self.db.release_listener_port(self.name)
         pop = []
         thread_numbers = self.threads.keys()
         for thread_number in thread_numbers:
