@@ -11,7 +11,7 @@ class Sensor(threading.Thread):
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.db = kwargs['db']
-        self.event = kwargs['event']
+        self.event = threading.Event()
         self.name = kwargs['sensor_name']
         self.logger = kwargs['logger']
         self.device_name = kwargs['device_name']
@@ -86,10 +86,13 @@ class Sensor(threading.Thread):
     def more_processing(self, value):
         """
         Does something interesting with the value. Should return a value
+
         """
         value = sum(a*value**i for i, a in enumerate(self.xform))
         if self.is_int:
             value = int(value)
+        else:
+            value = float(value)
         return value
 
     def send_upstream(self, value, timestamp):

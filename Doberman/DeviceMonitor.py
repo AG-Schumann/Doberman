@@ -24,10 +24,10 @@ class DeviceMonitor(Doberman.Monitor):
         self.logger.debug('Constructing ' + rd)
         sensor_doc = self.db.get_sensor_setting(rd)
         kwargs = {'sensor_name': rd, 'logger': self.logger, 'db': self.db,
-                  'device_name': self.name, 'event': self.event, 'device': self.device}
+                  'device_name': self.name, 'device': self.device}
         if 'multi_sensor' in sensor_doc and isinstance(sensor_doc['multi_sensor'], list):
             # the "base" multisensor stores all the names in the list
-            # the "secondary" multisensorss store the name of the base
+            # the "secondary" multisensors store the name of the base
             sensor = Doberman.MultiSensor(**kwargs)
         else:
             sensor = Doberman.Sensor(**kwargs)

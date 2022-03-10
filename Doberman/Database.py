@@ -195,24 +195,6 @@ class Database(object):
             return doc.get(field)
         return doc
 
-    def log_command(self, command, target, issuer, delay=0):
-        """
-        Store a command for someone else
-        :param command: the command for them to process
-        :param target: who the command is for
-        :param issuer: who is issuing the command
-        :param delay: how far into the future the command should happen, default 0
-        :returns: None
-        """
-        doc = {
-                'name': target,
-                'command': command,
-                'acknowledged': 0,
-                'by': issuer,
-                'logged': dtnow() + datetime.timedelta(seconds=delay)
-                }
-        self.insert_into_db('logging', 'commands', doc)
-
     def get_pipeline(self, name):
         """
         Gets a pipeline config doc
