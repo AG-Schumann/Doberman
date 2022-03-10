@@ -412,10 +412,9 @@ class Database(object):
         for port in itertools.count(min(existing_ports)):
             if port in existing_ports:
                 continue
-            break
-        self.logger.info(f'Assigning {host}:{port} to {name}')
-        self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
-        return host, port
+            self.logger.info(f'Assigning {host}:{port} to {name}')
+            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
+            return host, port
 
     def release_listener_port(self, name):
         """
