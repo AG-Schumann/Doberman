@@ -252,16 +252,12 @@ class MergeNode(BufferNode):
             self.logger.debug(f'Package: {p}')
             common_keys &= set(p.keys())
             uncommon_keys ^= set(p.keys())
-        self.logger.debug(f'Common keys: {common_keys}')
-        self.logger.debug(f'Uncommon keys: {uncommon_keys}')
         for key in common_keys:
-            self.logger.debug(f'Merging common key {key}')
             new_package[key] = self.merge_field(key, packages)
         for p in packages:
             for k,v in p.items():
                 if k in common_keys:
                     continue
-                self.logger.debug(f'Merging uncommon key {k}')
                 new_package[k] = v
         return new_package
 
