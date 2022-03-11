@@ -173,12 +173,12 @@ class Hypervisor(Doberman.Monitor):
                     if doc['to'] in self.known_devices and doc['to'] not in self.config['processes']['active']:
                         self.logger.warning(f'Can\'t send command to {doc["to"]} because it isn\'t online')
                         continue
-                    hn, p = self.db.get_listener_address(doc['to'])
+                    hn, p = self.db.find_listener_address(doc['to'])
                     self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]} at {hn}:{p}')
                     with socket.create_connection((hn, p), timeout=0.1) as sock:
                         sock.sendall(doc['command'].encode())
             except Exception as e:
-                self.logger.info(f'Dispatcher caught a {type(e)}: {e}')
+                self.logger.warning(f'Dispatcher caught a {type(e)}: {e}')
         self.logger.debug('Dispatcher shutting down')
 
     def process_command(self, command) -> None:

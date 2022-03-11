@@ -24,7 +24,7 @@ class Monitor(object):
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.setup()
         self.register(obj=self.check_threads, period=30, name='checkthreads')
-        _, port = self.db.get_listener_address(self.name)
+        _, port = self.db.assign_listener_address(self.name)
         self.listener = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.listener.start()
 
