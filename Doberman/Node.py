@@ -41,6 +41,7 @@ class Node(object):
                 package = package[-1]
             package[self.output_var] = ret
         self.send_downstream(package)
+        self.post_process()
 
     def get_package(self):
         return self.buffer.pop_front()
@@ -72,6 +73,12 @@ class Node(object):
         A function for an end-user to implement to do something with the data package
         """
         raise NotImplementedError()
+
+    def post_process(self):
+        """
+        Anything a node wants to do after sending its result downstream
+        """
+        pass
 
 class SourceNode(Node):
     """
@@ -213,6 +220,9 @@ class MergeNode(BufferNode):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.buffer.set_length(len(self.upstream_nodes))
+
+    def post_process(self):
+        self.buffer.clear()
 
     def setup(self, **kwargs):
         super().setup(**kwargs)

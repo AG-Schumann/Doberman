@@ -225,20 +225,43 @@ class Database(object):
     def get_message_protocols(self, level):
         """
         Gets message protocols for the specified alarm level. If none are found,
-        takes those from the next lowest level.
+        takes those from the highest level defined.
 
         :param level: which alarm level is in question (0, 1, etc)
         :returns: list of message protocols to use
         """
-        doc = self.read_from_db('alarm_config',
-                                {'level': level}, onlyone=True)
-        if doc is None:
-            self.logger.error(('No message protocols for alarm level %i! '
-                               'Defaulting to next lowest level' % level))
-            doc = self.read_from_db('alarm_config',
-                                    {'level': {'$lte': level}}, onlyone=True,
-                                    sort=[('level', -1)])
-        return doc['protocols']
+        protocols = self.get_experiment_config('alarm', 'protocols')
+        if len(protocols) < level:
+            self.logger.error(f'No message protocols for alarm level {level}! '
+                               'Defaulting to highest level defined')
+            return protocols[-1]
+        return protocols[level]
+
+    def get_message_recipients(self, level):
+        """
+        Gets message recipients for the specified alarm level
+
+        :param level: which alarm level is in question (0, 1, etc)
+        :returns: set of recipient names
+        """
+        recipient_groups = self.get_experiment_config('alarm', 'recipients')
+        if len(recipient_groups) < level:
+            recipient_groups = ['everyone']
+        else:
+            recipient_groups = recipient_groups[level]
+        recipient_names = set()
+        for group in recipient_groups:
+            if group == 'shifters':
+                for doc in self.read_from_db('contacts', {'on_shift': 'true'}):
+                    recipient_names.add(doc['name'])
+            elif group == 'experts':
+                for doc in self.read_from_db('contacts', {'expert': 'true'}):
+                    recipient_names.add(doc['name'])
+            elif group == 'everyone':
+                for doc in self.read_from_db('contacts'):
+                    recipient_names.add(doc['name'])
+        return list(recipient_names)
+
 
     def get_contact_addresses(self, level):
         """
@@ -248,28 +271,10 @@ class Database(object):
         :param level: which alarm level the message will be sent at
         :returns dict, keys = message protocols, values = list of addresses
         """
-        if level == 'ohshit':
-            # shit shit fire ze missiles!
-            protocols = set()
-            for doc in self.read_from_db('alarm_config', {'level': {'$gte': 0}}):
-                protocols |= set(doc['protocols'])
-            ret = {k: [] for k in protocols}
-            for doc in self.read_from_db('contacts'):
-                for p in protocols:
-                    try:
-                        ret[p].append(doc[p])
-                    except KeyError:
-                        pass
-            return ret
         protocols = self.get_message_protocols(level)
+        recipients = self.get_message_recipients(level)
         ret = {k: [] for k in protocols}
-        now = datetime.datetime.now()  # no UTC here, we want local time
-        shifters = []
-        for doc in self.read_from_db('shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}}):
-                             shifters += doc['shifters']
-        for doc in self.read_from_db('contacts',
-                                     {'name': {'$in': shifters}}):
+        for doc in self.read_from_db('contacts', {'name': {'$in': recipients}}):
             for p in protocols:
                 try:
                     ret[p].append(doc[p])
@@ -296,7 +301,7 @@ class Database(object):
         """
         doc = {'msg': message, 'acknowledged': 0, 'pipeline': pipeline,
                 'hash': alarm_hash, 'level': base, 'escalation': escalation}
-        if self.insert_into_db('logging', 'alarm_history', doc):
+        if self.insert_into_db('alarm_history', doc):
             self.logger.warning('Could not add entry to alarm history!')
             return -1
         return 0

@@ -116,6 +116,7 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
             self.reset_alarm()
         else:
             msg = f'Alarm for {self.description}. '
+            self.logger.debug('found alarm')
             try:
                 toohigh = values[-1] >= high  # (Or low)
                 msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
@@ -126,5 +127,6 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
                 # Sometimes hit a corner case (eg low=high)
                 msg += f'{values[-1]:.3g} is outside allowed range of'
                 msg += f' {low:.3g} to {high:.3g}.'
+            self.logger.debug('logging alarm')
             self.log_alarm(msg, packages[-1]['time'])
 

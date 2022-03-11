@@ -140,7 +140,7 @@ class Pipeline(object):
                 rd = self.db.get_sensor_setting(name=node.input_var)
                 if node.name not in doc:
                     doc[node.name] = {}
-                doc[node.name].update(alarm_thresholds=rd['alarm_threshold'], readout_interval=rd['readout_interval'])
+                doc[node.name].update(alarm_thresholds=rd['alarm_thresholds'], readout_interval=rd['readout_interval'])
             if isinstance(node, Doberman.SimpleAlarmNode):
                 if node.name not in doc:
                     doc[node.name] = {}

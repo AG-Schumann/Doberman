@@ -184,7 +184,7 @@ def sensible_sig_figs(value, lowlim, upplim, defaultsigfigs=3):
     measurements have three decimal places.
     """
     mindps = 1 - floor(log10(upplim - lowlim))
-    minsfs = floor(log10(sensor)) + 1 + mindps
+    minsfs = floor(log10(value)) + 1 + mindps
     sfs = max(minsfs, defaultsigfigs)
     return f'{value:.{sfs}g}'
 
@@ -239,6 +239,9 @@ class SortedBuffer(object):
 
     def set_length(self, length):
         self.length = length
+
+    def clear(self):
+        self._buf = []
 
     def __iter__(self):
         return self._buf.__iter__()
