@@ -180,7 +180,7 @@ class Database(object):
                 'by': issuer,
                 'time': time.time() + delay
                 }
-        hn, p = self.get_listener_address('hypervisor')
+        hn, p = self.find_listener_address('hypervisor')
         with create_connection((hn, p), timeout=0.1) as sock:
             sock.sendall(json.dumps(doc).encode())
 
@@ -389,19 +389,13 @@ class Database(object):
                            updates)
         return
 
-    def get_listener_address(self, name):
+    def assign_listener_address(self, name):
         """
-        Get a hostname and port to communicate over. If 'name' doesn't have a port assigned yet
-        then the next available number is chosen.
-
-        :param name: the name of someone
-        :returns: (string, int) tuple of the hostname and port
+        Assign a hostname and port for communication
+        :param name: who will get this assignment
+        :returns: (string, int) tuple of hostname and port
         """
         doc = self.get_experiment_config('hypervisor', field='global_dispatch')
-        # doc looks like { name: [host, port], ...}
-        if name in doc:
-            # probably the hypervisor
-            return doc[name]
         if name in self.distinct('devices', 'name'):
             # this is a device
             host = self.get_device_setting(name, field='host')
@@ -415,6 +409,19 @@ class Database(object):
             self.logger.info(f'Assigning {host}:{port} to {name}')
             self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
             return host, port
+
+    def find_listener_address(self, name):
+        """
+        Get a hostname and port to communicate over. If none exist, raise an error
+
+        :param name: the name of someone
+        :returns: (string, int) tuple of the hostname and port
+        """
+        doc = self.get_experiment_config('hypervisor', field='global_dispatch')
+        # doc looks like { name: [host, port], ...}
+        if name in doc:
+            return doc[name]
+        raise ValueError(f'No assigned listener info for {name}')
 
     def release_listener_port(self, name):
         """
