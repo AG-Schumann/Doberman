@@ -172,7 +172,6 @@ class AlarmMonitor(Doberman.Monitor):
 
     def check_for_alarms(self):
         doc_filter = {'acknowledged': 0}
-        messages = {}
         updates = {'$set': {'acknowledged': dtnow()}}
         db_col = 'alarm_history'
         if self.db.count(db_col, doc_filter) == 0:
