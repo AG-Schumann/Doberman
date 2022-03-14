@@ -252,10 +252,10 @@ class Database(object):
         recipient_names = set()
         for group in recipient_groups:
             if group == 'shifters':
-                for doc in self.read_from_db('contacts', {'on_shift': 1}):
+                for doc in self.read_from_db('contacts', {'on_shift': True}):
                     recipient_names.add(doc['name'])
             elif group == 'experts':
-                for doc in self.read_from_db('contacts', {'expert': 1}):
+                for doc in self.read_from_db('contacts', {'expert': True}):
                     recipient_names.add(doc['name'])
             elif group == 'everyone':
                 for doc in self.read_from_db('contacts'):

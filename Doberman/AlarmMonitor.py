@@ -51,7 +51,7 @@ class AlarmMonitor(Doberman.Monitor):
         message = str(message)
         # Long messages are shortened to avoid excessive fees
         if len(message) > maxmessagelength:
-            message = ' '.join(message[:maxmessagelength+1].split(' ')[0:-1])
+            message = ' '.join(message[:maxmessagelength + 1].split(' ')[0:-1])
             message = '<p>' + message + '</p>'
             message += '<p>Message shortened.</p>'
             self.logger.warning(f"Message exceeds {maxmessagelength} "
@@ -69,7 +69,6 @@ class AlarmMonitor(Doberman.Monitor):
         if response.status_code != 201:
             self.logger.error(f"Couldn't place call, status"
                               + f" {response.status_code}: {response.json()['message']}")
-
 
     def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
 
@@ -185,7 +184,7 @@ class AlarmMonitor(Doberman.Monitor):
             alarms[level]['logged'].append(logged)
             alarms[level]['msgs'].append(doc['msg'])
         for alarm_level, doc in alarms.items():
-            message = '\n'.join([f'{d.isoformat()}: {m}' for d,m in zip(doc['logged'], doc['msgs'])])
+            message = '\n'.join([f'{d.isoformat()}: {m}' for d, m in zip(doc['logged'], doc['msgs'])])
             self.send_message(int(alarm_level), message)
         # put the update at the end so if something goes wrong with the message sending then the
         # alarms don't get acknowledged and lost
@@ -240,4 +239,3 @@ class AlarmMonitor(Doberman.Monitor):
             doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
-
