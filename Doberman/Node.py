@@ -35,12 +35,13 @@ class Node(object):
         if ret is None:
             pass
         elif isinstance(ret, dict):
-            package = ret
-        else:
+            package = dict(ret)
+        else: # ret is a number or something
             if isinstance(self, BufferNode):
                 package = package[-1]
             package[self.output_var] = ret
         self.send_downstream(package)
+        self.post_process()
 
     def get_package(self):
         return self.buffer.pop_front()
@@ -72,6 +73,12 @@ class Node(object):
         A function for an end-user to implement to do something with the data package
         """
         raise NotImplementedError()
+
+    def post_process(self):
+        """
+        Anything a node wants to do after sending its result downstream
+        """
+        pass
 
 class SourceNode(Node):
     """
@@ -214,6 +221,9 @@ class MergeNode(BufferNode):
         super().__init__(**kwargs)
         self.buffer.set_length(len(self.upstream_nodes))
 
+    def post_process(self):
+        self.buffer.clear()
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.method = kwargs.get('merge_how', 'avg')
@@ -236,8 +246,10 @@ class MergeNode(BufferNode):
     def process(self, packages):
         new_package = {}
         common_keys = set(packages[0].keys())
+        uncommon_keys = set(packages[0].keys())
         for p in packages[1:]:
             common_keys &= set(p.keys())
+            uncommon_keys ^= set(p.keys())
         for key in common_keys:
             new_package[key] = self.merge_field(key, packages)
         for p in packages:

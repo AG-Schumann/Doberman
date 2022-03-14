@@ -27,7 +27,7 @@ class AlarmMonitor(Doberman.Monitor):
         self.register(obj=self.check_shifters, period=60, name='shiftercheck')
 
     def get_connection_details(self, which):
-        detail_doc = self.db.get_experiment_config('alarm_config')
+        detail_doc = self.db.get_experiment_config('alarm')
         try:
             return detail_doc['connection_details'][which]
         except KeyError:
@@ -51,7 +51,7 @@ class AlarmMonitor(Doberman.Monitor):
         message = str(message)
         # Long messages are shortened to avoid excessive fees
         if len(message) > maxmessagelength:
-            message = ' '.join(message[:maxmessagelength+1].split(' ')[0:-1])
+            message = ' '.join(message[:maxmessagelength + 1].split(' ')[0:-1])
             message = '<p>' + message + '</p>'
             message += '<p>Message shortened.</p>'
             self.logger.warning(f"Message exceeds {maxmessagelength} "
@@ -69,7 +69,6 @@ class AlarmMonitor(Doberman.Monitor):
         if response.status_code != 201:
             self.logger.error(f"Couldn't place call, status"
                               + f" {response.status_code}: {response.json()['message']}")
-
 
     def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
 
@@ -172,22 +171,24 @@ class AlarmMonitor(Doberman.Monitor):
 
     def check_for_alarms(self):
         doc_filter = {'acknowledged': 0}
-        messages = {}
         updates = {'$set': {'acknowledged': dtnow()}}
-        db_col = ('logging', 'alarm_history')
-        if self.db.count(*db_col, doc_filter) == 0:
+        db_col = 'alarm_history'
+        if self.db.count(db_col, doc_filter) == 0:
             return
-        for doc in self.db._check(*db_col).aggregate([
-            {'$match': doc_filter},
-            {'$group': {
-                '_id': '$howbad',
-                'logged': {'$push': {'$toDate': '$_id'}},
-                'msgs': {'$push': '$msg'}}}]):
-            message = '\n'.join([f'{d.iso_format()}: {m}' for d,m in zip(doc['logged'], doc['msgs'])])
-            self.send_message(doc['_id'], message)
+        alarms = {}
+        for doc in self.db.read_from_db(db_col, doc_filter):
+            level = doc['level'] + doc['escalation']
+            logged = datetime.fromtimestamp(int(str(doc['_id'])[:8], 16))
+            if level not in alarms:
+                alarms[level] = {'logged': [], 'msgs': []}
+            alarms[level]['logged'].append(logged)
+            alarms[level]['msgs'].append(doc['msg'])
+        for alarm_level, doc in alarms.items():
+            message = '\n'.join([f'{d.isoformat()}: {m}' for d, m in zip(doc['logged'], doc['msgs'])])
+            self.send_message(int(alarm_level), message)
         # put the update at the end so if something goes wrong with the message sending then the
         # alarms don't get acknowledged and lost
-        self.db.update_db(*db_col, doc_filter, updates)
+        self.db.update_db(db_col, doc_filter, updates)
         return
 
     def send_message(self, level, message):
@@ -238,4 +239,3 @@ class AlarmMonitor(Doberman.Monitor):
             doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
             self.db.log_alarm(doc)
             self.current_shifters = new_shifters
-

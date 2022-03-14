@@ -134,6 +134,10 @@ class Hypervisor(Doberman.Monitor):
         return self.run_over_ssh(f'{self.username}@{host}', command)
 
     def start_pipeline(self, pipeline: str) -> int:
+        if pipeline.startswith('alarm_'):
+            # this is an alarm pipeline
+            self.db.log_command(f'start {pipeline}', 'pl_alarm', 'hypervisor')
+            return 0
         path = self.config['path']
         return self.run_locally(f'cd {path} && ./start_process.sh -p {pipeline}')
 
