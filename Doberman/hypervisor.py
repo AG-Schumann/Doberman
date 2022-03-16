@@ -104,7 +104,11 @@ class Hypervisor(Doberman.Monitor):
             cmd.insert(1, '-p')
             cmd.insert(2, f'{port}')
         self.logger.debug(f'Running "{" ".join(cmd)}"')
-        cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True)
+        try:
+            cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True, timeout=30)
+        except subprocess.TimeoutExpired as e:
+            self.logger.error(f'Command to {address} timed out!')
+            return
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
