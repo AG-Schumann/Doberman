@@ -20,12 +20,12 @@ class Hypervisor(Doberman.Monitor):
         self.config = self.db.get_experiment_config('hypervisor')
         self.username = self.config.get('username', 'doberman')
         self.localhost = self.config['host']
-        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise')
-        self.register(obj=self.compress_logs, period=86400, name='log_compactor')
+        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
+        self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
-            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat')
+            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
         elif rhb == 'receive':
-            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat')
+            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
         self.last_restart = {}
         self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
@@ -172,10 +172,10 @@ class Hypervisor(Doberman.Monitor):
                         continue
                     if doc['to'] in self.db.distinct('pipelines', 'name') and \
                             self.db.get_pipeline(doc['to'])['status'] == 'inactive':
-                        self.logger.warning(f'Can\'t send command to {doc["to"]} because it isn\'t online')
+                        self.logger.warning(f'Can\'t send "{doc["command"]}" to {doc["to"]} because it isn\'t online')
                         continue
                     if doc['to'] in self.known_devices and doc['to'] not in self.config['processes']['active']:
-                        self.logger.warning(f'Can\'t send command to {doc["to"]} because it isn\'t online')
+                        self.logger.warning(f'Can\'t send "{doc["command"]}" to {doc["to"]} because it isn\'t online')
                         continue
                     hn, p = self.db.find_listener_address(doc['to'])
                     self.logger.debug(f'Sending "{doc["command"]}" to {doc["to"]} at {hn}:{p}')

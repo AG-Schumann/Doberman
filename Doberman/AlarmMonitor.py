@@ -23,8 +23,8 @@ class AlarmMonitor(Doberman.Monitor):
                                                      {'start': {'$lte': now}, 'end': {'$gte': now}},
                                                      onlyone=True)['shifters']
         self.current_shifters.sort()
-        self.register(obj=self.check_for_alarms, period=5, name='alarmcheck')
-        self.register(obj=self.check_shifters, period=60, name='shiftercheck')
+        self.register(obj=self.check_for_alarms, period=5, name='alarmcheck', _no_stop=True)
+        self.register(obj=self.check_shifters, period=60, name='shiftercheck', _no_stop=True)
 
     def get_connection_details(self, which):
         detail_doc = self.db.get_experiment_config('alarm')
