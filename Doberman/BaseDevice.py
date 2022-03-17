@@ -147,7 +147,7 @@ class Device(object):
         try:
             cmd = self.execute_command(quantity, value)
         except Exception as e:
-            self.logger.info(f'Tried to process command "{command}", got a {type(e)}: {e}')
+            self.logger.info(f'Tried to process command "{cmd}", got a {type(e)}: {e}')
             cmd = None
         if cmd is not None:
             self.add_to_schedule(command=cmd)

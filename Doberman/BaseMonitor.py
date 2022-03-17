@@ -41,7 +41,7 @@ class Monitor(object):
         self.shutdown()
         self.db.release_listener_port(self.name)
         pop = []
-        for n,t in self.threads.items():
+        for n, t in self.threads.items():
             try:
                 t.event.set()
                 t.join()
@@ -75,7 +75,7 @@ class Monitor(object):
                 func = partial(obj, **kwargs)
             else:
                 func = obj
-            self.restart_info[name] = (func, period) # store for restarting later if necessary
+            self.restart_info[name] = (func, period)  # store for restarting later if necessary
             t = FunctionHandler(func=func, logger=self.logger, period=period, name=name)
         if _no_stop:
             self.no_stop_threads.add(name)
@@ -160,10 +160,12 @@ class FunctionHandler(threading.Thread):
             self.event.wait(loop_top + self.period - time.time())
         self.logger.debug(f'Returning {self.name}')
 
+
 class Listener(threading.Thread):
     """
     This class listens for incoming commands and handles them
     """
+
     def __init__(self, port, logger, event, process_command):
         threading.Thread.__init__(self)
         self.port = port
@@ -191,4 +193,3 @@ class Listener(threading.Thread):
                 except Exception as e:
                     self.logger.info(f'Listener caught a {type(e)} while handling {data} from {addr}: {e}')
         self.logger.debug('Listener shutting down')
-
