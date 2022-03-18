@@ -102,7 +102,9 @@ class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
-    A simple alarm
+    A simple alarm. Checks a value against the thresholds stored in its sensor document.
+    Then endpoints of the interval are assumed to represent acceptable values, only
+    values outside are considered 'alarm'.
     """
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
@@ -128,3 +130,18 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
                 msg += f' {low:.3g} to {high:.3g}.'
             self.log_alarm(msg, packages[-1]['time'])
 
+class IntegerAlarmNode(AlarmNode):
+    """
+    Integer status quantities are a fundamentally different thing from physical values.
+    It makes sense to process them differently
+    """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.conditions = kwargs['conditions']
+
+    def process(self, package):
+        value = package[self.input_var]
+        for val, msg in self.conditions:
+            if value == int(val):
+                self.log_alarm(msg)
+                break
