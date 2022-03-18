@@ -149,10 +149,10 @@ class Pipeline(object):
         Takes in the graph as created above and figures out how many
         disjoint sections it has. These sections get separated out into subpipelines
         """
-        nodes_to_check = set([list(graph.keys())[0]])
-        nodes_checked = set()
         while len(graph):
             self.logger.debug(f'{len(graph)} nodes to check')
+            nodes_to_check = set([list(graph.keys())[0]])
+            nodes_checked = set()
             pl = {}
             while len(nodes_to_check) != 0:
                 node = nodes_to_check.pop()
