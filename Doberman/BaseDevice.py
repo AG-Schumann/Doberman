@@ -39,11 +39,8 @@ class Device(object):
 
     def base_setup(self):
         try:
-            self.setup_child()
             self.setup()
             time.sleep(0.2)
-            self.readout_thread = threading.Thread(target=self.readout_scheduler)
-            self.readout_thread.start()
         except Exception as e:
             self.logger.error('Something went wrong during initialization...')
             self.logger.error(type(e))
@@ -67,13 +64,7 @@ class Device(object):
         If a device needs to receive a command after opening but
         before starting "normal" operation, that goes here
         """
-
-    def setup_child(self):
-        """
-        A function for a child class to implement with any setup that needs
-        to be done before handing off to the user's code (such as opening a
-        hardware connection)
-        """
+        pass
 
     def readout_scheduler(self):
         """
@@ -85,22 +76,25 @@ class Device(object):
         """
         self.logger.debug('Readout scheduler starting')
         while not self.event.is_set():
-            command = None
-            with self.cv:
-                self.cv.wait_for(lambda: (len(self.cmd_queue) > 0 or self.event.is_set()))
-                if len(self.cmd_queue) > 0:
-                    command, ret = self.cmd_queue.pop(0)
-            if command is not None:
-                self.logger.debug(f'Executing {command}')
-                t_start = time.time()  # we don't want perf_counter because we care about
-                pkg = self.send_recv(command)
-                t_stop = time.time()  # the clock time when the data came out not cpu time
-                pkg['time'] = 0.5*(t_start + t_stop)
-                if ret is not None:
-                    d, cv = ret
-                    with cv:
-                        d.update(pkg)
-                        cv.notify()
+            try:
+                command = None
+                with self.cv:
+                    self.cv.wait_for(lambda: (len(self.cmd_queue) > 0 or self.event.is_set()))
+                    if len(self.cmd_queue) > 0:
+                        command, ret = self.cmd_queue.pop(0)
+                if command is not None:
+                    self.logger.debug(f'Executing {command}')
+                    t_start = time.time()  # we don't want perf_counter because we care about
+                    pkg = self.send_recv(command)
+                    t_stop = time.time()  # the clock time when the data came out not cpu time
+                    pkg['time'] = 0.5*(t_start + t_stop)
+                    if ret is not None:
+                        d, cv = ret
+                        with cv:
+                            d.update(pkg)
+                            cv.notify()
+            except Exception as e:
+                self.logger.error(f'Scheduler caught a {type(e)} while processing {command}: {e}')
         self.logger.debug('Readout scheduler returning')
 
     def add_to_schedule(self, command, ret=None):
@@ -153,7 +147,7 @@ class Device(object):
         try:
             cmd = self.execute_command(quantity, value)
         except Exception as e:
-            self.logger.info(f'Tried to process command "{command}", got a {type(e)}: {e}')
+            self.logger.info(f'Tried to process command "{cmd}", got a {type(e)}: {e}')
             cmd = None
         if cmd is not None:
             self.add_to_schedule(command=cmd)
@@ -165,10 +159,8 @@ class Device(object):
 
     def close(self):
         self.event.set()
-        if hasattr(self, 'readout_thread'):
-            with self.cv:
-                self.cv.notify()
-            self.readout_thread.join()
+        with self.cv:
+            self.cv.notify()
         self.shutdown()
 
     def __del__(self):
@@ -205,7 +197,7 @@ class SerialDevice(Device):
     Serial device class. Implements more direct serial connection specifics
     """
 
-    def setup_child(self):
+    def setup(self):
         if not has_serial:
             raise ValueError('This host doesn\'t have the serial library')
         self._device = serial.Serial()
@@ -267,7 +259,7 @@ class LANDevice(Device):
     Class for LAN-connected devices
     """
 
-    def setup_child(self):
+    def setup(self):
         self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
@@ -312,7 +304,7 @@ class CheapSocketDevice(LANDevice):
     """
     Some hardware treats sockets as disposable and expects a new one for each connection, so we do that here
     """
-    def setup_child(self):
+    def setup(self):
         self.packet_bytes = 1024
         self._device = None
         self._connected = True

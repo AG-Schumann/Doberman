@@ -55,7 +55,11 @@ def main(mongo_client):
     logger = Doberman.utils.get_logger(name=kwargs['name'], db=db)
     db.logger = logger
     kwargs['logger'] = logger
-    monitor = ctor(**kwargs)
+    try:
+        monitor = ctor(**kwargs)
+    except Exception as e:
+        logger.critical(f'Caught a {type(e)} while constructing {kwargs["name"]}: {e}')
+        return
     monitor.event.wait()
     print('Shutting down')
     monitor.close()
