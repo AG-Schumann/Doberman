@@ -14,7 +14,7 @@ class Pipeline(object):
         self.cycles = 0
         self.last_error = -1
         self.subpipelines = []
-        self.silenced_at_level = None  # to support disjoint alarm pipelines
+        self.silenced_at_level = 0  # to support disjoint alarm pipelines
 
     def stop(self):
         try:
