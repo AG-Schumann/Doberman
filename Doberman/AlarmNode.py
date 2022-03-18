@@ -71,6 +71,7 @@ class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
         super().setup(**kwargs)
         self.late_counter = 0
         self.late_threshold = 3 # TODO config-ize
+        self.accept_old = False
 
     def reset_alarm(self):
         super().reset_alarm()
