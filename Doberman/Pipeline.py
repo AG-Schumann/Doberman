@@ -95,6 +95,7 @@ class Pipeline(object):
                             'logger': self.logger,
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
+                    self.logger.debug(node_kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
                     if isinstance(kwargs['input_var'], str):
                         # some things take lists
@@ -103,6 +104,8 @@ class Pipeline(object):
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['operation'] = kwargs.get('operation')
+                    setup_kwargs['sink_topic'] = kwargs.get('topic')
+                    setup_kwargs['sink_subsystem'] = kwargs.get('subsystem')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['log_alarm'] = self.db.log_alarm
                     setup_kwargs['log_command'] = self.db.log_command

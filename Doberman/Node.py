@@ -349,16 +349,17 @@ class InfluxSinkNode(Node):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.topic = kwargs['topic']
-        self.subsystem = kwargs['subsystem']
+        self.topic = kwargs['sink_topic']
+        self.subsystem = kwargs['sink_subsystem']
         self.write_to_influx = kwargs['write_to_influx']
         self.device = kwargs.get('device', 'pipeline')
 
     def process(self, package):
         if not self.is_silent:
+            self.logger.debug(f'{self.topic}, {self.subsystem}, {self.device}, {self.input_var}')
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
                 'device': self.device, 'subsystem': self.subsystem},
-                fields={'value': package[self.input_var]}, timestamp=package['time'])
+                fields={'value': package[self.input_var[0]]}, timestamp=package['time'])
 
 class EvalNode(Node):
     """
