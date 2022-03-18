@@ -17,7 +17,7 @@ class DeviceMonitor(Doberman.Monitor):
         for rd in cfg_doc['sensors']:
             self.start_sensor(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
-                      period=self.db.get_experiment_config(name='hypervisor', field='period'))
+                      period=self.db.get_experiment_config(name='hypervisor', field='period'), _no_stop=True)
         self.db.notify_hypervisor(active=self.name)
 
     def start_sensor(self, rd):
@@ -57,9 +57,17 @@ class DeviceMonitor(Doberman.Monitor):
             self.device = self.device_ctor(self.db.get_device_setting(self.name),
                                            self.logger, self.event)
         except Exception as e:
-            self.logger.error(f'Could not open device. Error: {e} ({type(e)}')
+            self.logger.error(f'Could not open device. Error: {e} ({type(e)})')
             self.device = None
             raise
+
+        class DummyThread(threading.Thread):
+            def __init__(self, func, event):
+                threading.Thread.__init__(self)
+                self.run = func
+                self.event = event
+
+        self.register(name='readout_sched', obj=DummyThread(self.device.readout_scheduler, self.event), _no_stop=True)
         return
 
     def heartbeat(self):

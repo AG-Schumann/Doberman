@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/global/software/python3_arm/bin/python3
 import psutil
 import Doberman
 import time

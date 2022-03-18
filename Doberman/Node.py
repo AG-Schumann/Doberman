@@ -143,20 +143,24 @@ class InfluxSourceNode(SourceNode):
         self.req_params = params
         self.last_time = 0
 
-    def get_package(self, recurse=True):
+    def get_from_influx(self):
         response = requests.get(self.req_url, headers=self.req_headers, params=self.req_params)
         try:
             timestamp, val = response.content.decode().splitlines()[1].split(',')[-2:]
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
-
         timestamp = int(timestamp)
         val = float(val) # 53 bits of precision and we only ever have small integers
+        return timestamp, val
+
+    def get_package(self):
+        timestamp, val = self.get_from_influx()
         if self.last_time == timestamp and not self.accept_old:
-            if recurse:
-                # try again
-                return self.get_package(recurse=False)
-            raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
+            # try again, in the 10ms or so a new value may have just arrived
+            timestamp, val = self.get_from_influx()
+            if self.last_time == timestamp:
+                # still nothing
+                raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
         self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp*(10**-9), self.output_var: val}
