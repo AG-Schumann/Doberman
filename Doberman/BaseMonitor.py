@@ -149,8 +149,8 @@ class FunctionHandler(threading.Thread):
         """
         self.logger.debug(f'Starting {self.name}')
         while not self.event.is_set():
+            loop_top = time.time()
             try:
-                loop_top = time.time()
                 self.logger.debug(f'Running {self.name}')
                 ret = self.func()
                 if isinstance(ret, (int, float)) and 0. < ret:
