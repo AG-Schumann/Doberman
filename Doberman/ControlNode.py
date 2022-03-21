@@ -11,14 +11,15 @@ class ControlNode(Doberman.Node):
         self.control_target = kwargs['control_target']
         self.control_value = kwargs['control_value']
 
-    def set_output(self, value):
+    def set_output(self, value, _force=False):
         self.logger.debug(f'Setting output to {value}')
-        if not self.is_silent:
+        if not self.is_silent and not _force:
             self._log_command(f'set {self.control_value} {value}', self.control_target,
                     self.name)
 
     def on_error_do_this(self):
-        self.set_output(self.config.get('default_output', 0))
+        if (v := self.config.get('default_output')) is not None:
+            self.set_output(v, _force=True)
 
 class GeneralValveControl(ControlNode):
     """
