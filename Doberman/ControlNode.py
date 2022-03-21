@@ -17,6 +17,9 @@ class ControlNode(Doberman.Node):
             self._log_command(f'set {self.control_value} {value}', self.control_target,
                     self.name)
 
+    def on_error_do_this(self):
+        self.set_output(self.config.get('default_output', 0))
+
 class GeneralValveControl(ControlNode):
     """
     A generalized valve control node that shunts a lot of the logic to something further up in the

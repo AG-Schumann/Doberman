@@ -42,6 +42,11 @@ class Pipeline(object):
                     self.logger.debug(msg)
                 else:
                     self.logger.warning(msg)
+                for node in self.graph.values():
+                    try:
+                        node.on_error_do_this()
+                    except:
+                        pass
                 break # probably shouldn't finish the cycle if something errored
             t_end = time.time()
             timing[node.name] = (t_end-t_start)*1000
