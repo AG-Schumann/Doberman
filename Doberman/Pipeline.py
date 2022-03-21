@@ -93,7 +93,7 @@ class Pipeline(object):
                 if kwargs['name'] in graph:
                     continue
                 upstream = kwargs.get('upstream', [])
-                existing_upstream = [self.graph[u] for u in upstream if u in graph]
+                existing_upstream = [graph[u] for u in upstream if u in graph]
                 if len(upstream) == 0 or len(upstream) == len(existing_upstream):
                     self.logger.debug(f'{kwargs["name"]} ready for creation')
                     # all this node's requirements are created
@@ -165,7 +165,7 @@ class Pipeline(object):
                         nodes_to_check.add(d.name)
                 pl[node] = graph.pop(node)
                 nodes_checked.add(node)
-            self.logger.debug(f'Found set: {set(pl.keys()}')
+            self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
             self.subpipelines.append(pl)
 
     def reconfigure(self, doc):
@@ -176,10 +176,8 @@ class Pipeline(object):
                     if node.name not in doc:
                         doc[node.name] = {}
                     doc[node.name].update(alarm_thresholds=rd['alarm_thresholds'], readout_interval=rd['readout_interval'])
-                if isinstance(node, Doberman.SimpleAlarmNode):
-                    if node.name not in doc:
-                        doc[node.name] = {}
-                    doc[node.name].update(length=rd['alarm_recurrence'])
+                    if isinstance(node, Doberman.SimpleAlarmNode):
+                        doc[node.name].update(length=rd['alarm_recurrence'])
                 if node.name in doc:
                     node.load_config(doc[node.name])
 
