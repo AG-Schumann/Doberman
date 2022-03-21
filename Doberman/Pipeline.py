@@ -112,7 +112,9 @@ class Pipeline(object):
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     n.setup(**setup_kwargs)
-                    n.load_config(config.get('node_config', {}).get(n.name, {}))
+                    node_config = config.get('pipeline_config', {})
+                    node_config.update(config.get('node_config', {}).get(n.name, {}))
+                    n.load_config(node_config)
                     self.graph[n.name] = n
                     if isinstance(n, Doberman.BufferNode):
                         num_buffer_nodes += 1
