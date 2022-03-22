@@ -112,7 +112,7 @@ class Pipeline(object):
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     n.setup(**setup_kwargs)
-                    node_config = config.get('pipeline_config', {})
+                    node_config = config.get('node_config', {}).get('general', {})
                     node_config.update(config.get('node_config', {}).get(n.name, {}))
                     n.load_config(node_config)
                     self.graph[n.name] = n
