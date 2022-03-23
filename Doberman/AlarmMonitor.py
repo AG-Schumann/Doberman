@@ -183,7 +183,7 @@ class AlarmMonitor(Doberman.Monitor):
             alarms[level]['logged'].append(logged)
             alarms[level]['msgs'].append(doc['msg'])
         for alarm_level, doc in alarms.items():
-            formatdate = lambda d: d.replace(tzinfo=datetime.timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+            formatdate = lambda d: d.replace(tzinfo=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
             message = '\n'.join([f'{formatdate(d)}: {m}' for d, m in zip(doc['logged'], doc['msgs'])])
             self.send_message(int(alarm_level), message)
         # put the update at the end so if something goes wrong with the message sending then the
