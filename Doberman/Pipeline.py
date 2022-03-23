@@ -115,9 +115,12 @@ class Pipeline(object):
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
-                    if isinstance(kwargs['input_var'], str):
-                        # some things take lists
-                        setup_kwargs = self.db.get_sensor_setting(name=kwargs['input_var'])
+                    if isinstance(n, (Doberman.SourceNode, Doberman.AlarmNode)):
+                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs['input_var'])) is None:
+                            raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
+                    elif isinstance(n, (Doberman.InfluxSinkNode)):
+                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                            raise ValueError(f'Invalid output_var for {n.name}: {kwargs["output_var"]}')
                     else:
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
@@ -137,7 +140,7 @@ class Pipeline(object):
                         num_buffer_nodes += 1
                         longest_buffer = max(longest_buffer, n.buffer.length)
 
-            if (nodes_built := len(graph) - start_len) == 0:
+            if (nodes_built := (len(self.graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 created = list(graph.keys())
                 all_nodes = set(d['name'] for d in pipeline_config)
