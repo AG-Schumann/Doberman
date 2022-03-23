@@ -64,7 +64,7 @@ class Node(object):
         """
         for k,v in doc.items():
             if k == 'length' and isinstance(self, BufferNode):
-                self.buffer.set_length(v)
+                self.buffer.set_length(int(v))
             else:
                 self.config[k] = v
 
@@ -184,7 +184,7 @@ class BufferNode(Node):
     def get_package(self):
         if self.strict and len(self.buffer) != self.buffer.length:
             raise ValueError(f'{self.name} is not full')
-        # deep copy because the MergeNode will change its input
+        # deep copy
         return list(map(dict, self.buffer))
 
 class LowPassFilter(BufferNode):
@@ -286,7 +286,7 @@ class IntegralNode(BufferNode):
         The integral is calculated up to t_offset from the end of the buffer
     """
     def process(self, packages):
-        offset = self.config.get('t_offset', 0)
+        offset = int(self.config.get('t_offset', 0))
         t = [p['time'] for p in packages]
         v = [p[self.input_var] for p in packages]
         integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 for i in range(1, len(packages)-offset))
@@ -353,8 +353,8 @@ class InfluxSinkNode(Node):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.topic = kwargs['sink_topic']
-        self.subsystem = kwargs['sink_subsystem']
+        self.topic = kwargs['topic']
+        self.subsystem = kwargs['subsystem']
         self.write_to_influx = kwargs['write_to_influx']
         self.device = kwargs.get('device', 'pipeline')
 

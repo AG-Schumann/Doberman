@@ -95,17 +95,17 @@ class Pipeline(object):
                             'logger': self.logger,
                             '_upstream': existing_upstream} # we _ the key because of the update line below
                     node_kwargs.update(kwargs)
-                    self.logger.debug(node_kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
-                    if isinstance(kwargs['input_var'], str):
-                        # some things take lists
-                        setup_kwargs = self.db.get_sensor_setting(name=kwargs['input_var'])
+                    if isinstance(n, (Doberman.SourceNode, Doberman.AlarmNode)):
+                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs['input_var'])) is None:
+                            raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
+                    elif isinstance(n, (Doberman.InfluxSinkNode)):
+                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                            raise ValueError(f'Invalid output_var for {n.name}: {kwargs["output_var"]}')
                     else:
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['operation'] = kwargs.get('operation')
-                    setup_kwargs['sink_topic'] = kwargs.get('topic')
-                    setup_kwargs['sink_subsystem'] = kwargs.get('subsystem')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['log_alarm'] = self.db.log_alarm
                     setup_kwargs['log_command'] = self.db.log_command
@@ -121,7 +121,7 @@ class Pipeline(object):
                         num_buffer_nodes += 1
                         longest_buffer = max(longest_buffer, n.buffer.length)
 
-            if (nodes_built := len(self.graph) - start_len) == 0:
+            if (nodes_built := (len(self.graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 created = list(self.graph.keys())
                 all_nodes = set(d['name'] for d in pipeline_config)

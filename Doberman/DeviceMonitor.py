@@ -1,4 +1,5 @@
 import Doberman
+import threading
 
 __all__ = 'DeviceMonitor'.split()
 

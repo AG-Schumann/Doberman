@@ -24,11 +24,11 @@ class Monitor(object):
         self.restart_info = {}
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        self.register(obj=self.check_threads, period=30, name='checkthreads', _no_stop=True)
         _, port = self.db.assign_listener_address(self.name)
         l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.register(name='listener', obj=l, _no_stop=True)
         self.setup()
+        self.register(obj=self.check_threads, period=30, name='checkthreads', _no_stop=True)
 
     def __del__(self):
         pass
