@@ -50,7 +50,7 @@ class AlarmNode(Doberman.Node):
         """
         Let the outside world know that something is going on
         """
-        if not self.is_silent:
+        if not self.is_silent or self.pipeline.silenced_at_level < self.base_level:
             self.logger.debug(msg)
             if self.hash is None:
                 self.hash = Doberman.utils.make_hash(ts or time.time(), self.pipeline.name)
@@ -58,7 +58,7 @@ class AlarmNode(Doberman.Node):
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
             self._log_alarm(msg, self.pipeline.name, self.hash, self.base_level, self.escalation_level)
-            self.pipeline.silence_for(self.auto_silence_duration)
+            self.pipeline.silence_for(self.auto_silence_duration, self.base_level)
             self.messages_this_level += 1
         else:
             self.logger.error(msg)
