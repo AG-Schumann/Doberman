@@ -221,7 +221,13 @@ class AlarmMonitor(Doberman.Monitor):
         new_shifters.sort()
         if new_shifters != self.current_shifters:
             if len(new_shifters) == 0:
-                self.logger.info('No more allocated shifters.')
+                self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': True}})
+                self.db.log_alarm('No more allocated shifters.',
+                                  pipeline='AlarmMonitor',
+                                  alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                                  base=1,
+                                  escalation=0)
+                self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': False}})
                 return
             msg = f'{", ".join(new_shifters)} '
             msg += ('is ' if len(new_shifters) == 1 else 'are ')
