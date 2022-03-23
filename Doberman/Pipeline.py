@@ -162,7 +162,7 @@ class Pipeline(object):
         """
         while len(graph):
             self.logger.debug(f'{len(graph)} nodes to check')
-            nodes_to_check = set([[list(graph.keys())[0]]])
+            nodes_to_check = set([list(graph.keys())[0]])
             nodes_checked = set()
             pl = {}
             while len(nodes_to_check) != 0:
