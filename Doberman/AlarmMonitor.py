@@ -1,3 +1,4 @@
+import time
 import requests
 import json
 import smtplib
@@ -19,9 +20,7 @@ class AlarmMonitor(Doberman.Monitor):
 
     def setup(self):
         now = dtnow()
-        self.current_shifters = self.db.read_from_db('shifts',
-                                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                                     onlyone=True)['shifters']
+        self.current_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         self.current_shifters.sort()
         self.register(obj=self.check_for_alarms, period=5, name='alarmcheck', _no_stop=True)
         self.register(obj=self.check_shifters, period=60, name='shiftercheck', _no_stop=True)
@@ -218,24 +217,24 @@ class AlarmMonitor(Doberman.Monitor):
         Logs a notification (alarm) when the list of shifters changes
         """
 
-        now = dtnow()
-        shift = self.db.read_from_db('shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
-        if shift is None:
-            self.current_shifters = []
-            return
-        new_shifters = shift['shifters']
+        new_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         new_shifters.sort()
         if new_shifters != self.current_shifters:
-            if len(''.join(new_shifters)) == 0:
-                self.logger.info('No more allocated shifters.')
+            if len(new_shifters) == 0:
+                self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': True}})
+                self.db.log_alarm('No more allocated shifters.',
+                                  pipeline='AlarmMonitor',
+                                  alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                                  base=1,
+                                  escalation=0)
+                self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': False}})
                 return
-
-            end_time = shift['end'].replace(tzinfo=timezone.utc).astimezone(tz=None)
-            shifters = list(filter(None, new_shifters))
-            msg = f'{", ".join(shifters)} '
-            msg += ('is ' if len(shifters) == 1 else 'are ')
-            msg += f'now on shift until {end_time.strftime("%b %-d %H:%M")}.'
-            doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
-            self.db.log_alarm(doc)
+            msg = f'{", ".join(new_shifters)} '
+            msg += ('is ' if len(new_shifters) == 1 else 'are ')
+            msg += f'now on shift.'
+            self.db.log_alarm(msg,
+                              pipeline='AlarmMonitor',
+                              alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                              base=1,
+                              escalation=0)
             self.current_shifters = new_shifters

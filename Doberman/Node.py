@@ -80,6 +80,13 @@ class Node(object):
         """
         pass
 
+    def on_error_do_this(self):
+        """
+        If the pipeline errors, do this thing (ie, closing a valve).
+        Only really makes sense for ControlNodes
+        """
+        pass
+
 class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
