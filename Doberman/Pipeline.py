@@ -19,8 +19,14 @@ class Pipeline(object):
     def stop(self):
         try:
             self.db.set_pipeline_value(self.name, [('status', 'inactive')])
+            for pl in self.subpipelines:
+                for node in pl.values():
+                    try:
+                        node.on_error_do_this()
+                    except Exception:
+                        pass
         except Exception as e:
-            pass
+            self.logger.debug(f'Caught a {type(e)} while stopping: {e}')
 
     def process_cycle(self):
         """
@@ -47,6 +53,11 @@ class Pipeline(object):
                         self.logger.debug(msg)
                     else:
                         self.logger.warning(msg)
+                    for n in pl.values():
+                        try:
+                            n.on_error_do_this()
+                        except Exception:
+                            pass
                     # probably shouldn't finish the cycle if something errored
                     # but we should allow other subpipelines to run
                     break
