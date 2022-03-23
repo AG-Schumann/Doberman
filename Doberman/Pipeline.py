@@ -19,14 +19,14 @@ class Pipeline(object):
     def stop(self):
         try:
             self.db.set_pipeline_value(self.name, [('status', 'inactive')])
-            for node in self.graph.values():
-                try:
-                    node.on_error_do_this()
-                except Exception:
-                    pass
+            for pl in self.subpipelines:
+                for node in pl.values():
+                    try:
+                        node.on_error_do_this()
+                    except Exception:
+                        pass
         except Exception as e:
             self.logger.debug(f'Caught a {type(e)} while stopping: {e}')
-            pass
 
     def process_cycle(self):
         """
@@ -162,7 +162,7 @@ class Pipeline(object):
         """
         while len(graph):
             self.logger.debug(f'{len(graph)} nodes to check')
-            nodes_to_check = set([list(graph.keys())[0]])
+            nodes_to_check = set([[list(graph.keys())[0]]])
             nodes_checked = set()
             pl = {}
             while len(nodes_to_check) != 0:
