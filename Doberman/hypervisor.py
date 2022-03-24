@@ -27,9 +27,8 @@ class Hypervisor(Doberman.Monitor):
 
         # start the three Pipeline monitors
         path = self.config['path']
-        self.run_locally(f'cd {path} && ./start_process.sh --alarm')
-        for pl in 'pl_control pl_convert'.split():
-            self.run_locally(f'cd {path} && ./start_process.sh --pipeline {pl}')
+        for thing in 'alarm control convert'.split():
+            self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
 
         # now start the rest of the things
         self.username = self.config.get('username', 'doberman')

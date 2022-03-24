@@ -1,27 +1,30 @@
 #!/bin/bash
 
-USAGE="Usage: $0 [--alarm] [-d <device>] [-p <pipeline>] [--hypervisor]"
+USAGE="Usage: $0 [--alarm] [--control] [--convert] [--device <device>] [--hypervisor]"
 folder="/global/software/doberman/Doberman"
 
 x=0
 
 while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
-  -a | --alarm )
+  --alarm )
     target="alarm"
     screen_name="alarm_monitor"
+    x=$((x+1))
+    ;;
+  --control )
+    target="control"
+    screen_name="control_pipeline"
+    x=$((x+1))
+    ;;
+  --convert )
+    target="convert"
+    screen_name="convert_pipeline"
     x=$((x+1))
     ;;
   -d | --device )
     shift
     name=$1
     target="device"
-    screen_name=$1
-    x=$((x+1))
-    ;;
-  -p | --pipeline )
-    shift
-    name=$1
-    target="pipeline"
     screen_name=$1
     x=$((x+1))
     ;;
