@@ -41,6 +41,7 @@ class Pipeline(object):
             self.silenced_at_level = 0
         timing = {}
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
+        drift = 0
         for pl in self.subpipelines:
             for node in pl.values():
                 t_start = time.time()
@@ -49,6 +50,8 @@ class Pipeline(object):
                 except Exception as e:
                     self.last_error = self.cycles
                     msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
+                    if isinstance(node, Doberman.SourceNode):
+                        drift = 0.1 # extra few ms to help with misalignment
                     if self.cycles <= self.startup_cycles:
                         # we expect errors during startup as buffers get filled
                         self.logger.debug(msg)
@@ -72,7 +75,7 @@ class Pipeline(object):
                     ('cycles', self.cycles),
                     ('error', self.last_error),
                     ('rate', sum(timing.values()))])
-        drift = 0.001 # 1ms extra per cycle, so we don't accidentally get ahead of the new values
+        drift = max(drift, 0.001) # min 1ms of drift
         return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
 
     def build(self, config):
