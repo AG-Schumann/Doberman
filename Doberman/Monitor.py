@@ -12,9 +12,10 @@ def main(mongo_client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
-    group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
+    group.add_argument('--control', action='store_true', help='Start the Control pipeline monitor')
+    group.add_argument('--convert', action='store_true', help='Start the Convert pipeline monitor')
     group.add_argument('--device', help='Start the specified device monitor')
-    group.add_argument('--pipeline', help='Start a pipeline monitor')
+    group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
     args = parser.parse_args()
 
@@ -28,7 +29,13 @@ def main(mongo_client):
     # TODO add checks for running systems
     if args.alarm:
         ctor = Doberman.AlarmMonitor
-        kwargs['name'] = 'alarm_monitor'
+        kwargs['name'] = 'pl_alarm'
+    elif args.control:
+        ctor = Doberman.PipelineMonitor
+        kwargs['name'] = 'pl_control'
+    elif args.convert:
+        ctor = Doberman.PipelineMonitor
+        kwargs['name'] = 'pl_convert'
     elif args.hypervisor:
         doc = db.get_experiment_config(name='hypervisor')
         if doc['status'] == 'online':
@@ -43,9 +50,6 @@ def main(mongo_client):
         kwargs['name'] = args.device
         if 'Test' in args.device:
             db.experiment_name = 'testing'
-    elif args.pipeline:
-        kwargs['name'] = f'{args.pipeline}'
-        ctor = Doberman.PipelineMonitor
     elif args.status:
         pprint.pprint(db.get_current_status())
         return

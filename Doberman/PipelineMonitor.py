@@ -4,19 +4,18 @@ __all__ = 'PipelineMonitor'.split()
 
 class PipelineMonitor(Doberman.Monitor):
     """
-    A subclass to handle a pipeline or pipelines. All 'alarm' pipelines are handled by one PipelineMonitor,
-    while each 'control' pipeline will be handled by its own monitor to simplify the frequent restarting
-    that is likely to occur.
+    A subclass to handle a pipeline or pipelines. Pipelines come in three main flavors: they either process or send alarms, 
+    convert "raw" values into "processed" values, or control something in the system. Each flavor is handled by one
+    dedicated PipelineMonitor.
     """
 
     def setup(self):
         self.pipelines = {}
-        if self.name == 'pl_alarm':
-            for name in self.db.get_alarm_pipelines():
-                self.start_pipeline(name)
-        else:
-            if self.start_pipeline(self.name):
-                self.event.set()
+        flavor = self.name.split('_')[1] # pl_flavor
+        if flavor not in 'alarm control convert'.split():
+            raise ValueError(f'Unknown pipeline monitor {self.name}, allowed are "pl_alarm", "pl_convert", "pl_control"')
+        for name in self.db.get_pipelines(flavor):
+            self.start_pipeline(name)
 
     def shutdown(self):
         self.logger.debug(f'{self.name} shutting down')
@@ -27,7 +26,7 @@ class PipelineMonitor(Doberman.Monitor):
         if (doc := self.db.get_pipeline(name)) is None:
             self.logger.error(f'No pipeline named {name} found')
             return -1
-        p = Doberman.Pipeline(db=self.db, logger=self.logger, name=name)
+        p = Doberman.Pipeline(db=self.db, logger=self.logger, name=name, monitor=self)
         try:
             p.build(doc)
         except Exception as e:
@@ -80,3 +79,4 @@ class PipelineMonitor(Doberman.Monitor):
                 self.logger.info(f'I don\'t understand command "{command}"')
         except Exception as e:
             self.logger.error(f'Received malformed command: {command}')
+

@@ -202,15 +202,15 @@ class Database(object):
         """
         return self.read_from_db('pipelines', {'name': name}, onlyone=True)
 
-    def get_alarm_pipelines(self, inactive=False):
+    def get_pipelines(self, flavor):
         """
-        Returns a list of names of pipelines.
-        :param inactive: bool, include currently inactive pipelines in the return
-        :yields: names of pipelines
+        Generates a list of names of pipelines to start now. Called by
+        PipelineMonitors on startup.
+        :param flavor: which type of pipelines to select, should be one of "alarm", "contro", "convert"
+        :yields: string
         """
-        query = {'name': {'$regex': 'alarm'}, 'status': {'$in': ['active', 'silent']}}
-        if inactive:
-            del query['status']
+        query = {'status': {'$in': ['active', 'silent']},
+                 'name': {'$regex': f'^{flavor}_'}}
         for doc in self.read_from_db('pipelines', query):
             yield doc['name']
 
@@ -294,17 +294,6 @@ class Database(object):
         self.update_db('devices', cuts={'name': device},
                        updates={'$set': {'heartbeat': dtnow()}})
         return
-
-    def log_alarm(self, message, pipeline=None, alarm_hash=None, base=None, escalation=None):
-        """
-        Adds the alarm to the history.
-        """
-        doc = {'msg': message, 'acknowledged': 0, 'pipeline': pipeline,
-                'hash': alarm_hash, 'level': base, 'escalation': escalation}
-        if self.insert_into_db('alarm_history', doc):
-            self.logger.warning('Could not add entry to alarm history!')
-            return -1
-        return 0
 
     def get_device_setting(self, name, field=None):
         """

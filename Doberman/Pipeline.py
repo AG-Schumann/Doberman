@@ -11,6 +11,7 @@ class Pipeline(object):
         self.db = kwargs['db']
         self.logger = kwargs['logger']
         self.name = kwargs['name']
+        self.monitor = kwargs['monitor']
         self.cycles = 0
         self.last_error = -1
         self.subpipelines = []
@@ -126,7 +127,7 @@ class Pipeline(object):
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['operation'] = kwargs.get('operation')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
-                    setup_kwargs['log_alarm'] = self.db.log_alarm
+                    setup_kwargs['log_alarm'] = self.monitor.log_alarm
                     setup_kwargs['log_command'] = self.db.log_command
                     for k in 'target value'.split():
                         setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
