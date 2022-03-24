@@ -64,7 +64,7 @@ class Node(object):
         """
         for k,v in doc.items():
             if k == 'length' and isinstance(self, BufferNode):
-                self.buffer.set_length(v)
+                self.buffer.set_length(int(v))
             else:
                 self.config[k] = v
 
@@ -77,6 +77,13 @@ class Node(object):
     def post_process(self):
         """
         Anything a node wants to do after sending its result downstream
+        """
+        pass
+
+    def on_error_do_this(self):
+        """
+        If the pipeline errors, do this thing (ie, closing a valve).
+        Only really makes sense for ControlNodes
         """
         pass
 
@@ -184,7 +191,7 @@ class BufferNode(Node):
     def get_package(self):
         if self.strict and len(self.buffer) != self.buffer.length:
             raise ValueError(f'{self.name} is not full')
-        # deep copy because the MergeNode will change its input
+        # deep copy
         return list(map(dict, self.buffer))
 
 class LowPassFilter(BufferNode):
@@ -286,7 +293,7 @@ class IntegralNode(BufferNode):
         The integral is calculated up to t_offset from the end of the buffer
     """
     def process(self, packages):
-        offset = self.config.get('t_offset', 0)
+        offset = int(self.config.get('t_offset', 0))
         t = [p['time'] for p in packages]
         v = [p[self.input_var] for p in packages]
         integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 for i in range(1, len(packages)-offset))
@@ -360,9 +367,10 @@ class InfluxSinkNode(Node):
 
     def process(self, package):
         if not self.is_silent:
+            self.logger.debug(f'{self.topic}, {self.subsystem}, {self.device}, {self.input_var}')
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
                 'device': self.device, 'subsystem': self.subsystem},
-                fields={'value': package[self.input_var]}, timestamp=package['time'])
+                fields={'value': package[self.input_var[0]]}, timestamp=package['time'])
 
 class EvalNode(Node):
     """

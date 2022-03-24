@@ -1,11 +1,16 @@
 #!/bin/bash
 
-USAGE="Usage: $0 [-d <device>] [-p <pipeline>] [--hypervisor]"
+USAGE="Usage: $0 [--alarm] [-d <device>] [-p <pipeline>] [--hypervisor]"
 folder="/global/software/doberman/Doberman"
 
 x=0
 
 while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
+  -a | --alarm )
+    target="alarm"
+    screen_name="alarm_monitor"
+    x=$((x+1))
+    ;;
   -d | --device )
     shift
     name=$1

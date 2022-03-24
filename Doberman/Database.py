@@ -181,7 +181,7 @@ class Database(object):
                 'time': time.time() + delay
                 }
         hn, p = self.find_listener_address('hypervisor')
-        with create_connection((hn, p), timeout=0.1) as sock:
+        with create_connection((hn, int(p)), timeout=0.1) as sock:
             sock.sendall(json.dumps(doc).encode())
 
     def get_experiment_config(self, name, field=None):
@@ -395,7 +395,7 @@ class Database(object):
                 continue
             self.logger.info(f'Assigning {host}:{port} to {name}')
             self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
-            return host, port
+            return host, int(port)
 
     def find_listener_address(self, name):
         """
@@ -407,7 +407,8 @@ class Database(object):
         doc = self.get_experiment_config('hypervisor', field='global_dispatch')
         # doc looks like { name: [host, port], ...}
         if name in doc:
-            return doc[name]
+            host, port = doc[name]
+            return host, int(port)
         raise ValueError(f'No assigned listener info for {name}')
 
     def release_listener_port(self, name):
