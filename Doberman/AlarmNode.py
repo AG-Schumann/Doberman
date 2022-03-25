@@ -61,7 +61,7 @@ class AlarmNode(Doberman.Node):
                             message=msg,
                             pipeline=self.pipeline.name,
                             _hash=self.hash)
-            self.pipeline.silence_for(self.auto_silence_duration, self.base_level)
+            self.pipeline.silence_for(self.auto_silence_duration[self.base_level + self.escalation_level], self.base_level)
             self.messages_this_level += 1
         else:
             self.logger.error(msg)
