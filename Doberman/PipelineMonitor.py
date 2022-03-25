@@ -44,6 +44,7 @@ class PipelineMonitor(Doberman.Monitor):
         del self.pipelines[name]
 
     def process_command(self, command):
+        self.logger.debug(f'Processing {command}')
         try:
             if command.startswith('pipelinectl_start'):
                 _, name = command.split(' ')
