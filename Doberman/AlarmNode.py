@@ -57,8 +57,12 @@ class AlarmNode(Doberman.Node):
                 self.alarm_start = ts or time.time()
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
-            self._log_alarm(msg, self.pipeline.name, self.hash, self.base_level, self.escalation_level)
-            self.pipeline.silence_for(self.auto_silence_duration, self.base_level)
+            level = self.base_level + self.escalation_level
+            self._log_alarm(level=level,
+                            message=msg,
+                            pipeline=self.pipeline.name,
+                            _hash=self.hash)
+            self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
             self.messages_this_level += 1
         else:
             self.logger.error(msg)

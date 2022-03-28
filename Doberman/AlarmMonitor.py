@@ -13,17 +13,16 @@ dtnow = Doberman.utils.dtnow
 __all__ = 'AlarmMonitor'.split()
 
 
-class AlarmMonitor(Doberman.Monitor):
+class AlarmMonitor(Doberman.PipelineMonitor):
     """
     Class that monitors for alarms and sends messages
     """
 
     def setup(self):
-        now = dtnow()
+        super().setup()
         self.current_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         self.current_shifters.sort()
-        self.register(obj=self.check_for_alarms, period=5, name='alarmcheck', _no_stop=True)
-        self.register(obj=self.check_shifters, period=60, name='shiftercheck', _no_stop=True)
+        self.register(obj=self.check_shifters, period=600, name='shiftercheck', _no_stop=True)
 
     def get_connection_details(self, which):
         detail_doc = self.db.get_experiment_config('alarm')
@@ -169,30 +168,7 @@ class AlarmMonitor(Doberman.Monitor):
             return -1
         return 0
 
-    def check_for_alarms(self):
-        doc_filter = {'acknowledged': 0}
-        updates = {'$set': {'acknowledged': dtnow()}}
-        db_col = 'alarm_history'
-        if self.db.count(db_col, doc_filter) == 0:
-            return
-        alarms = {}
-        for doc in self.db.read_from_db(db_col, doc_filter):
-            level = doc['level'] + doc['escalation']
-            logged = datetime.fromtimestamp(int(str(doc['_id'])[:8], 16))
-            if level not in alarms:
-                alarms[level] = {'logged': [], 'msgs': []}
-            alarms[level]['logged'].append(logged)
-            alarms[level]['msgs'].append(doc['msg'])
-        for alarm_level, doc in alarms.items():
-            formatdate = lambda d: d.replace(tzinfo=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
-            message = '\n'.join([f'{formatdate(d)}: {m}' for d, m in zip(doc['logged'], doc['msgs'])])
-            self.send_message(int(alarm_level), message)
-        # put the update at the end so if something goes wrong with the message sending then the
-        # alarms don't get acknowledged and lost
-        self.db.update_db(db_col, doc_filter, updates)
-        return
-
-    def send_message(self, level, message):
+    def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
         """
         Sends 'message' to the contacts specified by 'level'
         """
@@ -210,7 +186,7 @@ class AlarmMonitor(Doberman.Monitor):
                 try:
                     self.send_phonecall(recipients, message)
                 except Exception as e:
-                    self.logger.error('Unable to make call: {type(e)}, {e}')
+                    self.logger.error(f'Unable to make call: {type(e)}, {e}')
             else:
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
 
@@ -224,19 +200,18 @@ class AlarmMonitor(Doberman.Monitor):
         if new_shifters != self.current_shifters:
             if len(new_shifters) == 0:
                 self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': True}})
-                self.db.log_alarm('No more allocated shifters.',
-                                  pipeline='AlarmMonitor',
-                                  alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
-                                  base=1,
-                                  escalation=0)
+                self.log_alarm(level=1, message='No more allocated shifters.',
+                               pipeline='AlarmMonitor',
+                               _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                               )
                 self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': False}})
                 return
             msg = f'{", ".join(new_shifters)} '
             msg += ('is ' if len(new_shifters) == 1 else 'are ')
             msg += f'now on shift.'
-            self.db.log_alarm(msg,
-                              pipeline='AlarmMonitor',
-                              alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
-                              base=1,
-                              escalation=0)
+            self.log_alarm(level=1,
+                           message=msg,
+                           pipeline='AlarmMonitor',
+                           _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                           )
             self.current_shifters = new_shifters

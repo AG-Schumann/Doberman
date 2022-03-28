@@ -157,6 +157,7 @@ class InfluxSourceNode(SourceNode):
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
         timestamp = int(timestamp)
+        self.logger.debug(f'{self.name} got timestamp {timestamp}')
         val = float(val) # 53 bits of precision and we only ever have small integers
         return timestamp, val
 

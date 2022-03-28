@@ -20,11 +20,17 @@ class Monitor(object):
         self.name = name
         self.logger.debug('Monitor constructing')
         self.event = threading.Event()
+        # we use a lock to synchronize access to the thread dictionary
+        # we use an RLock because the thread that checks threads sometimes
+        # also restarts threads, and starting threads requires locking the dictionary
+        self.lock = threading.RLock()
         self.threads = {}
         self.restart_info = {}
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         _, port = self.db.assign_listener_address(self.name)
+        # is the lambda necessary? Maybe? We sometimes crashed without it for
+        # reasons I don't understand
         l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.register(name='listener', obj=l, _no_stop=True)
         self.setup()
@@ -41,14 +47,15 @@ class Monitor(object):
         self.shutdown()
         self.db.release_listener_port(self.name)
         pop = []
-        for n, t in self.threads.items():
-            try:
-                t.event.set()
-                t.join()
-            except Exception as e:
-                self.logger.debug(f'Can\'t close {n}-thread. {e}')
-            else:
-                pop.append(n)
+        with self.lock:
+            for n, t in self.threads.items():
+                try:
+                    t.event.set()
+                    t.join()
+                except Exception as e:
+                    self.logger.debug(f'Can\'t close {n}-thread. {e}')
+                else:
+                    pop.append(n)
         map(self.threads.pop, pop)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):
@@ -80,7 +87,8 @@ class Monitor(object):
         if _no_stop:
             self.no_stop_threads.add(name)
         t.start()
-        self.threads[name] = t
+        with self.lock:
+            self.threads[name] = t
 
     def setup(self, *args, **kwargs):
         """
@@ -102,27 +110,29 @@ class Monitor(object):
         if name in self.no_stop_threads:
             self.logger.error(f'Asked to stop thread {name}, but not permitted')
             return
-        if name in self.threads:
-            self.threads[name].event.set()
-            self.threads[name].join()
-            del self.threads[name]
-        else:
-            self.logger.info(f'Asked to stop thread {name}, but it isn\'t in the dict')
+        with self.lock:
+            if name in self.threads:
+                self.threads[name].event.set()
+                self.threads[name].join()
+                del self.threads[name]
+            else:
+                self.logger.info(f'Asked to stop thread {name}, but it isn\'t in the dict')
 
     def check_threads(self):
         """
         Checks to make sure all threads are running. Attempts to restart any
         that aren't
         """
-        for n, t in self.threads.items():
-            if not t.is_alive():
-                self.logger.critical(f'{n}-thread died')
-                if n in self.restart_info:
-                    try:
-                        func, period = self.restart_info[n]
-                        self.register(name=n, obj=func, period=period)
-                    except Exception as e:
-                        self.logger.error(f'{n}-thread won\'t restart: {e}')
+        with self.lock:
+            for n, t in self.threads.items():
+                if not t.is_alive():
+                    self.logger.critical(f'{n}-thread died')
+                    if n in self.restart_info:
+                        try:
+                            func, period = self.restart_info[n]
+                            self.register(name=n, obj=func, period=period)
+                        except Exception as e:
+                            self.logger.error(f'{n}-thread won\'t restart: {e}')
 
     def process_command(self, command):
         """

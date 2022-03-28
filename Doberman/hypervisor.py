@@ -13,25 +13,38 @@ dtnow = Doberman.utils.dtnow
 
 class Hypervisor(Doberman.Monitor):
     """
-    A tool to monitor and restart processes when necessary
+    A tool to monitor and restart processes when necessary. It is assumed
+    that this is the first thing started, and that nothing is already running.
     """
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
+
+        # first, cleanup port leases after a potential dirty shutdown
+        hn, p = self.config['global_dispatch']['hypervisor']
+        self.db.update_db('experiment_config', {'name': 'hypervisor'},
+                {'$set': {'global_dispatch': {'hypervisor': [hn, p]}}})
+
+        # start the three Pipeline monitors
+        path = self.config['path']
+        for thing in 'alarm control convert'.split():
+            self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
+
+        # now start the rest of the things
         self.username = self.config.get('username', 'doberman')
         self.localhost = self.config['host']
-        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
-        self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
-        if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
-            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
-        elif rhb == 'receive':
-            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
         self.last_restart = {}
         self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
         self.dispatcher.start()
+        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
+        self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
+        if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
+            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
+        elif rhb == 'receive':
+            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
 
     def shutdown(self) -> None:
         with self.cv:
@@ -60,6 +73,7 @@ class Hypervisor(Doberman.Monitor):
         # cache these here because they might change during iteration
         managed = self.config['processes']['managed']
         active = self.config['processes']['active']
+        self.known_devices = self.db.distinct('devices', 'name')
         for device in managed:
             if device not in active:
                 # device isn't running and it's supposed to be
@@ -73,6 +87,8 @@ class Hypervisor(Doberman.Monitor):
                 elif self.start_device(device):
                     # nonzero return code, probably something didn't work
                     self.logger.error(f'Problem starting {device}, check the debug logs')
+                else:
+                    self.logger.debug(f'{device} restarted')
             else:
                 # claims to be active and has heartbeated recently
                 self.logger.debug(f'{device} last heartbeat {int(dt)} seconds ago')
@@ -137,14 +153,6 @@ class Hypervisor(Doberman.Monitor):
             return self.run_locally(command)
         return self.run_over_ssh(f'{self.username}@{host}', command)
 
-    def start_pipeline(self, pipeline: str) -> int:
-        if pipeline.startswith('alarm_'):
-            # this is an alarm pipeline
-            self.db.log_command(f'start {pipeline}', 'pl_alarm', 'hypervisor')
-            return 0
-        path = self.config['path']
-        return self.run_locally(f'cd {path} && ./start_process.sh -p {pipeline}')
-
     def compress_logs(self) -> None:
         then = dtnow()-datetime.timedelta(days=7)
         self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
@@ -161,6 +169,7 @@ class Hypervisor(Doberman.Monitor):
         self.logger.debug('Dispatcher starting up')
         while not self.event.is_set():
             doc = None
+            hn = None
             try:
                 with self.cv:
                     self.cv.wait_for(predicate, timeout=dt)
@@ -174,10 +183,6 @@ class Hypervisor(Doberman.Monitor):
                     if doc['to'] == 'hypervisor':
                         self.process_command(doc['command'])
                         continue
-                    if doc['to'] in self.db.distinct('pipelines', 'name') and \
-                            self.db.get_pipeline(doc['to'])['status'] == 'inactive':
-                        self.logger.warning(f'Can\'t send "{doc["command"]}" to {doc["to"]} because it isn\'t online')
-                        continue
                     if doc['to'] in self.known_devices and doc['to'] not in self.config['processes']['active']:
                         self.logger.warning(f'Can\'t send "{doc["command"]}" to {doc["to"]} because it isn\'t online')
                         continue
@@ -186,7 +191,7 @@ class Hypervisor(Doberman.Monitor):
                     with socket.create_connection((hn, p), timeout=0.1) as sock:
                         sock.sendall(doc['command'].encode())
             except Exception as e:
-                self.logger.warning(f'Dispatcher caught a {type(e)}: {e}')
+                self.logger.warning(f'Dispatcher caught a {type(e)} while messaging {hn}: {e}')
         self.logger.debug('Dispatcher shutting down')
 
     def process_command(self, command) -> None:
@@ -203,8 +208,6 @@ class Hypervisor(Doberman.Monitor):
             self.logger.info(f'Hypervisor starting {target}')
             if target in self.known_devices:
                 self.start_device(target)
-            elif self.db.count('pipelines', {'name': target}) == 1:
-                self.start_pipeline(target)
             else:
                 self.logger.error(f'Don\'t know what "{target}" is, can\'t start it')
 

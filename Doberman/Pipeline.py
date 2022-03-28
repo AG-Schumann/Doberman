@@ -11,6 +11,7 @@ class Pipeline(object):
         self.db = kwargs['db']
         self.logger = kwargs['logger']
         self.name = kwargs['name']
+        self.monitor = kwargs['monitor']
         self.cycles = 0
         self.last_error = -1
         self.subpipelines = []
@@ -40,6 +41,7 @@ class Pipeline(object):
             self.silenced_at_level = 0
         timing = {}
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
+        drift = 0
         for pl in self.subpipelines:
             for node in pl.values():
                 t_start = time.time()
@@ -48,6 +50,8 @@ class Pipeline(object):
                 except Exception as e:
                     self.last_error = self.cycles
                     msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
+                    if isinstance(node, Doberman.SourceNode):
+                        drift = 0.1 # extra few ms to help with misalignment
                     if self.cycles <= self.startup_cycles:
                         # we expect errors during startup as buffers get filled
                         self.logger.debug(msg)
@@ -71,7 +75,7 @@ class Pipeline(object):
                     ('cycles', self.cycles),
                     ('error', self.last_error),
                     ('rate', sum(timing.values()))])
-        drift = 0.001 # 1ms extra per cycle, so we don't accidentally get ahead of the new values
+        drift = max(drift, 0.001) # min 1ms of drift
         return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
 
     def build(self, config):
@@ -126,7 +130,7 @@ class Pipeline(object):
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['operation'] = kwargs.get('operation')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
-                    setup_kwargs['log_alarm'] = self.db.log_alarm
+                    setup_kwargs['log_alarm'] = self.monitor.log_alarm
                     setup_kwargs['log_command'] = self.db.log_command
                     for k in 'target value'.split():
                         setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
@@ -161,6 +165,7 @@ class Pipeline(object):
 
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
+        self.calculate_jointedness(graph)
 
     def calculate_jointedness(self, graph):
         """
