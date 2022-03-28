@@ -138,11 +138,7 @@ class Pipeline(object):
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     n.setup(**setup_kwargs)
-                    n.load_config(config.get('node_config', {}).get(n.name, {}))
-                    graph[n.name] = n
-                    if isinstance(n, Doberman.BufferNode):
-                        num_buffer_nodes += 1
-                        longest_buffer = max(longest_buffer, n.buffer.length)
+                    self.graph[n.name] = n
 
             if (nodes_built := (len(self.graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
@@ -157,9 +153,18 @@ class Pipeline(object):
             for u in kwargs.get('upstream', []):
                 graph[u].downstream_nodes.append(graph[kwargs['name']])
 
+        self.calculate_jointedness(self, graph)
+
+        # we do the reconfigure step here so we can estimate startup cycles
+        self.reconfigure(config['node_config'])
+        for pl in self.subpipelines:
+            for node in pl.values():
+                if isinstance(node, Doberman.BufferNode) and not isinstance(node, Doberman.MergeNode):
+                    num_buffer_nodes += 1
+                    longest_buffer = max(longest_buffer, n.buffer.length)
+
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
-
         self.calculate_jointedness(graph)
 
     def calculate_jointedness(self, graph):
@@ -187,17 +192,19 @@ class Pipeline(object):
             self.subpipelines.append(pl)
 
     def reconfigure(self, doc):
+        """
+        "doc" is the node_config subdoc from the general config
+        """
         for pl in self.subpipelines:
             for node in pl.values():
+                this_node_config = dict(doc.get('general', {}).items())
+                this_node_config.update(doc.get(node.name, {}))
                 if isinstance(node, Doberman.AlarmNode):
                     rd = self.db.get_sensor_setting(name=node.input_var)
-                    if node.name not in doc:
-                        doc[node.name] = {}
-                    doc[node.name].update(alarm_thresholds=rd['alarm_thresholds'], readout_interval=rd['readout_interval'])
+                    this_node_config.update(alarm_thresholds=rd['alarm_thresholds'], readout_interval=rd['readout_interval'])
                     if isinstance(node, Doberman.SimpleAlarmNode):
-                        doc[node.name].update(length=rd['alarm_recurrence'])
-                if node.name in doc:
-                    node.load_config(doc[node.name])
+                        this_node_config.update(length=rd['alarm_recurrence'])
+                node.load_config(this_node_config)
 
     def silence_for(self, duration, level=0):
         """
