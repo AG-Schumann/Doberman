@@ -185,7 +185,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 try:
                     self.send_phonecall(recipients, message)
                 except Exception as e:
-                    self.logger.error('Unable to make call: {type(e)}, {e}')
+                    self.logger.error(f'Unable to make call: {type(e)}, {e}')
             else:
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
 
@@ -200,17 +200,17 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             if len(new_shifters) == 0:
                 self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': True}})
                 self.log_alarm(level=1, message='No more allocated shifters.',
-                                  pipeline='AlarmMonitor',
-                                  alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
-                                  )
+                               pipeline='AlarmMonitor',
+                               _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                               )
                 self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': False}})
                 return
             msg = f'{", ".join(new_shifters)} '
             msg += ('is ' if len(new_shifters) == 1 else 'are ')
             msg += f'now on shift.'
             self.log_alarm(level=1,
-                            message=msg,
-                            pipeline='AlarmMonitor',
-                            alarm_hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
-                              )
+                           message=msg,
+                           pipeline='AlarmMonitor',
+                           _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                           )
             self.current_shifters = new_shifters

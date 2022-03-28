@@ -160,7 +160,7 @@ class Pipeline(object):
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
 
-        self.calculate_jointedness(self, graph)
+        self.calculate_jointedness(graph)
 
     def calculate_jointedness(self, graph):
         """
