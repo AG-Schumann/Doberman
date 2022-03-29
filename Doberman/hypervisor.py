@@ -3,6 +3,7 @@ import subprocess
 import typing as ty
 import time
 import os.path
+import os
 import threading
 import socket
 import json
@@ -19,6 +20,16 @@ class Hypervisor(Doberman.Monitor):
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
+        self.username = self.config.get('username', os.environ['USER'])
+        self.localhost = self.config['host']
+
+        # zeroth, startup sequence
+        for host, cmds in self.config['startup_sequence'].items():
+            if host == self.localhost:
+                map(self.run_locally, cmds)
+            else:
+                for cmd in cmds:
+                    self.run_over_ssh(f'{self.username}@{host}', cmd)
 
         # first, cleanup port leases after a potential dirty shutdown
         hn, p = self.config['global_dispatch']['hypervisor']
@@ -31,8 +42,6 @@ class Hypervisor(Doberman.Monitor):
             self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
 
         # now start the rest of the things
-        self.username = self.config.get('username', 'doberman')
-        self.localhost = self.config['host']
         self.last_restart = {}
         self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
