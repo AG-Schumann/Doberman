@@ -1,11 +1,13 @@
 import Doberman
 import time
+import threading
 
-__all__ = 'Pipeline'.split()
+__all__ = 'Pipeline SyncPipeline'.split()
 
 class Pipeline(object):
     """
-    A generic data-processing pipeline digraph intended to replace Storm
+    A generic data-processing pipeline digraph for simple or complex
+    automatable tasks
     """
     def __init__(self, **kwargs):
         self.db = kwargs['db']
@@ -16,6 +18,17 @@ class Pipeline(object):
         self.last_error = -1
         self.subpipelines = []
         self.silenced_at_level = 0  # to support disjoint alarm pipelines
+        self.required_inputs = set()
+
+    @staticmethod
+    def create(config, **kwargs):
+        """
+        Creates a pipeline and returns it
+        """
+        for node in config['pipeline']:
+            if node['type'] == 'SensorSourceNode':
+                return SyncPipeline(**kwargs)
+        return Pipeline(**kwargs)
 
     def stop(self):
         try:
@@ -31,10 +44,12 @@ class Pipeline(object):
 
     def process_cycle(self):
         """
-        This function gets Registered with the owning PipelineMonitor
+        This function gets Registered with the owning PipelineMonitor for Async
+        pipelines, or called by run() for sync pipelines
         """
         doc = self.db.get_pipeline(self.name)
-        self.reconfigure(doc['node_config'])
+        sensor_docs = {n:self.db.get_sensor_setting(n) for n in self.depends_on}
+        self.reconfigure(doc['node_config'], sensor_docs)
         status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
         if status != 'silent':
             # reset
@@ -76,7 +91,7 @@ class Pipeline(object):
                     ('error', self.last_error),
                     ('rate', sum(timing.values()))])
         drift = max(drift, 0.001) # min 1ms of drift
-        return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
+        return max(d['readout_interval'] for d in sensor_docs.values()) + drift
 
     def build(self, config):
         """
@@ -116,7 +131,9 @@ class Pipeline(object):
                     node_kwargs = {
                             'pipeline': self,
                             'logger': self.logger,
-                            '_upstream': existing_upstream} # we _ the key because of the update line below
+                            '_upstream': existing_upstream, # we _ the key because of the update line below
+                            'cv': getattr(self, 'cv', None)
+                            }
                     node_kwargs.update(kwargs)
                     n = getattr(Doberman, node_type)(**node_kwargs)
                     if isinstance(n, (Doberman.SourceNode, Doberman.AlarmNode)):
@@ -144,15 +161,14 @@ class Pipeline(object):
                         num_buffer_nodes += 1
                         longest_buffer = max(longest_buffer, n.buffer.length)
 
-            if (nodes_built := (len(self.graph) - start_len)) == 0:
+            if (nodes_built := (len(graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 created = list(graph.keys())
                 all_nodes = set(d['name'] for d in pipeline_config)
                 self.logger.debug(f'Created {created}')
                 self.logger.debug(f'Didn\'t create {list(all_nodes - set(created))}')
                 raise ValueError('Can\'t construct graph! Check config and logs')
-            else:
-                self.logger.debug(f'Created {nodes_built} nodes this iter, {len(graph)}/{len(pipeline_config)} total')
+            self.logger.debug(f'Created {nodes_built} nodes this iter, {len(graph)}/{len(pipeline_config)} total')
         for kwargs in pipeline_config:
             for u in kwargs.get('upstream', []):
                 graph[u].downstream_nodes.append(graph[kwargs['name']])
@@ -186,14 +202,17 @@ class Pipeline(object):
             self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
             self.subpipelines.append(pl)
 
-    def reconfigure(self, doc):
+    def reconfigure(self, doc, sensor_docs):
         for pl in self.subpipelines:
             for node in pl.values():
                 if isinstance(node, Doberman.AlarmNode):
-                    rd = self.db.get_sensor_setting(name=node.input_var)
+                    rd = sensor_docs[node.input_var]
                     if node.name not in doc:
                         doc[node.name] = {}
-                    doc[node.name].update(alarm_thresholds=rd['alarm_thresholds'], readout_interval=rd['readout_interval'])
+                    doc[node.name].update(
+                            alarm_thresholds=rd['alarm_thresholds'],
+                            readout_interval=rd['readout_interval'],
+                            alarm_recurrence=rd['alarm_recurrence'])
                     if isinstance(node, Doberman.SimpleAlarmNode):
                         doc[node.name].update(length=rd['alarm_recurrence'])
                 if node.name in doc:
@@ -204,6 +223,33 @@ class Pipeline(object):
         Silence this pipeline for a set amount of time
         """
         self.db.set_pipeline_value(self.name, [('status', 'silent')])
-        self.db.log_command(f'pipelinectl_active {self.name}', self.name, self.name, duration)
+        self.db.log_command(f'pipelinectl_active {self.name}', self.monitor.name, self.name, duration)
         self.silenced_at_level = level
+
+class SyncPipeline(threading.Thread, Pipeline):
+    """
+    A subclass to handle synchronous operation where input comes directly from
+    the sensors rather than via the database
+    """
+    def __init__(self, **kwargs):
+        threading.Thread.__init__(self)
+        Pipeline.__init__(self, **kwargs)
+        self.cv = threading.Condition()
+        self.event = threading.Event()
+        self.has_new = set()
+
+    def run(self):
+        predicate = lambda: self.has_new >= self.required_inputs or self.event.is_set()
+        while not self.event.is_set():
+            with self.cv:
+                self.cv.wait_for(predicate)
+            self.logger.debug(f'Notified, {self.required_inputs} {self.has_new}')
+            self.process_cycle()
+            self.has_new.clear()
+
+    def stop(self):
+        self.event.set()
+        with self.cv:
+            self.cv.notify()
+        return super().stop()
 

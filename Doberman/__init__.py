@@ -1,19 +1,18 @@
 
 
-__version__ = '5.2.0'
+__version__ = '6.0.0rc'
 
 from . import utils
 
 from .BaseMonitor import *
 from .BaseDevice import *
 from .Database import *
-from .AlarmMonitor import *
-from .DeviceMonitor import *
-from .PipelineMonitor import *
 from .Sensor import *
 from .Node import *
 from .AlarmNode import *
 from .ControlNode import *
-from .PipelineMonitor import *
-from .hypervisor import *
 from .Pipeline import *
+from .PipelineMonitor import *
+from .AlarmMonitor import *
+from .DeviceMonitor import *
+from .hypervisor import *

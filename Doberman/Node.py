@@ -1,7 +1,7 @@
 import Doberman
 import requests
-import itertools
-from math import log10
+import socket
+import threading
 
 
 class Node(object):
@@ -21,9 +21,21 @@ class Node(object):
         self.is_silent = True
         self.logger.debug(f'{name} constructor')
 
+    def __del__(self):
+        try:
+            self.shutdown()
+        except Exception:
+            pass
+
     def setup(self, **kwargs):
         """
         Allows a child class to do some setup
+        """
+        pass
+
+    def shutdown(self):
+        """
+        Allows a child class to do some shutdown
         """
         pass
 
@@ -44,18 +56,18 @@ class Node(object):
         self.post_process()
 
     def get_package(self):
-        return self.buffer.pop_front()
+        return self.buffer.get_front()
 
     def send_downstream(self, package):
         """
         Sends a completed package on to downstream nodes
         """
-        self.logger.debug(f'{self.name} sending downstream {package}')
+        #self.logger.debug(f'{self.name} sending downstream {package}')
         for node in self.downstream_nodes:
             node.receive_from_upstream(package)
 
     def receive_from_upstream(self, package):
-        self.logger.debug(f'{self.name} receiving from upstream')
+        #self.logger.debug(f'{self.name} receiving from upstream')
         self.buffer.add(package)
 
     def load_config(self, doc):
@@ -91,6 +103,11 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        if kwargs.get('new_value_required', False):
+            self.pipeline.required_inputs.add(self.name)
+
     def process(self, *args, **kwargs):
         return None
 
@@ -172,6 +189,30 @@ class InfluxSourceNode(SourceNode):
         self.last_time = timestamp
         self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp*(10**-9), self.output_var: val}
+
+class SensorSourceNode(SourceNode):
+    """
+    A node to support synchronous pipeline input directly from the sensors
+    """
+    def shutdown(self):
+        self.pipeline.monitor.unregister_listener(self)
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.cv = kwargs['cv']
+        self.pipeline.monitor.register_listener(self.input_var, self)
+
+    def receive_from_upstream(self, package):
+        """
+        This won't get called from the "operating" thread so we 
+        wrap with CV
+        """
+        with self.cv:
+            if package[self.input_var] is not None:
+                super().receive_from_upstream(package)
+                # let the pipeline know that we've got mail
+                self.pipeline.has_new.add(self.name)
+            self.cv.notify()
 
 class BufferNode(Node):
     """

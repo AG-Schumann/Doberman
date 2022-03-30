@@ -41,7 +41,7 @@ class Sensor(threading.Thread):
         self.is_int = 'is_int' in config_doc
         self.topic = config_doc['topic']
         self.subsystem = config_doc['subsystem']
-        self.readout_command = config_doc['readout_command'] # TODO here or in update_config?
+        self.readout_command = config_doc['readout_command']
 
     def update_config(self, doc):
         """
@@ -49,11 +49,8 @@ class Sensor(threading.Thread):
         :param doc: the sensor document from the database
         """
         self.readout_interval = doc['readout_interval']
-        if 'alarm_thresholds' in doc and len(doc['alarm_thresholds']) == 2:
-            self.alarms = doc['alarm_thresholds']
-        else:
-            self.alarms = (None, None)
         self.xform = doc.get('value_xform', [0, 1])
+        self.pipelines = doc.get('pipelines', [])
 
     def do_one_measurement(self):
         """
@@ -77,8 +74,8 @@ class Sensor(threading.Thread):
             value = None
         if value is not None:
             value = self.more_processing(value)
-            self.logger.debug(f'{self.name} measured {value}')
-            self.send_upstream(value, pkg['time'])
+            #self.logger.debug(f'{self.name} measured {value}')
+            self.send_downstream(value, pkg['time'])
         else:
             self.logger.debug(f'{self.name} got None')
         return
@@ -89,19 +86,22 @@ class Sensor(threading.Thread):
 
         """
         value = sum(a*value**i for i, a in enumerate(self.xform))
-        if self.is_int:
-            value = int(value)
-        else:
-            value = float(value)
+        value = int(value) if self.is_int else float(value)
         return value
 
-    def send_upstream(self, value, timestamp):
+    def send_downstream(self, value, timestamp):
         """
-        This function sends data upstream to wherever it should end up
+        This function sends data downstream to wherever it should end up
         """
         tags = {'subsystem': self.subsystem, 'device': self.device_name, 'sensor': self.name}
         fields = {'value': value}
         self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
+        recipients = set()
+        for pl in self.pipelines:
+            for x in ['control', 'convert']:
+            if pl.startswith(x):
+                recipients.add(f'pl_{x}')
+        self.db.send_value_to_pipelines(recipients, self.name, value, timestamp)
 
 
 class MultiSensor(Sensor):
@@ -111,9 +111,8 @@ class MultiSensor(Sensor):
     one sensor is designated the "primary" and the others are "secondaries".
     Only the primary is actually read out, but the assumption is that the sensor
     of the primary also brings the values of the secondary with it. The secondaries
-    must have entries in the database but these are "shadow" entries and most of the
-    fields will be ignored, the only ones mattering are any alarm values or transform values.
-    Things like "status" and "readout_interval" only use the value of the primary.
+    must have entries in the database but the "status" and "readout_interval" of the primary
+    will used over whatever the secondaries have.
     The extra database fields should look like this:
     primary:
     { ..., name: name0, multi_sensor: [name0, name1, name2, ...]}
@@ -124,39 +123,48 @@ class MultiSensor(Sensor):
     def setup(self, doc):
         super().setup(doc)
         self.all_names = doc['multi_sensor']
-        self.all_topics = {n: self.db.get_sensor_setting(name=n, field='topic') for n in self.all_names}
-        self.is_int = {n: self.db.get_sensor_setting(name=n).get('is_int', False) for n in self.all_names}
+        self.topics = {}
+        self.is_int = {}
+        self.subsystem = {}
+        for n self.all_names:
+            doc = self.db.get_sensor_setting(name=n)
+            self.topics[n] = doc['topic']
+            self.is_int[n] = doc.get('is_int', False)
+            self.subsystem[n] = doc['subsystem']
 
     def update_config(self, doc):
         super().update_config(doc)
-        self.alarms = {}
         self.xform = {}
+        self.pipelines = {}
         for n in self.all_names:
             rdoc = self.db.get_sensor_setting(name=n)
-            vals = rdoc.get('alarm_thresholds')
-            if vals is not None and isinstance(vals, (list, tuple)) and len(vals) == 2:
-                self.alarms[n] = vals
-            else:
-                self.alarms[n] = (None, None)
             self.xform[n] = rdoc.get('value_xform', [0, 1])
+            self.pipelines[n] = rdoc.get('pipelines', [])
 
     def more_processing(self, values):
         """
         Convert from a list to a dict here
         """
-        f = {n: int if self.is_int[n] else float for n in self.all_names}
-        _values = {
-                n: f[n](sum(a*v**j for j, a in enumerate(self.xform[n])))
-                for n, v in zip(self.all_names, values)
-                }
+        _values = {}
+        for name, value in zip(self.all_names, values):
+            if value is None:
+                continue
+            value = int(value) if self.is_int[name] else float(value)
+            _values[name] = sum(a*value**j for j, a in enumerate(self.xform[name]))
         return _values
 
-    def send_upstream(self, values, timestamp):
+    def send_downstream(self, values, timestamp):
         """
         values is the dict we produce in more_processing
         """
         for n, v in values.items():
-            tags = {'sensor': n, 'subsystem': self.subsystem, 'device': self.device_name}
+            tags = {'sensor': n, 'subsystem': self.subsystem[n], 'device': self.device_name}
             fields = {'value': v}
-            self.db.write_to_influx(topic=self.all_topics[n], tags=tags, fields=fields, timestamp=timestamp)
+            self.db.write_to_influx(topic=self.topics[n], tags=tags, fields=fields, timestamp=timestamp)
+            recipients = set()
+            for pl in self.pipelines[n]:
+                for x in ['control', 'convert']:
+                if pl.startswith(x):
+                    recipients.add(f'pl_{x}')
+            self.db.send_value_to_pipelines(recipients, n, v, timestamp)
 

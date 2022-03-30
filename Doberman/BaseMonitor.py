@@ -34,6 +34,7 @@ class Monitor(object):
         l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.register(name='listener', obj=l, _no_stop=True)
         self.setup()
+        time.sleep(1)
         self.register(obj=self.check_threads, period=30, name='checkthreads', _no_stop=True)
 
     def __del__(self):
@@ -196,8 +197,10 @@ class Listener(threading.Thread):
                 try:
                     conn, addr = sock.accept()
                     with conn:
-                        data = conn.recv(self.packet_size).strip().decode()
-                        self.process_command(data)
+                        if (data := conn.recv(self.packet_size)) == b'ping':
+                            conn.sendall(b'pong')
+                        else:
+                            self.process_command(data.strip().decode())
                 except socket.timeout:
                     pass
                 except Exception as e:

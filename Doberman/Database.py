@@ -40,6 +40,7 @@ class Database(object):
         url += '&'.join([f'{k}={v}' for k, v in query_params])
         precision = {'s': 1, 'ms': 1000, 'us': 1_000_000, 'ns': 1_000_000_000}
         self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
+        self.address_cache = {}
 
     def close(self):
         print('DB shutting down')
@@ -165,13 +166,14 @@ class Database(object):
             self.update_db(collection_name, {'_id': doc['_id']}, updates)
         return doc
 
-    def log_command(self, command, to, issuer, delay=0):
+    def log_command(self, command, to, issuer, delay=0, bypass_hypervisor=False):
         """
         Issue a command to someone else
         :param command: the command for them to process
         :param to: who the command is for
         :param issuer: who is issuing the command
         :param delay: how far into the future the command should happen, default 0
+        :param bypass_hypervisor: bool, communicate directly with recipient?
         :returns: None
         """
         doc = {
@@ -180,9 +182,12 @@ class Database(object):
                 'by': issuer,
                 'time': time.time() + delay
                 }
-        hn, p = self.find_listener_address('hypervisor')
-        with create_connection((hn, int(p)), timeout=0.1) as sock:
-            sock.sendall(json.dumps(doc).encode())
+        hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
+        with create_connection((hn, p), timeout=0.1) as sock:
+            if bypass_hypervisor:
+                sock.sendall(command.encode())
+            else:
+                sock.sendall(json.dumps(doc).encode())
 
     def get_experiment_config(self, name, field=None):
         """
@@ -283,8 +288,13 @@ class Database(object):
                     self.logger.info(f"No {p} contact details for {contactname}")
         return ret
 
-    def get_heartbeat(self, device=None):
-        doc = self.read_from_db('devices', cuts={'name': device}, onlyone=True)
+    def get_heartbeat(self, device=None, pipeline=None):
+        if device is not None:
+            doc = self.read_from_db('devices', cuts={'name': device}, onlyone=True)
+        elif pipeline is not None:
+            doc = self.read_from_db('', cuts={'name': pipeline}, onlyone=True)
+        else:
+            raise ValueError()
         return doc['heartbeat'].replace(tzinfo=pytz.utc)
 
     def update_heartbeat(self, device=None):
@@ -393,10 +403,14 @@ class Database(object):
         :param name: the name of someone
         :returns: (string, int) tuple of the hostname and port
         """
+        if name in self.address_cache:
+            return self.address_cache[name]
         doc = self.get_experiment_config('hypervisor', field='global_dispatch')
         # doc looks like { name: [host, port], ...}
         if name in doc:
             host, port = doc[name]
+            if name in ['pl_alarm', 'pl_control', 'pl_convert', 'hypervisor']:
+                self.address_cache[name] = (host, int(port))
             return host, int(port)
         raise ValueError(f'No assigned listener info for {name}')
 
@@ -427,6 +441,7 @@ class Database(object):
         :param tags: a dict of tag names and values, usually 'subsystem' and 'sensor'
         :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
+        :returns: None
         """
         url, headers, precision = self.influx_cfg
         if topic is None or fields is None:
@@ -448,6 +463,22 @@ class Database(object):
                 self.logger.error(r.json())
             except:
                 self.logger.error(r.content)
+
+    def send_value_to_pipelines(self, recipients, sensor, value, timestamp):
+        """
+        Send a recently recorded value to the pipeline monitors
+        :param recipients: a list of strings of pipeline monitors to send to
+        :param sensor: string, the name of the sensor
+        :param value: float/int, the value
+        :param timestamp: float, the timestamp
+        :returns: None
+        """
+        for pl in recipients:
+            self.log_command(
+                        f'sensor_value {sensor} {timestamp} {value}',
+                        pl,
+                        None,
+                        bypass_hypervisor=True)
 
     def get_current_status(self):
         """

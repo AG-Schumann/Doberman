@@ -1,4 +1,5 @@
 import Doberman
+import collections
 
 __all__ = 'PipelineMonitor'.split()
 
@@ -10,6 +11,7 @@ class PipelineMonitor(Doberman.Monitor):
     """
 
     def setup(self):
+        self.listeners = collections.defaultdict(list)
         self.pipelines = {}
         flavor = self.name.split('_')[1] # pl_flavor
         if flavor not in 'alarm control convert'.split():
@@ -26,27 +28,56 @@ class PipelineMonitor(Doberman.Monitor):
         if (doc := self.db.get_pipeline(name)) is None:
             self.logger.error(f'No pipeline named {name} found')
             return -1
-        p = Doberman.Pipeline(db=self.db, logger=self.logger, name=name, monitor=self)
         try:
+            p = Doberman.Pipeline.create(doc, db=self.db, logger=self.logger, name=name, monitor=self)
             p.build(doc)
         except Exception as e:
             self.logger.error(f'{type(e)}: {e}')
             self.logger.error(f'Could not build pipeline {name}, check debug logs')
             return -1
-        self.register(obj=p.process_cycle, name=name, period=1)
+        if isinstance(p, Doberman.SyncPipeline):
+            self.register(obj=p, name=name)
+        else:
+            self.register(obj=p.process_cycle, name=name, period=1)
         self.pipelines[p.name] = p
         self.db.set_pipeline_value(name, [('status', 'active')])
         return 0
 
     def stop_pipeline(self, name):
+        self.logger.debug(f'Stopping {name}')
         self.pipelines[name].stop()
         self.stop_thread(name)
         del self.pipelines[name]
 
+    def register_listener(self, node):
+        """
+        Register a node to listen for named sensor inputs
+        """
+        self.listeners[node.input_var].append(node)
+
+    def unregister_listener(self, node):
+        """
+        Remove a node from the listeners list
+        """
+        for i,n in enumerate(self.listeners[node.input_var]):
+            if n.name == node.name:
+                return self.listeners[node.input_var].pop(i)
+
     def process_command(self, command):
-        self.logger.debug(f'Processing {command}')
+        #self.logger.debug(f'Processing {command}')
         try:
-            if command.startswith('pipelinectl_start'):
+            if command.startswith('sensor_value'):
+                _, name, ts, value = command.split()
+                ts = float(ts)
+                if value == 'None':
+                    value = None
+                elif '.' in value:
+                    value = float(value)
+                else:
+                    value = int(value)
+                for listeners in self.listeners.get(name, []):
+                    listener.receive_from_upstream({'time': ts, name: value})
+            elif command.startswith('pipelinectl_start'):
                 _, name = command.split(' ')
                 self.start_pipeline(name)
             elif command.startswith('pipelinectl_stop'):
@@ -67,12 +98,14 @@ class PipelineMonitor(Doberman.Monitor):
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
+                    self.logger.debug(f'Silencing {name}')
                     self.db.set_pipeline_value(name, [('status', 'silent')])
             elif command.startswith('pipelinectl_active'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
+                    self.logger.debug(f'Activating {name}')
                     self.db.set_pipeline_value(name, [('status', 'active')])
             elif command == 'stop':
                 self.sh.event.set()
