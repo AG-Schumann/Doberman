@@ -130,7 +130,7 @@ class Pipeline(object):
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['operation'] = kwargs.get('operation')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
-                    setup_kwargs['log_alarm'] = self.monitor.log_alarm
+                    setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
                     setup_kwargs['log_command'] = self.db.log_command
                     for k in 'target value'.split():
                         setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
@@ -138,9 +138,9 @@ class Pipeline(object):
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     n.setup(**setup_kwargs)
-                    self.graph[n.name] = n
+                    graph[n.name] = n
 
-            if (nodes_built := (len(self.graph) - start_len)) == 0:
+            if (nodes_built := (len(graph) - start_len)) == 0:
                 # we didn't make any nodes this loop, we're probably stuck
                 created = list(graph.keys())
                 all_nodes = set(d['name'] for d in pipeline_config)
@@ -153,7 +153,7 @@ class Pipeline(object):
             for u in kwargs.get('upstream', []):
                 graph[u].downstream_nodes.append(graph[kwargs['name']])
 
-        self.calculate_jointedness(self, graph)
+        self.calculate_jointedness(graph)
 
         # we do the reconfigure step here so we can estimate startup cycles
         self.reconfigure(config['node_config'])
@@ -165,7 +165,6 @@ class Pipeline(object):
 
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
-        self.calculate_jointedness(graph)
 
     def calculate_jointedness(self, graph):
         """
