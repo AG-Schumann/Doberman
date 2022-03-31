@@ -153,7 +153,7 @@ class Pipeline(object):
             for u in kwargs.get('upstream', []):
                 graph[u].downstream_nodes.append(graph[kwargs['name']])
 
-        self.calculate_jointedness(self, graph)
+        self.calculate_jointedness(graph)
 
         # we do the reconfigure step here so we can estimate startup cycles
         self.reconfigure(config['node_config'])
@@ -165,7 +165,6 @@ class Pipeline(object):
 
         self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
-        self.calculate_jointedness(graph)
 
     def calculate_jointedness(self, graph):
         """

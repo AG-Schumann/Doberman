@@ -178,12 +178,11 @@ class BufferNode(Node):
     A node that supports inputs spanning some range of time
 
     Setup params:
-    :param length: int, how many values to buffer
     :param strict_length: bool, default False. Is the node allowed to run without a 
         full buffer?
 
     Runtime params:
-    None
+    :param length: int, how many values to buffer
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
@@ -203,15 +202,13 @@ class LowPassFilter(BufferNode):
     Setup params:
     :param strict_length: bool, default False. Is the node allowed to run without a 
         full buffer?
-    :param length: int, how many values to buffer
 
     Runtime params:
-    None
+    :param length: int, how many values to buffer
     """
     def process(self, packages):
         values = sorted([p[self.input_var] for p in packages])
-        l = len(values)
-        if l % 2 == 0:
+        if (l := len(values)) % 2 == 0:
             # even length, we average the two adjacent to the middle
             return (values[l//2 - 1] + values[l//2]) / 2
         else:
