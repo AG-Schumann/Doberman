@@ -74,7 +74,6 @@ class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.late_counter = 0
-        self.late_threshold = 3 # TODO config-ize
         self.accept_old = False
 
     def reset_alarm(self):
@@ -88,7 +87,7 @@ class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
             return ret
         except ValueError as e:
             self.late_counter += 1
-            if self.late_counter > self.late_threshold:
+            if self.late_counter > self.config.get('alarm_recurrence', 3):
                 self.log_alarm(f"Is {self.device} responding correctly? {self.late_counter} values are either missing or late")
                 self.late_counter = 0
             raise
