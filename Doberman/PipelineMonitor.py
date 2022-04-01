@@ -75,7 +75,7 @@ class PipelineMonitor(Doberman.Monitor):
                     value = float(value)
                 else:
                     value = int(value)
-                for listeners in self.listeners.get(name, []):
+                for listener in self.listeners.get(name, []):
                     listener.receive_from_upstream({'time': ts, name: value})
             elif command.startswith('pipelinectl_start'):
                 _, name = command.split(' ')
