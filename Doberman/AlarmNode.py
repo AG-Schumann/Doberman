@@ -58,12 +58,13 @@ class AlarmNode(Doberman.Node):
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
             level = self.base_level + self.escalation_level
-            self._log_alarm(level=level,
+            if self._log_alarm(level=level,
                             message=msg,
                             pipeline=self.pipeline.name,
-                            _hash=self.hash)
-            self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
-            self.messages_this_level += 1
+                            _hash=self.hash):
+                # only self-silence if the message was successfully sent
+                self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
+                self.messages_this_level += 1
         else:
             self.logger.error(msg)
 
