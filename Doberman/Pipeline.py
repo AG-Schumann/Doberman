@@ -151,9 +151,11 @@ class Pipeline(object):
                     setup_kwargs['log_command'] = self.db.log_command
                     for k in 'target value'.split():
                         setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
-                    setup_kwargs['strict_length'] = True if isinstance(n, Doberman.AlarmNode) else kwargs.get('strict_length', False)
+                    if 'strict_length' in kwargs:
+                        setup_kwargs['strict_length' = kwargs['strict_length']
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
+                    setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
                     n.setup(**setup_kwargs)
                     graph[n.name] = n
 

@@ -53,7 +53,9 @@ class PipelineControl(ControlNode):
     to implement this inside the current constraints.
     """
     def process(self, package):
-        pass
+        if package.get('condition_x', False):
+            # this one is mainly for testing
+            self.control_pipeline(self.pipeline.name, 'stop')
 
     def control_pipeline(self, pipeline, action):
         if self.is_silent:

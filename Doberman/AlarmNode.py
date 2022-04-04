@@ -108,6 +108,10 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
     A simple alarm
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.strict = True
+
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
         low, high = self.config['alarm_thresholds']

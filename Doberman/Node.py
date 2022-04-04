@@ -214,6 +214,20 @@ class SensorSourceNode(SourceNode):
                 self.pipeline.has_new.add(self.name)
             self.cv.notify()
 
+class PipelineSourceNode(SourceNode):
+    """
+    A node to source info about another pipeline.
+    The input_var is the name of another PL
+    """
+    def setup(**kwargs):
+        super().setup(**kwargs)
+        self.get_from_db = kwargs['get_pipeline_stats']
+
+    def get_package(self):
+        doc = self.get_from_db(self.input_var)
+        # TODO discuss renaming fields?
+        return doc
+
 class BufferNode(Node):
     """
     A node that supports inputs spanning some range of time
@@ -276,6 +290,7 @@ class MergeNode(BufferNode):
 
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        self.strict = True
         self.method = kwargs.get('merge_how', 'avg')
 
     def merge_field(self, field, packages):

@@ -18,6 +18,9 @@ class PipelineMonitor(Doberman.Monitor):
             raise ValueError(f'Unknown pipeline monitor {self.name}, allowed are "pl_alarm", "pl_convert", "pl_control"')
         for name in self.db.get_pipelines(flavor):
             self.start_pipeline(name)
+        if self.name == 'pl_control':
+            # hard-code the test routine. It runs through one cycle then stops itself
+            self.start_pipeline('test_pipeline')
 
     def shutdown(self):
         self.logger.debug(f'{self.name} shutting down')

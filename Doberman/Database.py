@@ -200,6 +200,15 @@ class Database(object):
             return doc.get(field)
         return doc
 
+    def get_pipeline_stats(self, name):
+        """
+        Gets the status info of another pipeline
+        :param name: the pipeline in question
+        :returns:
+        """
+        return self.read_from_db('pipelines', {'name': name}, onlyone=True,
+                projection={'status': 1, 'cycles': 1, 'error': 1, 'rate': 1, '_id': 0})
+
     def get_pipeline(self, name):
         """
         Gets a pipeline config doc
@@ -211,12 +220,12 @@ class Database(object):
         """
         Generates a list of names of pipelines to start now. Called by
         PipelineMonitors on startup.
-        :param flavor: which type of pipelines to select, should be one of "alarm", "contro", "convert"
+        :param flavor: which type of pipelines to select, should be one of "alarm", "control", "convert"
         :yields: string
         """
         query = {'status': {'$in': ['active', 'silent']},
                  'name': {'$regex': f'^{flavor}_'}}
-        for doc in self.read_from_db('pipelines', query):
+        for doc in self.read_from_db('pipelines', query, projection={'name': 1}):
             yield doc['name']
 
     def set_pipeline_value(self, name, kvp):
