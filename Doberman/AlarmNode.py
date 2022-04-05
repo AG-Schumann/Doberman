@@ -68,42 +68,31 @@ class AlarmNode(Doberman.Node):
         else:
             self.logger.error(msg)
 
-class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
+class DeviceRespondingBase(AlarmNode):
     """
-    A simple alarm that makes sure the spice is flowing
+    A base class to check if sensors are returning data
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.late_counter = 0
-        self.accept_old = False
-
-    def reset_alarm(self):
-        super().reset_alarm()
-        self.late_counter = 0
-
-    def get_package(self):
-        try:
-            ret = super().get_package()
-            self.reset_alarm()
-            return ret
-        except ValueError as e:
-            self.late_counter += 1
-            if self.late_counter > self.config.get('alarm_recurrence', 3):
-                self.log_alarm(f"Is {self.device} responding correctly? {self.late_counter} values are either missing or late")
-                self.late_counter = 0
-            raise
+        self.accept_old = True
 
     def process(self, package):
-        if (now := time.time()) - package['time'] > 2*self.config['readout_interval']:
-            self.late_counter += 1
-            if self.late_counter > self.late_threshold:
-                self.log_alarm(
-                    (f'Is {self.device} responding correctly? Time to the last value for {self.input_var} is '
-                         f'{now-package["time"]:.1f}s rather than {self.config["readout_interval"]}'),
-                    package['time'])
-                self.late_counter = 0 # not an actual reset, just delaying the next message
+        # the 2 is a fudge factor
+        dt_max = (2 + self.config['alarm_recurrence']) * self.config['readout_interval']
+        if (dt := ((now := time.time()) - package['time'])) > dt_max:
+            self.log_alarm(
+                (f'Is {self.device} responding correctly? No new value for '
+                f'{self.input_var} has been seen in {int(dt)} seconds'),
+                now)
         else:
             self.reset_alarm()
+        return None
+
+class DeviceRespondingAlarmInflux(DeviceRespondingBase, Doberman.InfluxSourceNode):
+    pass
+
+class DeviceRespondingAlarmSync(DeviceRespondingBase, Doberman.SensorSourceNode):
+    pass
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """

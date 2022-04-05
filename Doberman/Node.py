@@ -134,6 +134,8 @@ class InfluxSourceNode(SourceNode):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        if self.input_var.startswith('X_SYNC_'):
+            raise ValueError('Cannot use Influx for SYNC signals')
         self.accept_old = kwargs.get('accept_old', False)
         config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
@@ -208,7 +210,7 @@ class SensorSourceNode(SourceNode):
         wrap with CV
         """
         with self.cv:
-            if package[self.input_var] is not None:
+            if package[self.input_var] is not None or self.accept_old:
                 super().receive_from_upstream(package)
                 # let the pipeline know that we've got mail
                 self.pipeline.has_new.add(self.name)
@@ -249,9 +251,9 @@ class BufferNode(Node):
         # deep copy
         return list(map(dict, self.buffer))
 
-class LowPassFilter(BufferNode):
+class MedianFilter(BufferNode):
     """
-    Low-pass filters a value by taking the median of its buffer. If the length is even,
+    Filters a value by taking the median of its buffer. If the length is even,
     the two values adjacent to the middle are averaged.
 
     Setup params:
@@ -301,11 +303,10 @@ class MergeNode(BufferNode):
             return min(p[field] for p in packages)
         if how == 'max':
             return max(p[field] for p in packages)
-        v = sorted([(p['time'], p[field]) for p in packages], key=lambda p: p['time'])
         if how == 'newest':
-            return v[-1][field]
+            return packages[-1][field]
         if how == 'oldest':
-            return v[0][field]
+            return packages[0][field]
         raise ValueError(f'Invalid merge method given: {how}. Must be "avg", "max", "min", "newest", or "oldest"')
 
     def process(self, packages):

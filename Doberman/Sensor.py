@@ -96,12 +96,7 @@ class Sensor(threading.Thread):
         tags = {'subsystem': self.subsystem, 'device': self.device_name, 'sensor': self.name}
         fields = {'value': value}
         self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
-        recipients = set()
-        for pl in self.pipelines:
-            for x in ['control', 'convert']:
-            if pl.startswith(x):
-                recipients.add(f'pl_{x}')
-        self.db.send_value_to_pipelines(recipients, self.name, value, timestamp)
+        self.db.send_value_to_pipelines(self.name, value, timestamp)
 
 
 class MultiSensor(Sensor):
@@ -135,11 +130,9 @@ class MultiSensor(Sensor):
     def update_config(self, doc):
         super().update_config(doc)
         self.xform = {}
-        self.pipelines = {}
         for n in self.all_names:
             rdoc = self.db.get_sensor_setting(name=n)
             self.xform[n] = rdoc.get('value_xform', [0, 1])
-            self.pipelines[n] = rdoc.get('pipelines', [])
 
     def more_processing(self, values):
         """
@@ -161,10 +154,5 @@ class MultiSensor(Sensor):
             tags = {'sensor': n, 'subsystem': self.subsystem[n], 'device': self.device_name}
             fields = {'value': v}
             self.db.write_to_influx(topic=self.topics[n], tags=tags, fields=fields, timestamp=timestamp)
-            recipients = set()
-            for pl in self.pipelines[n]:
-                for x in ['control', 'convert']:
-                if pl.startswith(x):
-                    recipients.add(f'pl_{x}')
-            self.db.send_value_to_pipelines(recipients, n, v, timestamp)
+            self.db.send_value_to_pipelines(n, v, timestamp)
 

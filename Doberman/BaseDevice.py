@@ -107,7 +107,7 @@ class Device(object):
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        self.logger.debug(f'Scheduling {command}')
+        #self.logger.debug(f'Scheduling {command}')
         with self.cv:
             self.cmd_queue.append((command, ret))
             self.cv.notify()

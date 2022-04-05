@@ -18,7 +18,7 @@ class Pipeline(object):
         self.last_error = -1
         self.subpipelines = []
         self.silenced_at_level = 0  # to support disjoint alarm pipelines
-        self.required_inputs = set()
+        self.required_inputs = set() # this needs to be in this class even though it's only used in Sync
 
     @staticmethod
     def create(config, **kwargs):
@@ -83,7 +83,7 @@ class Pipeline(object):
                 t_end = time.time()
                 timing[node.name] = (t_end-t_start)*1000
         total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
-        self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
+        #self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
         self.db.set_pipeline_value(self.name,
                 [('heartbeat', Doberman.utils.dtnow()),
@@ -141,7 +141,7 @@ class Pipeline(object):
                             raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
                     elif isinstance(n, (Doberman.InfluxSinkNode)):
                         if (setup_kwargs := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
-                            raise ValueError(f'Invalid output_var for {n.name}: {kwargs["output_var"]}')
+                            raise ValueError(f'Invalid output_var for {n.name}: {kwargs.get("output_var")}')
                     else:
                         setup_kwargs = {}
                     setup_kwargs['influx_cfg'] = influx_cfg
@@ -231,8 +231,9 @@ class Pipeline(object):
         """
         Silence this pipeline for a set amount of time
         """
-        self.db.set_pipeline_value(self.name, [('status', 'silent')])
-        self.db.log_command(f'pipelinectl_active {self.name}', self.monitor.name, self.name, duration)
+        self.db.set_pipeline_value(self.name, [('status', 'silent'), ('silent_until', time.time()+duration)])
+        self.db.log_command(f'pipelinectl_active {self.name}', to=self.monitor.name,
+                issuer=self.name, delay=duration)
         self.silenced_at_level = level
 
 class SyncPipeline(threading.Thread, Pipeline):

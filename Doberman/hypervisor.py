@@ -23,7 +23,7 @@ class Hypervisor(Doberman.Monitor):
         self.localhost = self.config['host']
         self.username = self.config.get('username', os.environ['USER'])
 
-        # zeroth, do any startup sequences
+        # do any startup sequences
         for host, activities in self.config.get('startup_sequence', {}).items():
             if host == self.localhost:
                 map(self.run_locally, activities)
@@ -31,10 +31,14 @@ class Hypervisor(Doberman.Monitor):
                 for activity in activities:
                     self.run_over_ssh(f'{self.username}@{host}', activity)
 
-        # first, cleanup port leases after a potential dirty shutdown
+        # cleanup port leases after a potential dirty shutdown
         hn, p = self.config['global_dispatch']['hypervisor']
         self.db.update_db('experiment_config', {'name': 'hypervisor'},
                 {'$set': {'global_dispatch': {'hypervisor': [hn, p]}}})
+
+        # start the fixed-frequency sync signals
+        for i in [1,2,5,10,15,30,60]:
+            self.register(obj=self.sync_signal, period=i, name=f'sync_{i}', _period=i)
 
         # start the three Pipeline monitors
         path = self.config['path']
@@ -61,6 +65,9 @@ class Hypervisor(Doberman.Monitor):
             self.cv.notify()
         self.update_config(status='offline')
         self.dispatcher.join()
+
+    def sync_signal(self, _period: int) -> None:
+        self.db.send_value_to_pipelines(f'X_SYNC_{_period}', 0, time.time())
 
     def update_config(self, unmanage=None, manage=None, active=None, heartbeat=None, status=None) -> None:
         updates = {}

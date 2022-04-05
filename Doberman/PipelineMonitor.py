@@ -110,6 +110,7 @@ class PipelineMonitor(Doberman.Monitor):
                 else:
                     self.logger.debug(f'Activating {name}')
                     self.db.set_pipeline_value(name, [('status', 'active')])
+                    self.db.update_db('pipelines', {'name': name}, {'$unset': {'silent_until': 1}})
             elif command == 'stop':
                 self.sh.event.set()
             else:

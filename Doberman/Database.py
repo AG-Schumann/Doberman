@@ -184,10 +184,7 @@ class Database(object):
                 }
         hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
         with create_connection((hn, p), timeout=0.1) as sock:
-            if bypass_hypervisor:
-                sock.sendall(command.encode())
-            else:
-                sock.sendall(json.dumps(doc).encode())
+            sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
 
     def get_experiment_config(self, name, field=None):
         """
@@ -473,20 +470,19 @@ class Database(object):
             except:
                 self.logger.error(r.content)
 
-    def send_value_to_pipelines(self, recipients, sensor, value, timestamp):
+    def send_value_to_pipelines(self, sensor, value, timestamp):
         """
         Send a recently recorded value to the pipeline monitors
-        :param recipients: a list of strings of pipeline monitors to send to
         :param sensor: string, the name of the sensor
         :param value: float/int, the value
         :param timestamp: float, the timestamp
         :returns: None
         """
-        for pl in recipients:
+        for pl in ['pl_alarm', 'pl_control', 'pl_convert']:
             self.log_command(
                         f'sensor_value {sensor} {timestamp} {value}',
-                        pl,
-                        None,
+                        to=pl,
+                        issuer=None,
                         bypass_hypervisor=True)
 
     def get_current_status(self):
