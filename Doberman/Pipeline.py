@@ -34,7 +34,7 @@ class Pipeline(object):
         try:
             self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
-                for node in pl.values():
+                for node in pl:
                     try:
                         node.on_error_do_this()
                     except Exception:
@@ -58,7 +58,7 @@ class Pipeline(object):
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         drift = 0
         for pl in self.subpipelines:
-            for node in pl.values():
+            for node in pl:
                 t_start = time.time()
                 try:
                     node._process_base(status)
@@ -72,7 +72,7 @@ class Pipeline(object):
                         self.logger.debug(msg)
                     else:
                         self.logger.warning(msg)
-                    for n in pl.values():
+                    for n in pl:
                         try:
                             n.on_error_do_this()
                         except Exception:
@@ -176,7 +176,7 @@ class Pipeline(object):
         # we do the reconfigure step here so we can estimate startup cycles
         self.reconfigure(config['node_config'])
         for pl in self.subpipelines:
-            for node in pl.values():
+            for node in pl:
                 if isinstance(node, Doberman.BufferNode) and not isinstance(node, Doberman.MergeNode):
                     num_buffer_nodes += 1
                     longest_buffer = max(longest_buffer, n.buffer.length)
@@ -216,7 +216,7 @@ class Pipeline(object):
                         break # break because i is no longer valid
 
             self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
-            self.subpipelines.append(pl)
+            self.subpipelines.append(list(pl.values()))
 
     def reconfigure(self, doc, sensor_docs):
         """
@@ -224,7 +224,7 @@ class Pipeline(object):
         a dict of sensor documents this pipeline uses
         """
         for pl in self.subpipelines:
-            for node in pl.values():
+            for node in pl:
                 this_node_config = dict(doc.get('general', {}).items())
                 this_node_config.update(doc.get(node.name, {}))
                 if isinstance(node, Doberman.AlarmNode):

@@ -50,7 +50,6 @@ class Sensor(threading.Thread):
         """
         self.readout_interval = doc['readout_interval']
         self.xform = doc.get('value_xform', [0, 1])
-        self.pipelines = doc.get('pipelines', [])
 
     def do_one_measurement(self):
         """
@@ -142,8 +141,8 @@ class MultiSensor(Sensor):
         for name, value in zip(self.all_names, values):
             if value is None:
                 continue
-            value = int(value) if self.is_int[name] else float(value)
-            _values[name] = sum(a*value**j for j, a in enumerate(self.xform[name]))
+            value = sum(a*value**j for j, a in enumerate(self.xform[name]))
+            _values[name] = int(value) if self.is_int[name] else float(value)
         return _values
 
     def send_downstream(self, values, timestamp):

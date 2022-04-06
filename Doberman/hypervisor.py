@@ -37,7 +37,10 @@ class Hypervisor(Doberman.Monitor):
                 {'$set': {'global_dispatch': {'hypervisor': [hn, p]}}})
 
         # start the fixed-frequency sync signals
-        for i in [1,2,5,10,15,30,60]:
+        for i in self.config.get('sync_periods', [1,2,5,10,15,30,60]):
+            if self.db.get_sensor_setting(name=f'X_SYNC_{i}') is None:
+                self.db.insert_into_db('sensors', {'name': 'X_SYNC_{i}', 'description': 'Sync signal', 'readout_interval': i, 'status': 'offline', 'topic': 'other',
+                    'subsystem': 'sync', 'pipelines': [], 'device': 'hypervisor', 'units': '', 'readout_command': ''})
             self.register(obj=self.sync_signal, period=i, name=f'sync_{i}', _period=i)
 
         # start the three Pipeline monitors
@@ -91,7 +94,7 @@ class Hypervisor(Doberman.Monitor):
         active = self.config['processes']['active']
         self.known_devices = self.db.distinct('devices', 'name')
         path = self.config['path']
-        for pl in 'alarm control convert':
+        for pl in 'alarm control convert'.split():
             if self.ping(f'pl_{pl}'):
                 self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
 
