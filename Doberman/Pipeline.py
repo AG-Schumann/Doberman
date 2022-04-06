@@ -132,31 +132,40 @@ class Pipeline(object):
                             'pipeline': self,
                             'logger': self.logger,
                             '_upstream': existing_upstream, # we _ the key because of the update line below
-                            'cv': getattr(self, 'cv', None)
                             }
                     node_kwargs.update(kwargs)
-                    n = getattr(Doberman, node_type)(**node_kwargs)
+                    try:
+                        n = getattr(Doberman, node_type)(**node_kwargs)
+                    except Exception as e:
+                        self.logger.debug(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
+                        self.logger.debug(f'Args: {node_kwargs}')
+                        raise
+                    setup_kwargs = kwargs
+                    fields = 'device topic subsystem description units alarm_level'.split()
                     if isinstance(n, (Doberman.SourceNode, Doberman.AlarmNode)):
-                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs['input_var'])) is None:
+                        if (doc := self.db.get_sensor_setting(name=kwargs['input_var'])) is None:
                             raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
+                        for field in fields:
+                            setup_kwargs[field] = doc.get(field)
                     elif isinstance(n, (Doberman.InfluxSinkNode)):
-                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                        if (doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
                             raise ValueError(f'Invalid output_var for {n.name}: {kwargs.get("output_var")}')
-                    else:
-                        setup_kwargs = {}
+                        for field in fields:
+                            setup_kwargs[field] = doc.get(field)
                     setup_kwargs['influx_cfg'] = influx_cfg
-                    setup_kwargs['operation'] = kwargs.get('operation')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
                     setup_kwargs['log_command'] = self.db.log_command
-                    for k in 'target value'.split():
-                        setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
-                    if 'strict_length' in kwargs:
-                        setup_kwargs['strict_length'] = kwargs['strict_length']
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
-                    n.setup(**setup_kwargs)
+                    setup_kwargs['cv'] = getattr(self, 'cv', None)
+                    try:
+                        n.setup(**setup_kwargs)
+                    except Exception as e:
+                        self.logger.debug(f'Caught a {type(e)} while setting up {n.name}: {e}')
+                        self.logger.debug(f'Args: {setup_kwargs}')
+                        raise
                     graph[n.name] = n
 
             if (nodes_built := (len(graph) - start_len)) == 0:
@@ -174,7 +183,7 @@ class Pipeline(object):
         self.calculate_jointedness(graph)
 
         # we do the reconfigure step here so we can estimate startup cycles
-        self.reconfigure(config['node_config'])
+        self.reconfigure(config['node_config'], {n: self.db.get_sensor_setting(n) for n in self.depends_on})
         for pl in self.subpipelines:
             for node in pl:
                 if isinstance(node, Doberman.BufferNode) and not isinstance(node, Doberman.MergeNode):

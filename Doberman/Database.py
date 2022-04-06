@@ -182,9 +182,12 @@ class Database(object):
                 'by': issuer,
                 'time': time.time() + delay
                 }
-        hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
-        with create_connection((hn, p), timeout=0.1) as sock:
-            sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
+        try:
+            hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
+            with create_connection((hn, p), timeout=0.1) as sock:
+                sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
+        except Exception as e:
+            self.logger.debug(f'Caught a {type(e)}: {e}')
 
     def get_experiment_config(self, name, field=None):
         """

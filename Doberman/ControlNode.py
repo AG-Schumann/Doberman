@@ -53,21 +53,23 @@ class PipelineControl(ControlNode):
     to implement this inside the current constraints.
     """
     def process(self, package):
-        if package.get('condition_x', False):
+        if package.get('condition_test', False):
             # this one is mainly for testing
-            self.control_pipeline(self.pipeline.name, 'stop')
+            self.pipeline.db.log_command(f'pipelinectl_stop test_pipeline',
+                    to=self.pipeline.monitor.name, issuer='test_pipeline',
+                    bypass_hypervisor=True)
 
     def control_pipeline(self, pipeline, action):
         if self.is_silent:
             return
         if pipeline.startswith('control'):
-            # we can do this directly
-            self.pipeline.monitor.process_command(f'pipelinectl_{action} {pipeline}')
-            return
-        if pipeline.startswith('alarm'):
+            target = 'pl_control'
+        elif pipeline.startswith('alarm'):
             target = 'pl_alarm'
         elif pipeline.startswith('convert'):
             target = 'pl_convert'
+        else:
+            raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
         self.pipeline.db.log_command(f'pipelinectl_{action} {pipeline}', to=target,
-                issuer=self.pipeline.name)
+                issuer=self.pipeline.name, bypass_hypervisor=True)
 

@@ -36,14 +36,6 @@ class Hypervisor(Doberman.Monitor):
         self.db.update_db('experiment_config', {'name': 'hypervisor'},
                 {'$set': {'global_dispatch': {'hypervisor': [hn, p]}}})
 
-        # start the fixed-frequency sync signals
-        self.db.delete_from_db('sensors', {'name': {'$regex': {'^X_SYNC'}}})
-        for i in self.config.get('sync_periods', [1,2,5,10,15,30,60]):
-            if self.db.get_sensor_setting(name=f'X_SYNC_{i}') is None:
-                self.db.insert_into_db('sensors', {'name': 'X_SYNC_{i}', 'description': 'Sync signal', 'readout_interval': i, 'status': 'offline', 'topic': 'other',
-                    'subsystem': 'sync', 'pipelines': [], 'device': 'hypervisor', 'units': '', 'readout_command': ''})
-            self.register(obj=self.sync_signal, period=i, name=f'sync_{i}', _period=i)
-
         # start the three Pipeline monitors
         path = self.config['path']
         for thing in 'alarm control convert'.split():
@@ -57,12 +49,25 @@ class Hypervisor(Doberman.Monitor):
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
         self.dispatcher.start()
-        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
         self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
         elif rhb == 'receive':
             self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
+
+        time.sleep(1)
+
+        # start the fixed-frequency sync signals
+        self.db.delete_documents('sensors', {'name': {'$regex': '^X_SYNC'}})
+        for i in self.config.get('sync_periods', [5,10,15,30,60]):
+            if self.db.get_sensor_setting(name=f'X_SYNC_{i}') is None:
+                self.db.insert_into_db('sensors', {'name': f'X_SYNC_{i}', 'description': 'Sync signal', 'readout_interval': i, 'status': 'offline', 'topic': 'other',
+                    'subsystem': 'sync', 'pipelines': [], 'device': 'hypervisor', 'units': '', 'readout_command': ''})
+            self.register(obj=self.sync_signal, period=i, name=f'sync_{i}', _period=i)
+
+        time.sleep(1)
+        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
+
 
     def shutdown(self) -> None:
         with self.cv:
@@ -129,7 +134,7 @@ class Hypervisor(Doberman.Monitor):
         Ping a listener. Returns True if it isn't listening and should be restarted
         """
         try:
-            hn, p = self.get_listener_address(thing)
+            hn, p = self.db.find_listener_address(thing)
             with socket.create_connection((hn, p), timeout=0.1) as sock:
                 sock.sendall(b'ping')
                 if sock.recv(1024) != b'pong':

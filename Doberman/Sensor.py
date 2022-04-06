@@ -120,7 +120,7 @@ class MultiSensor(Sensor):
         self.topics = {}
         self.is_int = {}
         self.subsystem = {}
-        for n self.all_names:
+        for n in self.all_names:
             doc = self.db.get_sensor_setting(name=n)
             self.topics[n] = doc['topic']
             self.is_int[n] = doc.get('is_int', False)

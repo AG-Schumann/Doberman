@@ -28,7 +28,10 @@ class Monitor(object):
         self.restart_info = {}
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        _, port = self.db.assign_listener_address(self.name)
+        if self.name == 'hypervisor':
+            _, port = self.db.find_listener_address(self.name)
+        else:
+            _, port = self.db.assign_listener_address(self.name)
         # is the lambda necessary? Maybe? We sometimes crashed without it for
         # reasons I don't understand
         l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
@@ -51,6 +54,7 @@ class Monitor(object):
         with self.lock:
             for n, t in self.threads.items():
                 try:
+                    self.logger.debug(f'Stopping {n}')
                     t.event.set()
                     t.join()
                 except Exception as e:

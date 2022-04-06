@@ -15,7 +15,7 @@ class Node(object):
         self.input_var = kwargs.pop('input_var', None)
         self.output_var = kwargs.pop('output_var', self.input_var)
         self.logger = logger
-        self.upstream_nodes = kwargs.pop('_upstream', [])
+        self.upstream_nodes = kwargs.pop('_upstream')
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
@@ -103,11 +103,6 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        if kwargs.get('new_value_required', False):
-            self.pipeline.required_inputs.add(self.name)
-
     def process(self, *args, **kwargs):
         return None
 
@@ -203,6 +198,8 @@ class SensorSourceNode(SourceNode):
         super().setup(**kwargs)
         self.cv = kwargs['cv']
         self.pipeline.monitor.register_listener(self)
+        if kwargs.get('new_value_required', False) or self.input_var.startswith('X_SYNC'):
+            self.pipeline.required_inputs.add(self.name)
 
     def receive_from_upstream(self, package):
         """
@@ -338,12 +335,12 @@ class IntegralNode(BufferNode):
     from the end of the buffer.
 
     Setup params:
-    :param length: the number of values over which you want the integral calculated.
-        You'll need to do the conversion to time yourself
     :param strict_length: bool, default False. Is the node allowed to run without a 
         full buffer?
 
     Runtime params:
+    :param length: the number of values over which you want the integral calculated.
+        You'll need to do the conversion to time yourself
     :param t_offset: Optional. How many of the most recent values you want to skip.
         The integral is calculated up to t_offset from the end of the buffer
     """
@@ -362,13 +359,12 @@ class DerivativeNode(BufferNode):
     the buffer
 
     Setup params:
-    :param length: The number of values over which you want the derivative calculated.
-        You'll need to do the conversion to time yourself.
     :param strict_length: bool, default False. Is the node allowed to run without a 
         full buffer?
 
     Runtime params:
-    None
+    :param length: The number of values over which you want the derivative calculated.
+        You'll need to do the conversion to time yourself.
     """
     def process(self, packages):
         t_min = packages[0]['time']
@@ -422,7 +418,7 @@ class InfluxSinkNode(Node):
 
     def process(self, package):
         if not self.is_silent:
-            self.logger.debug(f'{self.topic}, {self.subsystem}, {self.device}, {self.input_var}')
+            #self.logger.debug(f'{self.topic}, {self.subsystem}, {self.device}, {self.input_var}')
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
                 'device': self.device, 'subsystem': self.subsystem},
                 fields={'value': package[self.input_var[0]]}, timestamp=package['time'])

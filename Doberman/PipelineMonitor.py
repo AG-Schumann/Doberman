@@ -115,4 +115,5 @@ class PipelineMonitor(Doberman.Monitor):
                 self.logger.info(f'I don\'t understand command "{command}"')
         except Exception as e:
             self.logger.error(f'Received malformed command: {command}')
+            self.logger.debug(f'{type(e)}: {e}')
 
