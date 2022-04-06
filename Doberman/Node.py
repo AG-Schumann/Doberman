@@ -402,7 +402,7 @@ class InfluxSinkNode(Node):
     Puts a value back into influx.
 
     Setup params:
-    :param input_var: the name of the Sensor you're writing to
+    :param output_var: the name of the Sensor you're writing to
 
     Runtime params:
     None
@@ -412,13 +412,15 @@ class InfluxSinkNode(Node):
         self.topic = kwargs['topic']
         self.subsystem = kwargs['subsystem']
         self.write_to_influx = kwargs['write_to_influx']
-        self.device = kwargs.get('device', 'pipeline')
+        self.send_to_pipelines = kwargs['send_to_pipelines']
+        self.device = kwargs['device']
 
     def process(self, package):
         if not self.is_silent:
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
                 'device': self.device, 'subsystem': self.subsystem},
                 fields={'value': package[self.input_var]}, timestamp=package['time'])
+            self.send_to_pipelines(self.output_var, package[self.input_var], package['time'])
 
 class EvalNode(Node):
     """

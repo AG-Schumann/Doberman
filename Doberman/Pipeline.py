@@ -154,6 +154,7 @@ class Pipeline(object):
                             setup_kwargs[field] = doc.get(field)
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
+                    setup_kwargs['send_to_pipelines'] = self.db.send_value_to_pipelines
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
                     setup_kwargs['log_command'] = self.db.log_command
                     for k in 'escalation_config silence_duration'.split():
