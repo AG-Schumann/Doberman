@@ -175,18 +175,28 @@ class Pipeline(object):
             self.logger.debug(f'{len(graph)} nodes to check')
             nodes_to_check = set([list(graph.keys())[0]])
             nodes_checked = set()
+            nodes = []
             pl = {}
-            while len(nodes_to_check) != 0:
-                node = nodes_to_check.pop()
-                self.logger.debug(f'Checking {node}')
-                for u in graph[node].upstream_nodes:
+            # first, find connected sets of nodes
+            while len(nodes_to_check) > 0:
+                name = nodes_to_check.pop()
+                self.logger.debug(f'Checking {name}')
+                for u in graph[name].upstream_nodes:
                     if u.name not in nodes_checked:
                         nodes_to_check.add(u.name)
-                for d in graph[node].downstream_nodes:
+                for d in graph[name].downstream_nodes:
                     if d.name not in nodes_checked:
                         nodes_to_check.add(d.name)
-                pl[node] = graph.pop(node)
-                nodes_checked.add(node)
+                nodes.append(graph.pop(name))
+                nodes_checked.add(name)
+
+            # now, reorder them
+            while len(nodes) > 0:
+                for i, node in enumerate(nodes):
+                    if len(node.upstream_nodes) == 0 or all(u.name in pl for u in node.upstream_nodes):
+                        pl[node.name] = nodes.pop(i)
+                        break # break because i is no longer valid
+
             self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
             self.subpipelines.append(pl)
 
