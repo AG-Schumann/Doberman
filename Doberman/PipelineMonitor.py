@@ -32,7 +32,7 @@ class PipelineMonitor(Doberman.Monitor):
             self.logger.error(f'No pipeline named {name} found')
             return -1
         try:
-            p = Doberman.Pipeline.create(doc, db=self.db, logger=self.logger, name=name, monitor=self)
+            p = Doberman.Pipeline.create(doc, db=self.db, logger=Doberman.utils.get_child_logger(name, self.logger), name=name, monitor=self)
             p.build(doc)
         except Exception as e:
             self.logger.error(f'{type(e)}: {e}')

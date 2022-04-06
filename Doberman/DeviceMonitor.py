@@ -24,7 +24,7 @@ class DeviceMonitor(Doberman.Monitor):
     def start_sensor(self, rd):
         self.logger.debug('Constructing ' + rd)
         sensor_doc = self.db.get_sensor_setting(rd)
-        kwargs = {'sensor_name': rd, 'logger': self.logger, 'db': self.db,
+        kwargs = {'sensor_name': rd, 'logger': doberman.utils.get_child_logger(rd, self.logger), 'db': self.db,
                   'device_name': self.name, 'device': self.device}
         if 'multi_sensor' in sensor_doc and isinstance(sensor_doc['multi_sensor'], list):
             # the "base" multisensor stores all the names in the list
@@ -56,7 +56,7 @@ class DeviceMonitor(Doberman.Monitor):
             self.device.close()
         try:
             self.device = self.device_ctor(self.db.get_device_setting(self.name),
-                                           self.logger, self.event)
+                                           Doberman.utils.get_child_logger('device', self.logger), self.event)
         except Exception as e:
             self.logger.error(f'Could not open device. Error: {e} ({type(e)})')
             self.device = None

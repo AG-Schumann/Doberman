@@ -205,7 +205,7 @@ class Hypervisor(Doberman.Monitor):
     def compress_logs(self) -> None:
         then = dtnow()-datetime.timedelta(days=7)
         self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
-        p = self.logger.handlers[0].logdir(dtnow()-datetime.timedelta(days=7))
+        p = self.logger.handlers[0].oh.logdir(dtnow()-datetime.timedelta(days=7))
         self.run_locally(f'cd {p} && gzip --best *.log')
 
     def dispatch(self) -> None:

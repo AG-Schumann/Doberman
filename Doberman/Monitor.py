@@ -56,7 +56,7 @@ def main(mongo_client):
     else:
         print('No action specified')
         return
-    logger = Doberman.utils.get_logger(name=kwargs['name'], db=db)
+    logger = Doberman.utils.get_logger('monitor', kwargs['name'], db=db)
     db.logger = logger
     kwargs['logger'] = logger
     try:
