@@ -402,9 +402,7 @@ class InfluxSinkNode(Node):
     Puts a value back into influx.
 
     Setup params:
-    :param topic: string, the type of measurement (temperature, pressure, etc)
-    :param subsystem: string, the subsystem the quantity belongs to
-    :param device: string, optional. The name of the device this quantity "comes from", defaults to "pipeline"
+    :param input_var: the name of the Sensor you're writing to
 
     Runtime params:
     None
@@ -418,10 +416,9 @@ class InfluxSinkNode(Node):
 
     def process(self, package):
         if not self.is_silent:
-            #self.logger.debug(f'{self.topic}, {self.subsystem}, {self.device}, {self.input_var}')
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
                 'device': self.device, 'subsystem': self.subsystem},
-                fields={'value': package[self.input_var[0]]}, timestamp=package['time'])
+                fields={'value': package[self.input_var]}, timestamp=package['time'])
 
 class EvalNode(Node):
     """

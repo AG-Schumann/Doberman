@@ -268,11 +268,10 @@ class SyncPipeline(threading.Thread, Pipeline):
         self.has_new = set()
 
     def run(self):
-        predicate = lambda: self.has_new >= self.required_inputs or self.event.is_set()
+        predicate = lambda: (len(self.has_new) > 0 and self.has_new >= self.required_inputs) or self.event.is_set()
         while not self.event.is_set():
             with self.cv:
                 self.cv.wait_for(predicate)
-            self.logger.debug(f'Notified, {self.required_inputs} {self.has_new}')
             self.process_cycle()
             self.has_new.clear()
 
