@@ -202,7 +202,7 @@ class SensorSourceNode(SourceNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.cv = kwargs['cv']
-        self.pipeline.monitor.register_listener(self.input_var, self)
+        self.pipeline.monitor.register_listener(self)
 
     def receive_from_upstream(self, package):
         """

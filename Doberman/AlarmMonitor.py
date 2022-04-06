@@ -194,6 +194,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                     ret = 0
             else:
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
+                ret = 0
         return ret
 
     def check_shifters(self):

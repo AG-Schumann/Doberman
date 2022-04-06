@@ -152,7 +152,7 @@ class Pipeline(object):
                     for k in 'target value'.split():
                         setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
                     if 'strict_length' in kwargs:
-                        setup_kwargs['strict_length' = kwargs['strict_length']
+                        setup_kwargs['strict_length'] = kwargs['strict_length']
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
