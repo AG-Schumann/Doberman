@@ -11,7 +11,7 @@ class PipelineMonitor(Doberman.Monitor):
     """
 
     def setup(self):
-        self.listeners = collections.defaultdict(list)
+        self.listeners = collections.defaultdict(dict)
         self.pipelines = {}
         flavor = self.name.split('_')[1] # pl_flavor
         if flavor not in 'alarm control convert'.split():
@@ -56,15 +56,13 @@ class PipelineMonitor(Doberman.Monitor):
         """
         Register a node to listen for named sensor inputs
         """
-        self.listeners[node.input_var].append(node)
+        self.listeners[node.input_var][node.hash] = node
 
     def unregister_listener(self, node):
         """
         Remove a node from the listeners list
         """
-        for i,n in enumerate(self.listeners[node.input_var]):
-            if n.name == node.name:
-                return self.listeners[node.input_var].pop(i)
+        self.listeners[node.input_var].pop(node.hash, None)
 
     def process_command(self, command):
         #self.logger.debug(f'Processing {command}')
@@ -78,7 +76,7 @@ class PipelineMonitor(Doberman.Monitor):
                     value = float(value)
                 else:
                     value = int(value)
-                for listener in self.listeners.get(name, []):
+                for listener in self.listeners[name].values():
                     listener.receive_from_upstream({'time': ts, name: value})
             elif command.startswith('pipelinectl_start'):
                 _, name = command.split(' ')

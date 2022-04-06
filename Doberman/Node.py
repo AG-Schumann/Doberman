@@ -1,7 +1,5 @@
 import Doberman
 import requests
-import socket
-import threading
 
 
 class Node(object):
@@ -12,6 +10,8 @@ class Node(object):
         self.pipeline = pipeline
         self.buffer = Doberman.utils.SortedBuffer(1)
         self.name = name
+        # sometimes we need a UUID because nodes in different PLs can share names
+        self.hash = Doberman.utils.make_hash(self.pipeline.name, self.name)
         self.input_var = kwargs.pop('input_var', None)
         self.output_var = kwargs.pop('output_var', self.input_var)
         self.logger = logger

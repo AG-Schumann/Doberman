@@ -294,13 +294,8 @@ class Database(object):
                     self.logger.info(f"No {p} contact details for {contactname}")
         return ret
 
-    def get_heartbeat(self, device=None, pipeline=None):
-        if device is not None:
-            doc = self.read_from_db('devices', cuts={'name': device}, onlyone=True)
-        elif pipeline is not None:
-            doc = self.read_from_db('', cuts={'name': pipeline}, onlyone=True)
-        else:
-            raise ValueError()
+    def get_heartbeat(self, device=None):
+        doc = self.read_from_db('devices', cuts={'name': device}, onlyone=True)
         return doc['heartbeat'].replace(tzinfo=pytz.utc)
 
     def update_heartbeat(self, device=None):
