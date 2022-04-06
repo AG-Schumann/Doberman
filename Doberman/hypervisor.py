@@ -37,6 +37,7 @@ class Hypervisor(Doberman.Monitor):
                 {'$set': {'global_dispatch': {'hypervisor': [hn, p]}}})
 
         # start the fixed-frequency sync signals
+        self.db.delete_from_db('sensors', {'name': {'$regex': {'^X_SYNC'}}})
         for i in self.config.get('sync_periods', [1,2,5,10,15,30,60]):
             if self.db.get_sensor_setting(name=f'X_SYNC_{i}') is None:
                 self.db.insert_into_db('sensors', {'name': 'X_SYNC_{i}', 'description': 'Sync signal', 'readout_interval': i, 'status': 'offline', 'topic': 'other',
