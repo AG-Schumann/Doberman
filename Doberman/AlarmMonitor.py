@@ -55,7 +55,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f"Message exceeds {maxmessagelength} "
                                 "characters. Message will be shortened.")
         message = f"This is the {self.db.experiment_name} alarm system. " + message
-        if len(phone_numbers) == 1:
+        if type(phone_numbers) == str:
             phone_numbers = [phone_numbers]
         for tonumber in phone_numbers:
             data = {
