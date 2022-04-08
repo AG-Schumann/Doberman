@@ -208,7 +208,6 @@ class Pipeline(object):
             # first, find connected sets of nodes
             while len(nodes_to_check) > 0:
                 name = nodes_to_check.pop()
-                self.logger.debug(f'Checking {name}')
                 for u in graph[name].upstream_nodes:
                     if u.name not in nodes_checked:
                         nodes_to_check.add(u.name)

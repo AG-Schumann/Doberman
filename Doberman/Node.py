@@ -208,6 +208,8 @@ class SensorSourceNode(SourceNode):
         """
         with self.cv:
             if package[self.input_var] is not None or self.accept_old:
+                # rename input_var -> output_var
+                package[self.output_var] = package.pop(self.input_var)
                 super().receive_from_upstream(package)
                 # let the pipeline know that we've got mail
                 self.pipeline.has_new.add(self.name)
@@ -431,9 +433,10 @@ class EvalNode(Node):
     Setup params:
     :param operation: string, the operation you want performed. Input values will be 
         assembed into a dict "v", and any constant values specified will be available as
-        described below.
+        the dict "c".
         For instance, "(v['input_1'] > c['min_in1']) and (v['input_2'] < c['max_in2'])"
         or "math.exp(v['input_1'] + c['offset'])". The math library is available for use.
+    :param input_var: list of strings
     :param output_var: string, the name to assign to the output variable
 
     Runtime params:
@@ -450,3 +453,4 @@ class EvalNode(Node):
             c[k] = float(v)
         v = {k:package[k] for k in self.input_var}
         return eval(self.operation)
+
