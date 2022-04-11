@@ -55,7 +55,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f"Message exceeds {maxmessagelength} "
                                 "characters. Message will be shortened.")
         message = f"This is the {self.db.experiment_name} alarm system. " + message
-        if len(phone_numbers) == 1:
+        if isinstance(phone_numbers, str):
             phone_numbers = [phone_numbers]
         for tonumber in phone_numbers:
             data = {
@@ -121,47 +121,40 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f'Could not send mail: {e} ({type(e)})')
             return 0
 
-    def send_sms(self, phone_number, message):
+    def send_sms(self, phone_numbers, message):
         """
-        Sends an SMS.
-        This works with sms sites which provide sms sending via email.
+        Send an SMS.
+        Designed for usewith smscreator.de
         """
         # Get connection details
-        connection_details = self.get_connection_details('sms')
+        connection_details = self.get_connection_details('smscreator')
         if connection_details is None:
-            return -1
+            raise KeyError("No connection details obtained from database.")
         # Compose connection details and addresses
-        try:
-            server = connection_details['server']
-            identification = connection_details['identification']
-            contactaddr = connection_details['contactaddr']
-            # fromaddr = connection_details['fromaddr']
-            if not phone_number:
-                self.logger.warning('No phone number given. Can not send SMS.')
-                return 0
-            # Server has different type request for 1 or several numbers.
-            if len(phone_number) == 1:
-                toaddr = f'{identification}.{phone_number[0]}@{server}'
-                bcc = None
-            else:
-                toaddr = contactaddr
-                bcc = [f'{identification}.{number}@{server}' for number in phone_number]
-            message = str(message)
-            subject = ''
-            # Long SMS (>160 characters) cost more and are shortened
-            if len(message) > 155:
-                self.logger.warning('SMS message exceeds limit of 160 characters '
-                                    f'({len(message)} characters). '
-                                    'Message will be cut off.')
-                message = message[:155]
-            cc = None
-            if self.send_email(toaddr=toaddr,
-                               subject=subject,
-                               message=message,
-                               cc=cc, bcc=bcc,
-                               add_signature=False) == -1:
-                self.logger.error('Could not send SMS! Email to SMS not working.')
-                return -1
+        url = connection_details['url']
+        postparameters = connection_details['postparameters']
+        maxmessagelength = int(connection_details['maxmessagelength'])
+        if not phone_numbers:
+            raise ValueError("No phone number given.")
+
+        message = str(message)
+        # Long messages are shortened to avoid excessive fees
+        if len(message) > maxmessagelength:
+            message = ' '.join(message[:maxmessagelength + 1].split(' ')[0:-1])
+            self.logger.warning(f"Message exceeds {maxmessagelength} "
+                                "characters. Message will be shortened.")
+
+        if isinstance(phone_numbers, str):
+            phone_numbers = [phone_numbers]
+        for tonumber in phone_numbers:
+            data = postparameters
+            data['Recipient'] = tonumber
+            data['SMSText'] = message
+            self.logger.warning(f'Sending SMS to {tonumber}')
+            response = requests.post(url, data=data)
+            if response.status_code != 200:
+                self.logger.error(f"Couldn't send message, status"
+                                  + f" {response.status_code}: {response.content.decode('ascii')}")
 
         except Exception as e:
             self.logger.error(f'Could not send SMS: {e}, {type(e)}')
