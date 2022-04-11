@@ -55,7 +55,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f"Message exceeds {maxmessagelength} "
                                 "characters. Message will be shortened.")
         message = f"This is the {self.db.experiment_name} alarm system. " + message
-        if type(phone_numbers) == str:
+        if isinstance(phone_numbers, str):
             phone_numbers = [phone_numbers]
         for tonumber in phone_numbers:
             data = {
@@ -134,7 +134,6 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         url = connection_details['url']
         postparameters = connection_details['postparameters']
         maxmessagelength = int(connection_details['maxmessagelength'])
-        auth = connection_details.get('auth')
         if not phone_numbers:
             raise ValueError("No phone number given.")
 
@@ -145,16 +144,14 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f"Message exceeds {maxmessagelength} "
                                 "characters. Message will be shortened.")
 
-        if type(phone_numbers) == str:
+        if isinstance(phone_numbers, str):
             phone_numbers = [phone_numbers]
         for tonumber in phone_numbers:
             data = postparameters
             data['Recipient'] = tonumber
             data['SMSText'] = message
             self.logger.warning(f'Sending SMS to {tonumber}')
-            print(data)
             response = requests.post(url, data=data)
-            print(response.status_code)
             if response.status_code != 200:
                 self.logger.error(f"Couldn't send message, status"
                                   + f" {response.status_code}: {response.content.decode('ascii')}")
