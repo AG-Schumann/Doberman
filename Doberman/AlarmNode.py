@@ -88,10 +88,10 @@ class DeviceRespondingBase(AlarmNode):
             self.reset_alarm()
         return None
 
-class DeviceRespondingAlarmInflux(DeviceRespondingBase, Doberman.InfluxSourceNode):
+class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode):
     pass
 
-class DeviceRespondingAlarmSync(DeviceRespondingBase, Doberman.SensorSourceNode):
+class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
     pass
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
