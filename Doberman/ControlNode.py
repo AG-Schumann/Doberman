@@ -32,7 +32,7 @@ class DigitalControlNode(ControlNode):
 
     def process(self, package):
         if self.one_input:
-            self.logger.set_output(self.input_var)
+            self.set_output(package[self.input_var])
         else:
             if package['condition_a']:
                 self.logger.info('Condition a met')
