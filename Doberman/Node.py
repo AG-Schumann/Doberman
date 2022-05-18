@@ -75,7 +75,7 @@ class Node(object):
         Load whatever runtime values are necessary
         """
         for k,v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode):
+            if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
                 self.buffer.set_length(int(v))
             else:
                 self.config[k] = v
@@ -250,7 +250,7 @@ class BufferNode(Node):
         # deep copy
         return list(map(dict, self.buffer))
 
-class MedianFilter(BufferNode):
+class MedianFilterNode(BufferNode):
     """
     Filters a value by taking the median of its buffer. If the length is even,
     the two values adjacent to the middle are averaged.
