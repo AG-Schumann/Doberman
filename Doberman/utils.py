@@ -70,18 +70,13 @@ class SignalHandler(object):
 
 class DobermanLogger(logging.Handler):
     """
-    Custom logger for Doberman. DEBUG goes to disk in one file, INFO and higher also goes to disk in another file,
-    WARNING and higher go to the database. The DEBUG files will get purged regularly because they'll be quite bulky,
-    while "important" info will remain in the long-term logfiles. Logfiles will get rotated daily with folder
-    structure YYYY/MM.DD and unique named files.
+    A custom logging handler.
     """
     def __init__(self, db, name, output_handler):
         logging.Handler.__init__(self)
         self.db = db
         self.name = name
-        self.experiment = db.experiment_name
         self.collection_name = 'logs'
-        self.today = datetime.date.today()
         self.oh = output_handler
 
     def emit(self, record):
@@ -108,32 +103,27 @@ class OutputHandler(object):
     We need a single object that owns the file we log to,
     so we can pass references to it to child loggers.
     I don't know how to do c++-style static class members,
+    so this is how I solve this problem.
+    Files go to /global/logs/<experiment>/YYYY/MM.DD, folders being created as necessary.
     """
-    def __init__(self, name):
+    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle')
+
+    def __init__(self, name, experiment):
         self.mutex = threading.Lock()
         self.filename = f'{name}.log'
+        self.experiment = experiment
+        self.f = None
+        self.flush_cycle = 0
         self.rotate()
 
     def rotate(self, when):
         if self.f is not None:
             self.f.close()
         self.today = datetime.date.today()
-        self.open_files(when)
-
-    def open_files(self, when):
-        self.f = open(self.full_file_path(when), 'a')
-
-    def full_file_path(self, when):
-        return os.path.join(self.logdir(when), self.filename)
-
-    def logdir(self, when):
-        """
-        Returns a directory where you can put the day's logs. Creates the directories if they dont exist
-        """
-        # TODO have the path be configurable somehow?
-        p = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
-        os.makedirs(p, exist_ok=True)
-        return p
+        logdir = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
+        os.makedirs(logdir, exist_ok=True)
+        full_path = os.path.join(logdir, self.filename)
+        self.f = open(full_path, 'a')
 
     def write(self, message, date):
         with self.mutex:
@@ -153,8 +143,8 @@ class OutputHandler(object):
                 self.f.flush()
                 self.flush_cycle = 0
 
-def get_logger(filename, name, db):
-    oh = OutputHandler(filename)
+def get_logger(name, db):
+    oh = OutputHandler(name, db.experiment_name)
     logger = logging.getLogger(name)
     logger.addHandler(DobermanLogger(db, name, oh))
     logger.setLevel(logging.DEBUG)
