@@ -6,6 +6,7 @@ import requests
 import json
 import pytz
 import itertools
+import random
 
 __all__ = 'Database'.split()
 
@@ -107,13 +108,11 @@ class Database(object):
         :param cuts: the dictionary specifying the query
         :param updates: the dictionary specifying the desired changes
         :param **kwargs: keyword args passed to collection.update_many
-        :returns 0 if successful, 1 if not
+        :returns: number of modified documents
         """
         collection = self._db[collection_name]
         ret = collection.update_many(cuts, updates, **kwargs)
-        if not ret.acknowledged:
-            return 1
-        return 0
+        return ret.modified_count > 0
 
     def delete_documents(self, collection_name, cuts):
         """
@@ -125,6 +124,18 @@ class Database(object):
         """
         collection = self._db[collection_name]
         collection.delete_many(cuts)
+
+    def aggregate(self, collection, pipeline, **kwargs):
+        """
+        Does a database aggregation operation
+        :param collection: string, the name of the collection
+        :param pipeline: the aggregation pipeline stages
+        :param **kwargs: any kwargs to pass to the aggregator
+        :yields: documents
+        """
+        cursor = self._db[collection].aggregate(pipeline, **kwargs)
+        for doc in cursor:
+            yield doc
 
     def get_experiment_config(self, name, field=None):
         """
@@ -383,22 +394,49 @@ class Database(object):
         """
         Assign a hostname and port for communication
         :param name: who will get this assignment
-        :returns: (string, int) tuple of hostname and port
+        :returns: None
         """
-        doc = self.get_experiment_config('hypervisor', field='global_dispatch')
         if name in self.distinct('devices', 'name'):
             # this is a device
             host = self.get_device_setting(name, field='host')
         else:
             # probably a pipeline, assume it runs on the master host
-            host = doc['hypervisor'][0]
-        existing_ports = [p for (hn, p) in doc.values() if hn == host] or [doc['hypervisor'][1]]
-        for port in itertools.count(min(existing_ports)):
-            if port in existing_ports:
-                continue
-            self.logger.info(f'Assigning {host}:{port} to {name}')
-            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
-            return host, int(port)
+            host = self.find_listener_address('hypervisor')[0]
+        while self.update_db('dispatch', {'name': '_lock', 'host': '', 'port': -1}, {'$set': {'port': 1}}) == 0:
+            time.sleep(random.random())
+        s = ', '.join(map(lambda d: f'{d["name"]}:{d["port"]}', self.read_from_db('dispatch', {'host': host})))
+        self.logger.debug(f'Existing leases on {host}: {s}')
+        try:
+            for doc in self.aggregate('dispatch', [
+                {'$match': {'host': host}},
+                {'$group': {
+                    '_id': '$host',
+                    'min_port': {'$min': '$port'},
+                    'max_port': {'$max': '$port'},
+                    'num_ports': {'$sum': 1},
+                    'ports': {'$push': '$port'}}},
+                {'$project': {
+                    'name': name,
+                    'host': '$_id',
+                    '_id': 0,
+                    'port': {'$cond': [
+                                {'$eq': [ # are the ports densely-packed?
+                                    {'$subtract': ['$max_port', '$min_port']},
+                                    {'$subtract': ['$num_ports', 1]}
+                                ]},
+                                {'$add': ['$max_port', 1]}, # if so, max + 1
+                                {'$first': {'$filter': { # if not, find an open port
+                                    'input': {'$range': ['$min_port', '$max_port']},
+                                    'as': 'p',
+                                    'cond': {'$not': {'$in': ['$$p', '$ports']}}
+                                    }}}
+                                ]}
+                    }}]):
+                self.logger.debug(f'Assigning {host}:{doc["port"]}')
+                self.insert_into_db('dispatch', doc)
+        except Exception as e:
+            self.logger.error(f'Caught a {type(e)} during port assignment: {e}')
+        self.update_db('dispatch', {'name': '_lock', 'host': ''}, {'$set': {'port': -1}})
 
     def find_listener_address(self, name):
         """
@@ -409,21 +447,19 @@ class Database(object):
         """
         if name in self.address_cache:
             return self.address_cache[name]
-        doc = self.get_experiment_config('hypervisor', field='global_dispatch')
-        # doc looks like { name: [host, port], ...}
-        if name in doc:
-            host, port = doc[name]
-            if name in ['pl_alarm', 'pl_control', 'pl_convert', 'hypervisor']:
-                self.address_cache[name] = (host, int(port))
-            return host, int(port)
-        raise ValueError(f'No assigned listener info for {name}')
+        if (doc := self.read_from_db('dispatch', {'name': name}, onlyone=True)) is None:
+            raise ValueError(f'No assigned listener info for {name}')
+        host, port = doc['host'], doc['port']
+        if name in ['pl_alarm', 'pl_control', 'pl_convert', 'hypervisor']:
+            self.address_cache[name] = (host, int(port))
+        return host, int(port)
 
     def release_listener_port(self, name):
         """
         Return the port used by <name> to the pool
         """
         if name != 'hypervisor':
-            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$unset': {f'global_dispatch.{name}': 1}})
+            self.delete_documents('dispatch', {'name': name})
 
     def get_host_setting(self, host=None, field=None):
         """

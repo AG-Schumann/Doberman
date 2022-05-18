@@ -32,9 +32,15 @@ class Hypervisor(Doberman.Monitor):
                     self.run_over_ssh(f'{self.username}@{host}', activity)
 
         # cleanup port leases after a potential dirty shutdown
-        hn, p = self.config['global_dispatch']['hypervisor']
-        self.db.update_db('experiment_config', {'name': 'hypervisor'},
-                {'$set': {'global_dispatch': {'hypervisor': [hn, p]}}})
+        hn, p = self.db.find_listener_address('hypervisor')
+        self.db.delete_documents('dispatch', {'name': {'$ne': 'hypervisor'}})
+        self.db.insert_into_db('dispatch', {'host': '', 'name': '_lock', 'port': -1})
+        for doc in self.db.aggregate('hosts', [
+            {'$match': {'name': {'$ne': hn}}},
+            # the toInt is to work around Mongo logic
+            {'$project': {'host': '$name', 'name': '_dummy', 'port': {'$toInt': str(p)}, '_id': 0}},
+            {'$merge': 'dispatch'}]):
+            pass
 
         # start the three Pipeline monitors
         path = self.config['path']
@@ -48,7 +54,7 @@ class Hypervisor(Doberman.Monitor):
         self.cv = threading.Condition()
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
-        self.dispatcher.start()
+        self.dispatcher.start() # TODO get this registered somehow
         self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
@@ -112,9 +118,7 @@ class Hypervisor(Doberman.Monitor):
             elif (dt := ((now := dtnow())-self.db.get_heartbeat(device=device)).total_seconds()) > 2*self.config['period']:
                 # device claims to be active but hasn't heartbeated recently
                 self.logger.warning(f'{device} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
-                if device in self.last_restart and (now - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
-                    self.logger.warning(f'Can\'t restart {device}, did so too recently')
-                elif self.start_device(device):
+                if self.start_device(device):
                     # nonzero return code, probably something didn't work
                     self.logger.error(f'Problem starting {device}, check the debug logs')
                 else:
@@ -178,6 +182,7 @@ class Hypervisor(Doberman.Monitor):
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
             self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+        time.sleep(1)
         return cp.returncode
 
     def run_locally(self, command: str) -> int:
@@ -189,9 +194,13 @@ class Hypervisor(Doberman.Monitor):
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
             self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+        time.sleep(1)
         return cp.returncode
 
     def start_device(self, device: str) -> int:
+        if device in self.last_restart and (dtnow() - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
+            self.logger.warning(f'Can\'t restart {device}, did so too recently')
+            return 1
         path = self.config['path']
         doc = self.db.get_device_setting(device)
         host = doc['host']
