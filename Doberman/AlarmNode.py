@@ -58,56 +58,50 @@ class AlarmNode(Doberman.Node):
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
             level = self.base_level + self.escalation_level
-            self._log_alarm(level=level,
+            if self._log_alarm(level=level,
                             message=msg,
                             pipeline=self.pipeline.name,
-                            _hash=self.hash)
-            self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
-            self.messages_this_level += 1
+                            _hash=self.hash):
+                # only self-silence if the message was successfully sent
+                self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
+                self.messages_this_level += 1
         else:
             self.logger.error(msg)
 
-class DeviceRespondingAlarm(Doberman.InfluxSourceNode, AlarmNode):
+class DeviceRespondingBase(AlarmNode):
     """
-    A simple alarm that makes sure the spice is flowing
+    A base class to check if sensors are returning data
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.late_counter = 0
-        self.accept_old = False
-
-    def reset_alarm(self):
-        super().reset_alarm()
-        self.late_counter = 0
-
-    def get_package(self):
-        try:
-            ret = super().get_package()
-            self.reset_alarm()
-            return ret
-        except ValueError as e:
-            self.late_counter += 1
-            if self.late_counter > self.config.get('alarm_recurrence', 3):
-                self.log_alarm(f"Is {self.device} responding correctly? {self.late_counter} values are either missing or late")
-                self.late_counter = 0
-            raise
+        self.accept_old = True
 
     def process(self, package):
-        if (now := time.time()) - package['time'] > 2*self.config['readout_interval']:
-            self.late_counter += 1
-            if self.late_counter > self.late_threshold:
-                self.log_alarm(
-                    (f'Is {self.device} responding correctly? Time to the last value for {self.input_var} is '
-                         f'{now-package["time"]:.1f}s rather than {self.config["readout_interval"]}'),
-                    package['time'])
-                self.late_counter = 0 # not an actual reset, just delaying the next message
+        # the 2 is a fudge factor
+        dt_max = (2 + self.config['alarm_recurrence']) * self.config['readout_interval']
+        if (dt := ((now := time.time()) - package['time'])) > dt_max:
+            self.log_alarm(
+                (f'Is {self.device} responding correctly? No new value for '
+                f'{self.input_var} has been seen in {int(dt)} seconds'),
+                now)
         else:
             self.reset_alarm()
+        return None
+
+class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode):
+    pass
+
+class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
+    pass
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
     A simple alarm
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.strict = True
+
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
         low, high = self.config['alarm_thresholds']

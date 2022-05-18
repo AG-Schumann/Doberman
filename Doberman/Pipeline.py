@@ -1,11 +1,13 @@
 import Doberman
 import time
+import threading
 
-__all__ = 'Pipeline'.split()
+__all__ = 'Pipeline SyncPipeline'.split()
 
 class Pipeline(object):
     """
-    A generic data-processing pipeline digraph intended to replace Storm
+    A generic data-processing pipeline digraph for simple or complex
+    automatable tasks
     """
     def __init__(self, **kwargs):
         self.db = kwargs['db']
@@ -16,12 +18,23 @@ class Pipeline(object):
         self.last_error = -1
         self.subpipelines = []
         self.silenced_at_level = 0  # to support disjoint alarm pipelines
+        self.required_inputs = set() # this needs to be in this class even though it's only used in Sync
+
+    @staticmethod
+    def create(config, **kwargs):
+        """
+        Creates a pipeline and returns it
+        """
+        for node in config['pipeline']:
+            if node['type'] == 'SensorSourceNode':
+                return SyncPipeline(**kwargs)
+        return Pipeline(**kwargs)
 
     def stop(self):
         try:
             self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
-                for node in pl.values():
+                for node in pl:
                     try:
                         node.on_error_do_this()
                     except Exception:
@@ -31,10 +44,12 @@ class Pipeline(object):
 
     def process_cycle(self):
         """
-        This function gets Registered with the owning PipelineMonitor
+        This function gets Registered with the owning PipelineMonitor for Async
+        pipelines, or called by run() for sync pipelines
         """
         doc = self.db.get_pipeline(self.name)
-        self.reconfigure(doc['node_config'])
+        sensor_docs = {n:self.db.get_sensor_setting(n) for n in self.depends_on}
+        self.reconfigure(doc['node_config'], sensor_docs)
         status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
         if status != 'silent':
             # reset
@@ -43,7 +58,7 @@ class Pipeline(object):
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         drift = 0
         for pl in self.subpipelines:
-            for node in pl.values():
+            for node in pl:
                 t_start = time.time()
                 try:
                     node._process_base(status)
@@ -57,7 +72,7 @@ class Pipeline(object):
                         self.logger.debug(msg)
                     else:
                         self.logger.warning(msg)
-                    for n in pl.values():
+                    for n in pl:
                         try:
                             n.on_error_do_this()
                         except Exception:
@@ -68,7 +83,7 @@ class Pipeline(object):
                 t_end = time.time()
                 timing[node.name] = (t_end-t_start)*1000
         total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
-        self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
+        #self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
         self.db.set_pipeline_value(self.name,
                 [('heartbeat', Doberman.utils.dtnow()),
@@ -76,7 +91,7 @@ class Pipeline(object):
                     ('error', self.last_error),
                     ('rate', sum(timing.values()))])
         drift = max(drift, 0.001) # min 1ms of drift
-        return max(self.db.get_sensor_setting(name=n, field='readout_interval') for n in self.depends_on) + drift
+        return max(d['readout_interval'] for d in sensor_docs.values()) + drift
 
     def build(self, config):
         """
@@ -116,28 +131,42 @@ class Pipeline(object):
                     node_kwargs = {
                             'pipeline': self,
                             'logger': self.logger,
-                            '_upstream': existing_upstream} # we _ the key because of the update line below
+                            '_upstream': existing_upstream, # we _ the key because of the update line below
+                            }
                     node_kwargs.update(kwargs)
-                    n = getattr(Doberman, node_type)(**node_kwargs)
+                    try:
+                        n = getattr(Doberman, node_type)(**node_kwargs)
+                    except Exception as e:
+                        self.logger.debug(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
+                        self.logger.debug(f'Args: {node_kwargs}')
+                        raise
+                    setup_kwargs = kwargs
+                    fields = 'device topic subsystem description units alarm_level'.split()
                     if isinstance(n, (Doberman.SourceNode, Doberman.AlarmNode)):
-                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs['input_var'])) is None:
+                        if (doc := self.db.get_sensor_setting(name=kwargs['input_var'])) is None:
                             raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
+                        for field in fields:
+                            setup_kwargs[field] = doc.get(field)
                     elif isinstance(n, (Doberman.InfluxSinkNode)):
-                        if (setup_kwargs := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
-                            raise ValueError(f'Invalid output_var for {n.name}: {kwargs["output_var"]}')
-                    else:
-                        setup_kwargs = {}
+                        if (doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                            raise ValueError(f'Invalid output_var for {n.name}: {kwargs.get("output_var")}')
+                        for field in fields:
+                            setup_kwargs[field] = doc.get(field)
                     setup_kwargs['influx_cfg'] = influx_cfg
-                    setup_kwargs['operation'] = kwargs.get('operation')
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
+                    setup_kwargs['send_to_pipelines'] = self.db.send_value_to_pipelines
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
                     setup_kwargs['log_command'] = self.db.log_command
-                    for k in 'target value'.split():
-                        setup_kwargs[f'control_{k}'] = kwargs.get(f'control_{k}')
-                    setup_kwargs['strict_length'] = True if isinstance(n, Doberman.AlarmNode) else kwargs.get('strict_length', False)
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
-                    n.setup(**setup_kwargs)
+                    setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
+                    setup_kwargs['cv'] = getattr(self, 'cv', None)
+                    try:
+                        n.setup(**setup_kwargs)
+                    except Exception as e:
+                        self.logger.debug(f'Caught a {type(e)} while setting up {n.name}: {e}')
+                        self.logger.debug(f'Args: {setup_kwargs}')
+                        raise
                     graph[n.name] = n
 
             if (nodes_built := (len(graph) - start_len)) == 0:
@@ -147,8 +176,7 @@ class Pipeline(object):
                 self.logger.debug(f'Created {created}')
                 self.logger.debug(f'Didn\'t create {list(all_nodes - set(created))}')
                 raise ValueError('Can\'t construct graph! Check config and logs')
-            else:
-                self.logger.debug(f'Created {nodes_built} nodes this iter, {len(graph)}/{len(pipeline_config)} total')
+            self.logger.debug(f'Created {nodes_built} nodes this iter, {len(graph)}/{len(pipeline_config)} total')
         for kwargs in pipeline_config:
             for u in kwargs.get('upstream', []):
                 graph[u].downstream_nodes.append(graph[kwargs['name']])
@@ -156,9 +184,9 @@ class Pipeline(object):
         self.calculate_jointedness(graph)
 
         # we do the reconfigure step here so we can estimate startup cycles
-        self.reconfigure(config['node_config'])
+        self.reconfigure(config['node_config'], {n: self.db.get_sensor_setting(n) for n in self.depends_on})
         for pl in self.subpipelines:
-            for node in pl.values():
+            for node in pl:
                 if isinstance(node, Doberman.BufferNode) and not isinstance(node, Doberman.MergeNode):
                     num_buffer_nodes += 1
                     longest_buffer = max(longest_buffer, n.buffer.length)
@@ -180,7 +208,6 @@ class Pipeline(object):
             # first, find connected sets of nodes
             while len(nodes_to_check) > 0:
                 name = nodes_to_check.pop()
-                self.logger.debug(f'Checking {name}')
                 for u in graph[name].upstream_nodes:
                     if u.name not in nodes_checked:
                         nodes_to_check.add(u.name)
@@ -198,19 +225,23 @@ class Pipeline(object):
                         break # break because i is no longer valid
 
             self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
-            self.subpipelines.append(pl)
+            self.subpipelines.append(list(pl.values()))
 
-    def reconfigure(self, doc):
+    def reconfigure(self, doc, sensor_docs):
         """
-        "doc" is the node_config subdoc from the general config
+        "doc" is the node_config subdoc from the general config, sensor_docs is
+        a dict of sensor documents this pipeline uses
         """
         for pl in self.subpipelines:
-            for node in pl.values():
+            for node in pl:
                 this_node_config = dict(doc.get('general', {}).items())
                 this_node_config.update(doc.get(node.name, {}))
                 if isinstance(node, Doberman.AlarmNode):
-                    rd = self.db.get_sensor_setting(name=node.input_var)
-                    this_node_config.update(alarm_thresholds=rd['alarm_thresholds'], readout_interval=rd['readout_interval'])
+                    rd = sensor_docs[node.input_var]
+                    this_node_config.update(
+                            alarm_thresholds=rd['alarm_thresholds'],
+                            readout_interval=rd['readout_interval'],
+                            alarm_recurrence=rd['alarm_recurrence'])
                     if isinstance(node, Doberman.SimpleAlarmNode):
                         this_node_config.update(length=rd['alarm_recurrence'])
                 node.load_config(this_node_config)
@@ -219,7 +250,34 @@ class Pipeline(object):
         """
         Silence this pipeline for a set amount of time
         """
-        self.db.set_pipeline_value(self.name, [('status', 'silent')])
-        self.db.log_command(f'pipelinectl_active {self.name}', self.name, self.name, duration)
+        self.db.set_pipeline_value(self.name, [('status', 'silent'), ('silent_until', time.time()+duration)])
+        self.db.log_command(f'pipelinectl_active {self.name}', to=self.monitor.name,
+                issuer=self.name, delay=duration)
         self.silenced_at_level = level
+
+class SyncPipeline(threading.Thread, Pipeline):
+    """
+    A subclass to handle synchronous operation where input comes directly from
+    the sensors rather than via the database
+    """
+    def __init__(self, **kwargs):
+        threading.Thread.__init__(self)
+        Pipeline.__init__(self, **kwargs)
+        self.cv = threading.Condition()
+        self.event = threading.Event()
+        self.has_new = set()
+
+    def run(self):
+        predicate = lambda: (len(self.has_new) > 0 and self.has_new >= self.required_inputs) or self.event.is_set()
+        while not self.event.is_set():
+            with self.cv:
+                self.cv.wait_for(predicate)
+            self.process_cycle()
+            self.has_new.clear()
+
+    def stop(self):
+        self.event.set()
+        with self.cv:
+            self.cv.notify()
+        return super().stop()
 

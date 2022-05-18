@@ -1,6 +1,6 @@
 
 
-__version__ = '5.2.0'
+__version__ = '6.0.0rc'
 
 from . import utils
 
@@ -14,5 +14,6 @@ from .Sensor import *
 from .Node import *
 from .AlarmNode import *
 from .ControlNode import *
-from .hypervisor import *
 from .Pipeline import *
+from .hypervisor import *
+

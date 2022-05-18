@@ -107,7 +107,7 @@ class Device(object):
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        self.logger.debug(f'Scheduling {command}')
+        #self.logger.debug(f'Scheduling {command}')
         with self.cv:
             self.cmd_queue.append((command, ret))
             self.cv.notify()
@@ -260,15 +260,15 @@ class LANDevice(Device):
     """
 
     def setup(self):
+        if not hasattr(self, 'msg_sleep'):
+            self.msg_sleep = 0.01
         self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self._device.settimeout(1)
             self._device.connect((self.ip, int(self.port)))
         except socket.error as e:
-            self.logger.error(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
-            self._connected = False
-            return False
+            raise ValueError(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
         self._connected = True
         return True
 
@@ -290,7 +290,7 @@ class LANDevice(Device):
             self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -2
             return ret
-        time.sleep(0.01)
+        time.sleep(self.msg_sleep)
 
         try:
             ret['data'] = self._device.recv(self.packet_bytes)
@@ -305,6 +305,8 @@ class CheapSocketDevice(LANDevice):
     Some hardware treats sockets as disposable and expects a new one for each connection, so we do that here
     """
     def setup(self):
+        if not hasattr(self, 'msg_sleep'):
+            self.msg_sleep = 0.01
         self.packet_bytes = 1024
         self._device = None
         self._connected = True

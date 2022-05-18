@@ -1,7 +1,5 @@
 import Doberman
 import requests
-import itertools
-from math import log10
 
 
 class Node(object):
@@ -12,18 +10,32 @@ class Node(object):
         self.pipeline = pipeline
         self.buffer = Doberman.utils.SortedBuffer(1)
         self.name = name
+        # sometimes we need a UUID because nodes in different PLs can share names
+        self.hash = Doberman.utils.make_hash(self.pipeline.name, self.name)
         self.input_var = kwargs.pop('input_var', None)
         self.output_var = kwargs.pop('output_var', self.input_var)
         self.logger = logger
-        self.upstream_nodes = kwargs.pop('_upstream', [])
+        self.upstream_nodes = kwargs.pop('_upstream')
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
         self.logger.debug(f'{name} constructor')
 
+    def __del__(self):
+        try:
+            self.shutdown()
+        except Exception:
+            pass
+
     def setup(self, **kwargs):
         """
         Allows a child class to do some setup
+        """
+        pass
+
+    def shutdown(self):
+        """
+        Allows a child class to do some shutdown
         """
         pass
 
@@ -44,18 +56,18 @@ class Node(object):
         self.post_process()
 
     def get_package(self):
-        return self.buffer.pop_front()
+        return self.buffer.get_front()
 
     def send_downstream(self, package):
         """
         Sends a completed package on to downstream nodes
         """
-        self.logger.debug(f'{self.name} sending downstream {package}')
+        #self.logger.debug(f'{self.name} sending downstream {package}')
         for node in self.downstream_nodes:
             node.receive_from_upstream(package)
 
     def receive_from_upstream(self, package):
-        self.logger.debug(f'{self.name} receiving from upstream')
+        #self.logger.debug(f'{self.name} receiving from upstream')
         self.buffer.add(package)
 
     def load_config(self, doc):
@@ -63,7 +75,7 @@ class Node(object):
         Load whatever runtime values are necessary
         """
         for k,v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode):
+            if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
                 self.buffer.set_length(int(v))
             else:
                 self.config[k] = v
@@ -117,6 +129,8 @@ class InfluxSourceNode(SourceNode):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        if self.input_var.startswith('X_SYNC_'):
+            raise ValueError('Cannot use Influx for SYNC signals')
         self.accept_old = kwargs.get('accept_old', False)
         config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
@@ -173,6 +187,48 @@ class InfluxSourceNode(SourceNode):
         self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp*(10**-9), self.output_var: val}
 
+class SensorSourceNode(SourceNode):
+    """
+    A node to support synchronous pipeline input directly from the sensors
+    """
+    def shutdown(self):
+        self.pipeline.monitor.unregister_listener(self)
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.cv = kwargs['cv']
+        self.pipeline.monitor.register_listener(self)
+        if kwargs.get('new_value_required', False) or self.input_var.startswith('X_SYNC'):
+            self.pipeline.required_inputs.add(self.name)
+
+    def receive_from_upstream(self, package):
+        """
+        This won't get called from the "operating" thread so we 
+        wrap with CV
+        """
+        with self.cv:
+            if package[self.input_var] is not None or self.accept_old:
+                # rename input_var -> output_var
+                package[self.output_var] = package.pop(self.input_var)
+                super().receive_from_upstream(package)
+                # let the pipeline know that we've got mail
+                self.pipeline.has_new.add(self.name)
+            self.cv.notify()
+
+class PipelineSourceNode(SourceNode):
+    """
+    A node to source info about another pipeline.
+    The input_var is the name of another PL
+    """
+    def setup(**kwargs):
+        super().setup(**kwargs)
+        self.get_from_db = kwargs['get_pipeline_stats']
+
+    def get_package(self):
+        doc = self.get_from_db(self.input_var)
+        # TODO discuss renaming fields?
+        return doc
+
 class BufferNode(Node):
     """
     A node that supports inputs spanning some range of time
@@ -194,9 +250,9 @@ class BufferNode(Node):
         # deep copy
         return list(map(dict, self.buffer))
 
-class LowPassFilter(BufferNode):
+class MedianFilterNode(BufferNode):
     """
-    Low-pass filters a value by taking the median of its buffer. If the length is even,
+    Filters a value by taking the median of its buffer. If the length is even,
     the two values adjacent to the middle are averaged.
 
     Setup params:
@@ -235,6 +291,7 @@ class MergeNode(BufferNode):
 
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        self.strict = True
         self.method = kwargs.get('merge_how', 'avg')
 
     def merge_field(self, field, packages):
@@ -245,11 +302,10 @@ class MergeNode(BufferNode):
             return min(p[field] for p in packages)
         if how == 'max':
             return max(p[field] for p in packages)
-        v = sorted([(p['time'], p[field]) for p in packages], key=lambda p: p['time'])
         if how == 'newest':
-            return v[-1][field]
+            return packages[-1][field]
         if how == 'oldest':
-            return v[0][field]
+            return packages[0][field]
         raise ValueError(f'Invalid merge method given: {how}. Must be "avg", "max", "min", "newest", or "oldest"')
 
     def process(self, packages):
@@ -281,12 +337,12 @@ class IntegralNode(BufferNode):
     from the end of the buffer.
 
     Setup params:
-    :param length: the number of values over which you want the integral calculated.
-        You'll need to do the conversion to time yourself
     :param strict_length: bool, default False. Is the node allowed to run without a 
         full buffer?
 
     Runtime params:
+    :param length: the number of values over which you want the integral calculated.
+        You'll need to do the conversion to time yourself
     :param t_offset: Optional. How many of the most recent values you want to skip.
         The integral is calculated up to t_offset from the end of the buffer
     """
@@ -305,13 +361,12 @@ class DerivativeNode(BufferNode):
     the buffer
 
     Setup params:
-    :param length: The number of values over which you want the derivative calculated.
-        You'll need to do the conversion to time yourself.
     :param strict_length: bool, default False. Is the node allowed to run without a 
         full buffer?
 
     Runtime params:
-    None
+    :param length: The number of values over which you want the derivative calculated.
+        You'll need to do the conversion to time yourself.
     """
     def process(self, packages):
         t_min = packages[0]['time']
@@ -349,9 +404,7 @@ class InfluxSinkNode(Node):
     Puts a value back into influx.
 
     Setup params:
-    :param topic: string, the type of measurement (temperature, pressure, etc)
-    :param subsystem: string, the subsystem the quantity belongs to
-    :param device: string, optional. The name of the device this quantity "comes from", defaults to "pipeline"
+    :param output_var: the name of the Sensor you're writing to
 
     Runtime params:
     None
@@ -361,14 +414,15 @@ class InfluxSinkNode(Node):
         self.topic = kwargs['topic']
         self.subsystem = kwargs['subsystem']
         self.write_to_influx = kwargs['write_to_influx']
-        self.device = kwargs.get('device', 'pipeline')
+        self.send_to_pipelines = kwargs['send_to_pipelines']
+        self.device = kwargs['device']
 
     def process(self, package):
         if not self.is_silent:
-            self.logger.debug(f'{self.topic}, {self.subsystem}, {self.device}, {self.input_var}')
             self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
                 'device': self.device, 'subsystem': self.subsystem},
-                fields={'value': package[self.input_var[0]]}, timestamp=package['time'])
+                fields={'value': package[self.input_var]}, timestamp=package['time'])
+            self.send_to_pipelines(self.output_var, package[self.input_var], package['time'])
 
 class EvalNode(Node):
     """
@@ -379,9 +433,10 @@ class EvalNode(Node):
     Setup params:
     :param operation: string, the operation you want performed. Input values will be 
         assembed into a dict "v", and any constant values specified will be available as
-        described below.
+        the dict "c".
         For instance, "(v['input_1'] > c['min_in1']) and (v['input_2'] < c['max_in2'])"
         or "math.exp(v['input_1'] + c['offset'])". The math library is available for use.
+    :param input_var: list of strings
     :param output_var: string, the name to assign to the output variable
 
     Runtime params:
@@ -398,3 +453,4 @@ class EvalNode(Node):
             c[k] = float(v)
         v = {k:package[k] for k in self.input_var}
         return eval(self.operation)
+

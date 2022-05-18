@@ -28,12 +28,18 @@ class Monitor(object):
         self.restart_info = {}
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        _, port = self.db.assign_listener_address(self.name)
+        if self.name != 'hypervisor':
+            self.db.assign_listener_address(self.name)
+        _, port = self.db.find_listener_address(self.name)
         # is the lambda necessary? Maybe? We sometimes crashed without it for
         # reasons I don't understand
         l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.register(name='listener', obj=l, _no_stop=True)
+        self.db.notify_hypervisor(active=self.name)
+        self.logger.debug('Child setup starting')
         self.setup()
+        self.logger.debug('Child setup completed')
+        time.sleep(1)
         self.register(obj=self.check_threads, period=30, name='checkthreads', _no_stop=True)
 
     def __del__(self):
@@ -45,18 +51,22 @@ class Monitor(object):
         """
         self.event.set()
         self.shutdown()
-        self.db.release_listener_port(self.name)
         pop = []
         with self.lock:
+            for t in self.threads.values():
+                # set the events all here because join() blocks
+                t.event.set()
             for n, t in self.threads.items():
                 try:
-                    t.event.set()
+                    self.logger.debug(f'Stopping {n}')
                     t.join()
                 except Exception as e:
                     self.logger.debug(f'Can\'t close {n}-thread. {e}')
                 else:
                     pop.append(n)
         map(self.threads.pop, pop)
+        self.db.notify_hypervisor(inactive=self.name)
+        self.db.release_listener_port(self.name)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):
         """
@@ -196,8 +206,10 @@ class Listener(threading.Thread):
                 try:
                     conn, addr = sock.accept()
                     with conn:
-                        data = conn.recv(self.packet_size).strip().decode()
-                        self.process_command(data)
+                        if (data := conn.recv(self.packet_size)) == b'ping':
+                            conn.sendall(b'pong')
+                        else:
+                            self.process_command(data.strip().decode())
                 except socket.timeout:
                     pass
                 except Exception as e:
