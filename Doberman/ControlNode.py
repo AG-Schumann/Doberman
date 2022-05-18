@@ -11,102 +11,78 @@ class ControlNode(Doberman.Node):
         self.control_target = kwargs['control_target']
         self.control_value = kwargs['control_value']
 
-    def set_output(self, value):
+    def set_output(self, value, _force=False):
         self.logger.debug(f'Setting output to {value}')
-        if not self.is_silent:
+        if not self.is_silent and not _force:
             self._log_command(f'set {self.control_value} {value}', self.control_target,
                     self.name)
 
-class GeneralValveControl(ControlNode):
+    def on_error_do_this(self):
+        if (v := self.config.get('default_output')) is not None:
+            self.set_output(v, _force=True)
+
+class DigitalControlNode(ControlNode):
     """
-    A generalized valve control node that shunts a lot of the logic to something further up in the
-    pipeline.
+    A generalized node to handle digital output. The logic is assumed to be
+    upstream.
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.one_input = kwargs.get('one_input', False)
+
     def process(self, package):
-        if package['condition_a']:
-            # value is too low and valve is probably closed
-            self.logger.info('Condition a met')
-            self.set_output(self.config.get('output_a', 1))
-        elif package['condition_b']:
-            # value is too high and valve is probably open
-            self.logger.info('Condition b met')
-            self.set_output(self.config.get('output_b', 0))
-
-class ValveControlNode(ControlNode):
-    """
-    A logic node to control a nitrogen level valve, based on a levelmeter and a control valve,
-    with optional inhibits from a vacuum or a scale
-    """
-    def process(self, package):
-        liquid_level = package['liquid_level']
-        fill_rate = package['liquid_level_rate']
-        valve_status = package['valve_state']
-
-        low_level = self.config['liquid_level_low']
-        high_level = self.config['liquid_level_high']
-        min_fill_rate = self.config['min_fill_rate']
-        max_fill_time = self.config['max_fill_time']
-        max_iso_vac = self.config.get('max_iso_vac', -1)
-        min_scale = self.config.get('min_scale', -1)
-        vac_is_good = max_iso_vac == -1 or package.get('iso_vac_pressure', 0) < max_iso_vac
-        scale_is_good = min_scale == -1 or package.get('scale_weight', 0) < min_scale
-
-        some_value = 10000 # FIXME
-
-        if liquid_level < low_level:
-            if valve_status == 0:
-                # valve is closed, level is too low
-                if vac_is_good and scale_is_good:
-                    # open the valve
-                    self.set_output(1)
-                    self.valve_opened = package['time']
-                    self.logger.info('Scheduling valve opening')
-                else:
-                    self.logger.info('Would love to open the valve but either the scale or vac is out of range')
-            else:
-                # valve is open, check to see for how long
-                if hasattr(self, 'valve_opened'):
-                    if (dt := (package['time']-self.valve_opened)) > some_value:
-                        # filling too slowly! Something fishy
-                        # TODO something reasonable
-                        pass
-                    else:
-                        # probably still waiting for the pipes to chill
-                        pass
-                else:
-                    # we don't have a self.valve_opened, valve was probably opened by something else
-                    # TODO how to handle?
-                    pass
-
-        elif low_level < liquid_level < high_level:
-            if valve_status == 1:
-                if hasattr(self, 'valve_opened'):
-                    if (dt := (package['time']-self.valve_opened)) > max_fill_time:
-                        # filling too long!
-                        # TODO something reasonable
-                        self.logger.critical(f'Valve has been open for {dt/60:.1f} minutes without reaching full, something wrong?')
-                    else:
-                        if fill_rate < min_fill_rate and dt > some_value:
-                            # filling too slowly! Something fishy
-                            # TODO something reasonable
-                            pass
-                        else:
-                            fill_pct = (liquid_level - low_level)/(high_level - low_level)
-                            self.logger.debug(f'Valve has been open for {int(dt//60)}m{int(dt%60)}s, filling at {fill_rate:.1f} ({fill_pct:.1f}%)')
-                else:
-                    # we don't have a self.valve_opened, valve was probably opened by something else
-                    # TODO how to handle?
-                    pass
-            else:
-                # valve is closed, we're in "normal" conditions
-                pass
-
+        if self.one_input:
+            self.set_output(package[self.input_var])
         else:
-            # liquid level > high
-            if valve_status == 1:
-                # reached FULL
-                self.set_output(0)
-                self.logger.info('Scheduling valve closing')
-            else:
-                # valve is closed
-                pass
+            if package['condition_a']:
+                self.logger.info('Condition a met')
+                self.set_output(self.config.get('output_a', 1))
+            elif package['condition_b']:
+                self.logger.info('Condition b met')
+                self.set_output(self.config.get('output_b', 0))
+
+class AnalogControlNode(ControlNode):
+    """
+    A generalized node to handle analog output. The logic is assumed to be
+    upstream
+    """
+    def process(self, package):
+        val = package[self.input_var]
+        if (min_output := self.config.get('min_output')) is not None:
+            val = max(val, min_output)
+        if (max_output := self.config.get('max_output')) is not None:
+            val = min(val, max_output)
+        self.set_output(val)
+
+class PipelineControlNode(ControlNode):
+    """
+    Sometimes you want one pipeline to control another.
+    """
+    def process(self, package):
+        for char in range(ord('c'), ord('z')+1):
+            if package.get(f'condition_{char}', False):
+                # do something
+                action, target = self.config.get(f'action_{char}', (None, None))
+                if action and target:
+                    self.control_pipeline(action, target)
+
+        if package.get('condition_test', False):
+            # this one is mainly for testing
+            self.pipeline.db.log_command(f'pipelinectl_stop test_pipeline',
+                    to=self.pipeline.monitor.name, issuer='test_pipeline',
+                    bypass_hypervisor=True)
+
+    def control_pipeline(self, action, pipeline):
+        if self.is_silent:
+            return
+        if pipeline.startswith('control'):
+            target = 'pl_control'
+        elif pipeline.startswith('alarm'):
+            target = 'pl_alarm'
+        elif pipeline.startswith('convert'):
+            target = 'pl_convert'
+        else:
+            raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
+        self.pipeline.db.log_command(f'pipelinectl_{action} {pipeline}', to=target,
+                issuer=self.pipeline.name, bypass_hypervisor=True)
+

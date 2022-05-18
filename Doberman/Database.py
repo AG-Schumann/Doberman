@@ -6,6 +6,7 @@ import requests
 import json
 import pytz
 import itertools
+import random
 
 __all__ = 'Database'.split()
 
@@ -40,6 +41,7 @@ class Database(object):
         url += '&'.join([f'{k}={v}' for k, v in query_params])
         precision = {'s': 1, 'ms': 1000, 'us': 1_000_000, 'ns': 1_000_000_000}
         self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
+        self.address_cache = {}
 
     def close(self):
         print('DB shutting down')
@@ -106,13 +108,11 @@ class Database(object):
         :param cuts: the dictionary specifying the query
         :param updates: the dictionary specifying the desired changes
         :param **kwargs: keyword args passed to collection.update_many
-        :returns 0 if successful, 1 if not
+        :returns: number of modified documents
         """
         collection = self._db[collection_name]
         ret = collection.update_many(cuts, updates, **kwargs)
-        if not ret.acknowledged:
-            return 1
-        return 0
+        return ret.modified_count > 0
 
     def delete_documents(self, collection_name, cuts):
         """
@@ -124,6 +124,18 @@ class Database(object):
         """
         collection = self._db[collection_name]
         collection.delete_many(cuts)
+
+    def aggregate(self, collection, pipeline, **kwargs):
+        """
+        Does a database aggregation operation
+        :param collection: string, the name of the collection
+        :param pipeline: the aggregation pipeline stages
+        :param **kwargs: any kwargs to pass to the aggregator
+        :yields: documents
+        """
+        cursor = self._db[collection].aggregate(pipeline, **kwargs)
+        for doc in cursor:
+            yield doc
 
     def get_experiment_config(self, name, field=None):
         """
@@ -165,13 +177,14 @@ class Database(object):
             self.update_db(collection_name, {'_id': doc['_id']}, updates)
         return doc
 
-    def log_command(self, command, to, issuer, delay=0):
+    def log_command(self, command, to, issuer, delay=0, bypass_hypervisor=False):
         """
         Issue a command to someone else
         :param command: the command for them to process
         :param to: who the command is for
         :param issuer: who is issuing the command
         :param delay: how far into the future the command should happen, default 0
+        :param bypass_hypervisor: bool, communicate directly with recipient?
         :returns: None
         """
         doc = {
@@ -180,9 +193,12 @@ class Database(object):
                 'by': issuer,
                 'time': time.time() + delay
                 }
-        hn, p = self.find_listener_address('hypervisor')
-        with create_connection((hn, p), timeout=0.1) as sock:
-            sock.sendall(json.dumps(doc).encode())
+        try:
+            hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
+            with create_connection((hn, p), timeout=0.1) as sock:
+                sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
+        except Exception as e:
+            self.logger.debug(f'Caught a {type(e)}: {e}')
 
     def get_experiment_config(self, name, field=None):
         """
@@ -195,6 +211,15 @@ class Database(object):
             return doc.get(field)
         return doc
 
+    def get_pipeline_stats(self, name):
+        """
+        Gets the status info of another pipeline
+        :param name: the pipeline in question
+        :returns:
+        """
+        return self.read_from_db('pipelines', {'name': name}, onlyone=True,
+                projection={'status': 1, 'cycles': 1, 'error': 1, 'rate': 1, '_id': 0})
+
     def get_pipeline(self, name):
         """
         Gets a pipeline config doc
@@ -202,16 +227,16 @@ class Database(object):
         """
         return self.read_from_db('pipelines', {'name': name}, onlyone=True)
 
-    def get_alarm_pipelines(self, inactive=False):
+    def get_pipelines(self, flavor):
         """
-        Returns a list of names of pipelines.
-        :param inactive: bool, include currently inactive pipelines in the return
-        :yields: names of pipelines
+        Generates a list of names of pipelines to start now. Called by
+        PipelineMonitors on startup.
+        :param flavor: which type of pipelines to select, should be one of "alarm", "control", "convert"
+        :yields: string
         """
-        query = {'name': {'$regex': 'alarm'}, 'status': {'$in': ['active', 'silent']}}
-        if inactive:
-            del query['status']
-        for doc in self.read_from_db('pipelines', query):
+        query = {'status': {'$in': ['active', 'silent']},
+                 'name': {'$regex': f'^{flavor}_'}}
+        for doc in self.read_from_db('pipelines', query, projection={'name': 1}):
             yield doc['name']
 
     def set_pipeline_value(self, name, kvp):
@@ -295,17 +320,6 @@ class Database(object):
                        updates={'$set': {'heartbeat': dtnow()}})
         return
 
-    def log_alarm(self, message, pipeline=None, alarm_hash=None, base=None, escalation=None):
-        """
-        Adds the alarm to the history.
-        """
-        doc = {'msg': message, 'acknowledged': 0, 'pipeline': pipeline,
-                'hash': alarm_hash, 'level': base, 'escalation': escalation}
-        if self.insert_into_db('alarm_history', doc):
-            self.logger.warning('Could not add entry to alarm history!')
-            return -1
-        return 0
-
     def get_device_setting(self, name, field=None):
         """
         Gets a specific setting from one device
@@ -380,22 +394,49 @@ class Database(object):
         """
         Assign a hostname and port for communication
         :param name: who will get this assignment
-        :returns: (string, int) tuple of hostname and port
+        :returns: None
         """
-        doc = self.get_experiment_config('hypervisor', field='global_dispatch')
         if name in self.distinct('devices', 'name'):
             # this is a device
             host = self.get_device_setting(name, field='host')
         else:
             # probably a pipeline, assume it runs on the master host
-            host = doc['hypervisor'][0]
-        existing_ports = [p for (hn, p) in doc.values() if hn == host] or [doc['hypervisor'][1]]
-        for port in itertools.count(min(existing_ports)):
-            if port in existing_ports:
-                continue
-            self.logger.info(f'Assigning {host}:{port} to {name}')
-            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$set': {f'global_dispatch.{name}': [host, port]}})
-            return host, port
+            host = self.find_listener_address('hypervisor')[0]
+        while self.update_db('dispatch', {'name': '_lock', 'host': '', 'port': -1}, {'$set': {'port': 1}}) == 0:
+            time.sleep(random.random())
+        s = ', '.join(map(lambda d: f'{d["name"]}:{d["port"]}', self.read_from_db('dispatch', {'host': host})))
+        self.logger.debug(f'Existing leases on {host}: {s}')
+        try:
+            for doc in self.aggregate('dispatch', [
+                {'$match': {'host': host}},
+                {'$group': {
+                    '_id': '$host',
+                    'min_port': {'$min': '$port'},
+                    'max_port': {'$max': '$port'},
+                    'num_ports': {'$sum': 1},
+                    'ports': {'$push': '$port'}}},
+                {'$project': {
+                    'name': name,
+                    'host': '$_id',
+                    '_id': 0,
+                    'port': {'$cond': [
+                                {'$eq': [ # are the ports densely-packed?
+                                    {'$subtract': ['$max_port', '$min_port']},
+                                    {'$subtract': ['$num_ports', 1]}
+                                ]},
+                                {'$add': ['$max_port', 1]}, # if so, max + 1
+                                {'$first': {'$filter': { # if not, find an open port
+                                    'input': {'$range': ['$min_port', '$max_port']},
+                                    'as': 'p',
+                                    'cond': {'$not': {'$in': ['$$p', '$ports']}}
+                                    }}}
+                                ]}
+                    }}]):
+                self.logger.debug(f'Assigning {host}:{doc["port"]}')
+                self.insert_into_db('dispatch', doc)
+        except Exception as e:
+            self.logger.error(f'Caught a {type(e)} during port assignment: {e}')
+        self.update_db('dispatch', {'name': '_lock', 'host': ''}, {'$set': {'port': -1}})
 
     def find_listener_address(self, name):
         """
@@ -404,18 +445,21 @@ class Database(object):
         :param name: the name of someone
         :returns: (string, int) tuple of the hostname and port
         """
-        doc = self.get_experiment_config('hypervisor', field='global_dispatch')
-        # doc looks like { name: [host, port], ...}
-        if name in doc:
-            return doc[name]
-        raise ValueError(f'No assigned listener info for {name}')
+        if name in self.address_cache:
+            return self.address_cache[name]
+        if (doc := self.read_from_db('dispatch', {'name': name}, onlyone=True)) is None:
+            raise ValueError(f'No assigned listener info for {name}')
+        host, port = doc['host'], doc['port']
+        if name in ['pl_alarm', 'pl_control', 'pl_convert', 'hypervisor']:
+            self.address_cache[name] = (host, int(port))
+        return host, int(port)
 
     def release_listener_port(self, name):
         """
         Return the port used by <name> to the pool
         """
         if name != 'hypervisor':
-            self.update_db('experiment_config', {'name': 'hypervisor'}, {'$unset': {f'global_dispatch.{name}': 1}})
+            self.delete_documents('dispatch', {'name': name})
 
     def get_host_setting(self, host=None, field=None):
         """
@@ -437,6 +481,7 @@ class Database(object):
         :param tags: a dict of tag names and values, usually 'subsystem' and 'sensor'
         :param fields: a dict of field names and values, usually 'value', required
         :param timestamp: a unix timestamp, otherwise uses whatever "now" is if unspecified.
+        :returns: None
         """
         url, headers, precision = self.influx_cfg
         if topic is None or fields is None:
@@ -458,6 +503,21 @@ class Database(object):
                 self.logger.error(r.json())
             except:
                 self.logger.error(r.content)
+
+    def send_value_to_pipelines(self, sensor, value, timestamp):
+        """
+        Send a recently recorded value to the pipeline monitors
+        :param sensor: string, the name of the sensor
+        :param value: float/int, the value
+        :param timestamp: float, the timestamp
+        :returns: None
+        """
+        for pl in ['pl_alarm', 'pl_control', 'pl_convert']:
+            self.log_command(
+                        f'sensor_value {sensor} {timestamp} {value}',
+                        to=pl,
+                        issuer=None,
+                        bypass_hypervisor=True)
 
     def get_current_status(self):
         """

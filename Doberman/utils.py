@@ -10,11 +10,6 @@ import re
 import logging
 import logging.handlers
 from pytz import utc
-try:
-    import serial
-    has_serial=True
-except ImportError:
-    has_serial=False
 import threading
 import hashlib
 from math import floor, log10
@@ -229,10 +224,15 @@ class SortedBuffer(object):
         return
 
     def pop_front(self):
-        return self._buf.pop(0)
+        if len(self._buf) > 0:
+            return self._buf.pop(0)
+        raise ValueError('Buffer empty')
 
     def get_front(self):
-        return self._buf[0]
+        if len(self._buf) > 0:
+            # copy
+            return dict(self._buf[0].items())
+        raise ValueError('Buffer empty')
 
     def __getitem__(self, index):
         return self._buf[index]

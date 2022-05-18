@@ -1,0 +1,14 @@
+[Unit]
+Description=Start the Doberman hypervisor on system boot
+Requires=influxdbv2.service mongod.service
+After=influxdbv2.service mongod.service
+
+[Service]
+Type=simple
+ExecStart=/global/software/doberman/scripts/start_process.sh --hypervisor
+User=doberman
+Group=doberman
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

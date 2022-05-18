@@ -1,3 +1,4 @@
+import time
 import requests
 import json
 import smtplib
@@ -12,19 +13,16 @@ dtnow = Doberman.utils.dtnow
 __all__ = 'AlarmMonitor'.split()
 
 
-class AlarmMonitor(Doberman.Monitor):
+class AlarmMonitor(Doberman.PipelineMonitor):
     """
     Class that monitors for alarms and sends messages
     """
 
     def setup(self):
-        now = dtnow()
-        self.current_shifters = self.db.read_from_db('shifts',
-                                                     {'start': {'$lte': now}, 'end': {'$gte': now}},
-                                                     onlyone=True)['shifters']
+        super().setup()
+        self.current_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         self.current_shifters.sort()
-        self.register(obj=self.check_for_alarms, period=5, name='alarmcheck', _no_stop=True)
-        self.register(obj=self.check_shifters, period=60, name='shiftercheck', _no_stop=True)
+        self.register(obj=self.check_shifters, period=600, name='shiftercheck', _no_stop=True)
 
     def get_connection_details(self, which):
         detail_doc = self.db.get_experiment_config('alarm')
@@ -57,7 +55,7 @@ class AlarmMonitor(Doberman.Monitor):
             self.logger.warning(f"Message exceeds {maxmessagelength} "
                                 "characters. Message will be shortened.")
         message = f"This is the {self.db.experiment_name} alarm system. " + message
-        if len(phone_numbers) == 1:
+        if isinstance(phone_numbers, str):
             phone_numbers = [phone_numbers]
         for tonumber in phone_numbers:
             data = {
@@ -65,10 +63,11 @@ class AlarmMonitor(Doberman.Monitor):
                 'From': fromnumber,
                 'Parameters': json.dumps({'message': message})
             }
-        response = requests.post(url, auth=auth, data=data)
-        if response.status_code != 201:
-            self.logger.error(f"Couldn't place call, status"
-                              + f" {response.status_code}: {response.json()['message']}")
+            self.logger.warning(f'Making phone call to {tonumber}')
+            response = requests.post(url, auth=auth, data=data)
+            if response.status_code != 201:
+                self.logger.error(f"Couldn't place call, status"
+                                  + f" {response.status_code}: {response.json()['message']}")
 
     def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
 
@@ -122,120 +121,97 @@ class AlarmMonitor(Doberman.Monitor):
             self.logger.warning(f'Could not send mail: {e} ({type(e)})')
             return 0
 
-    def send_sms(self, phone_number, message):
+    def send_sms(self, phone_numbers, message):
         """
-        Sends an SMS.
-        This works with sms sites which provide sms sending via email.
+        Send an SMS.
+        Designed for usewith smscreator.de
         """
         # Get connection details
-        connection_details = self.get_connection_details('sms')
+        connection_details = self.get_connection_details('smscreator')
         if connection_details is None:
-            return -1
+            raise KeyError("No connection details obtained from database.")
         # Compose connection details and addresses
-        try:
-            server = connection_details['server']
-            identification = connection_details['identification']
-            contactaddr = connection_details['contactaddr']
-            # fromaddr = connection_details['fromaddr']
-            if not phone_number:
-                self.logger.warning('No phone number given. Can not send SMS.')
-                return 0
-            # Server has different type request for 1 or several numbers.
-            if len(phone_number) == 1:
-                toaddr = f'{identification}.{phone_number[0]}@{server}'
-                bcc = None
-            else:
-                toaddr = contactaddr
-                bcc = [f'{identification}.{number}@{server}' for number in phone_number]
-            message = str(message)
-            subject = ''
-            # Long SMS (>160 characters) cost more and are shortened
-            if len(message) > 155:
-                self.logger.warning('SMS message exceeds limit of 160 characters '
-                                    f'({len(message)} characters). '
-                                    'Message will be cut off.')
-                message = message[:155]
-            cc = None
-            if self.send_email(toaddr=toaddr,
-                               subject=subject,
-                               message=message,
-                               cc=cc, bcc=bcc,
-                               add_signature=False) == -1:
-                self.logger.error('Could not send SMS! Email to SMS not working.')
-                return -1
+        url = connection_details['url']
+        postparameters = connection_details['postparameters']
+        maxmessagelength = int(connection_details['maxmessagelength'])
+        if not phone_numbers:
+            raise ValueError("No phone number given.")
+
+        message = str(message)
+        # Long messages are shortened to avoid excessive fees
+        if len(message) > maxmessagelength:
+            message = ' '.join(message[:maxmessagelength + 1].split(' ')[0:-1])
+            self.logger.warning(f"Message exceeds {maxmessagelength} "
+                                "characters. Message will be shortened.")
+
+        if isinstance(phone_numbers, str):
+            phone_numbers = [phone_numbers]
+        for tonumber in phone_numbers:
+            data = postparameters
+            data['Recipient'] = tonumber
+            data['SMSText'] = message
+            self.logger.warning(f'Sending SMS to {tonumber}')
+            response = requests.post(url, data=data)
+            if response.status_code != 200:
+                self.logger.error(f"Couldn't send message, status"
+                                  + f" {response.status_code}: {response.content.decode('ascii')}")
 
         except Exception as e:
             self.logger.error(f'Could not send SMS: {e}, {type(e)}')
             return -1
         return 0
 
-    def check_for_alarms(self):
-        doc_filter = {'acknowledged': 0}
-        updates = {'$set': {'acknowledged': dtnow()}}
-        db_col = 'alarm_history'
-        if self.db.count(db_col, doc_filter) == 0:
-            return
-        alarms = {}
-        for doc in self.db.read_from_db(db_col, doc_filter):
-            level = doc['level'] + doc['escalation']
-            logged = datetime.fromtimestamp(int(str(doc['_id'])[:8], 16))
-            if level not in alarms:
-                alarms[level] = {'logged': [], 'msgs': []}
-            alarms[level]['logged'].append(logged)
-            alarms[level]['msgs'].append(doc['msg'])
-        for alarm_level, doc in alarms.items():
-            message = '\n'.join([f'{d.isoformat()}: {m}' for d, m in zip(doc['logged'], doc['msgs'])])
-            self.send_message(int(alarm_level), message)
-        # put the update at the end so if something goes wrong with the message sending then the
-        # alarms don't get acknowledged and lost
-        self.db.update_db(db_col, doc_filter, updates)
-        return
-
-    def send_message(self, level, message):
+    def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
         """
-        Sends 'message' to the contacts specified by 'level'
+        Sends 'message' to the contacts specified by 'level'.
+        Returns 1 if all messages were sent successfully, 0 otherwise
         """
+        ret = 1
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
                 message = f'{self.db.experiment_name.upper()} {message}'
                 if self.send_sms(recipients, message) == -1:
                     self.logger.error('Could not send SMS')
+                    ret = 0
             elif protocol == 'email':
                 subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
                 if self.send_email(toaddr=recipients, subject=subject,
                                    message=message) == -1:
                     self.logger.error('Could not send email!')
+                    ret = 0
             elif protocol == 'phone':
                 try:
                     self.send_phonecall(recipients, message)
                 except Exception as e:
-                    self.logger.error('Unable to make call: {type(e)}, {e}')
+                    self.logger.error(f'Unable to make call: {type(e)}, {e}')
+                    ret = 0
             else:
                 self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
+                ret = 0
+        return ret
 
     def check_shifters(self):
         """
         Logs a notification (alarm) when the list of shifters changes
         """
 
-        now = dtnow()
-        shift = self.db.read_from_db('shifts',
-                                     {'start': {'$lte': now}, 'end': {'$gte': now}}, onlyone=True)
-        if shift is None:
-            self.current_shifters = []
-            return
-        new_shifters = shift['shifters']
+        new_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         new_shifters.sort()
         if new_shifters != self.current_shifters:
-            if len(''.join(new_shifters)) == 0:
-                self.logger.info('No more allocated shifters.')
+            if len(new_shifters) == 0:
+                self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': True}})
+                self.log_alarm(level=1, message='No more allocated shifters.',
+                               pipeline='AlarmMonitor',
+                               _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                               )
+                self.db.update_db('contact', {'name': {'$in': self.current_shifters}}, {'$set': {'on_shift': False}})
                 return
-
-            end_time = shift['end'].replace(tzinfo=timezone.utc).astimezone(tz=None)
-            shifters = list(filter(None, new_shifters))
-            msg = f'{", ".join(shifters)} '
-            msg += ('is ' if len(shifters) == 1 else 'are ')
-            msg += f'now on shift until {end_time.strftime("%b %-d %H:%M")}.'
-            doc = {'name': 'alarm_monitor', 'howbad': 1, 'msg': msg}
-            self.db.log_alarm(doc)
+            msg = f'{", ".join(new_shifters)} '
+            msg += ('is ' if len(new_shifters) == 1 else 'are ')
+            msg += f'now on shift.'
+            self.log_alarm(level=1,
+                           message=msg,
+                           pipeline='AlarmMonitor',
+                           _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
+                           )
             self.current_shifters = new_shifters

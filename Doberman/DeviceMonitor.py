@@ -1,4 +1,5 @@
 import Doberman
+import threading
 
 __all__ = 'DeviceMonitor'.split()
 
@@ -18,7 +19,6 @@ class DeviceMonitor(Doberman.Monitor):
             self.start_sensor(rd)
         self.register(name='heartbeat', obj=self.heartbeat,
                       period=self.db.get_experiment_config(name='hypervisor', field='period'), _no_stop=True)
-        self.db.notify_hypervisor(active=self.name)
 
     def start_sensor(self, rd):
         self.logger.debug('Constructing ' + rd)
@@ -40,8 +40,6 @@ class DeviceMonitor(Doberman.Monitor):
         self.device.event.set()
         self.device.close()
         self.device = None
-        # we only unmanage if we receive a STOP command
-        self.db.notify_hypervisor(inactive=self.name)
         return
 
     def open_device(self, reopen=False):

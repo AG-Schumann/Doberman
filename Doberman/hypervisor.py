@@ -3,6 +3,7 @@ import subprocess
 import typing as ty
 import time
 import os.path
+import os
 import threading
 import socket
 import json
@@ -13,31 +14,74 @@ dtnow = Doberman.utils.dtnow
 
 class Hypervisor(Doberman.Monitor):
     """
-    A tool to monitor and restart processes when necessary
+    A tool to monitor and restart processes when necessary. It is assumed
+    that this is the first thing started, and that nothing is already running.
     """
     def setup(self) -> None:
         self.update_config(status='online')
         self.config = self.db.get_experiment_config('hypervisor')
-        self.username = self.config.get('username', 'doberman')
         self.localhost = self.config['host']
-        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
-        self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
-        if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
-            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
-        elif rhb == 'receive':
-            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
+        self.username = self.config.get('username', os.environ['USER'])
+
+        # do any startup sequences
+        for host, activities in self.config.get('startup_sequence', {}).items():
+            if host == self.localhost:
+                map(self.run_locally, activities)
+            else:
+                for activity in activities:
+                    self.run_over_ssh(f'{self.username}@{host}', activity)
+
+        # cleanup port leases after a potential dirty shutdown
+        hn, p = self.db.find_listener_address('hypervisor')
+        self.db.delete_documents('dispatch', {'name': {'$ne': 'hypervisor'}})
+        self.db.insert_into_db('dispatch', {'host': '', 'name': '_lock', 'port': -1})
+        for doc in self.db.aggregate('hosts', [
+            {'$match': {'name': {'$ne': hn}}},
+            # the toInt is to work around Mongo logic
+            {'$project': {'host': '$name', 'name': '_dummy', 'port': {'$toInt': str(p)}, '_id': 0}},
+            {'$merge': 'dispatch'}]):
+            pass
+
+        # start the three Pipeline monitors
+        path = self.config['path']
+        for thing in 'alarm control convert'.split():
+            self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
+
+        # now start the rest of the things
         self.last_restart = {}
         self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
         self.dispatch_queue = Doberman.utils.SortedBuffer()
         self.dispatcher = threading.Thread(target=self.dispatch)
-        self.dispatcher.start()
+        self.dispatcher.start() # TODO get this registered somehow
+        self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
+        if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
+            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
+        elif rhb == 'receive':
+            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
+
+        time.sleep(1)
+
+        # start the fixed-frequency sync signals
+        self.db.delete_documents('sensors', {'name': {'$regex': '^X_SYNC'}})
+        for i in self.config.get('sync_periods', [5,10,15,30,60]):
+            if self.db.get_sensor_setting(name=f'X_SYNC_{i}') is None:
+                self.db.insert_into_db('sensors', {'name': f'X_SYNC_{i}', 'description': 'Sync signal', 'readout_interval': i, 'status': 'offline', 'topic': 'other',
+                    'subsystem': 'sync', 'pipelines': [], 'device': 'hypervisor', 'units': '', 'readout_command': ''})
+            self.register(obj=self.sync_signal, period=i, name=f'sync_{i}', _period=i)
+
+        time.sleep(1)
+        self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
+
 
     def shutdown(self) -> None:
         with self.cv:
             self.cv.notify()
         self.update_config(status='offline')
         self.dispatcher.join()
+
+    def sync_signal(self, _period: int) -> None:
+        self.db.send_value_to_pipelines(f'X_SYNC_{_period}', 0, time.time())
 
     def update_config(self, unmanage=None, manage=None, active=None, heartbeat=None, status=None) -> None:
         updates = {}
@@ -57,9 +101,14 @@ class Hypervisor(Doberman.Monitor):
     def hypervise(self) -> None:
         self.logger.debug('Hypervising')
         self.config = self.db.get_experiment_config('hypervisor')
-        # cache these here because they might change during iteration
         managed = self.config['processes']['managed']
         active = self.config['processes']['active']
+        self.known_devices = self.db.distinct('devices', 'name')
+        path = self.config['path']
+        for pl in 'alarm control convert'.split():
+            if self.ping(f'pl_{pl}'):
+                self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
+
         for device in managed:
             if device not in active:
                 # device isn't running and it's supposed to be
@@ -68,23 +117,41 @@ class Hypervisor(Doberman.Monitor):
             elif (dt := ((now := dtnow())-self.db.get_heartbeat(device=device)).total_seconds()) > 2*self.config['period']:
                 # device claims to be active but hasn't heartbeated recently
                 self.logger.warning(f'{device} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
-                if device in self.last_restart and (now - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
-                    self.logger.warning(f'Can\'t restart {device}, did so too recently')
-                elif self.start_device(device):
+                if self.start_device(device):
                     # nonzero return code, probably something didn't work
                     self.logger.error(f'Problem starting {device}, check the debug logs')
+                else:
+                    self.logger.debug(f'{device} restarted')
+            elif self.ping(device):
+                self.logger.error(f'Failed to ping {device}, restarting it')
+                self.start_device(device)
             else:
                 # claims to be active and has heartbeated recently
                 self.logger.debug(f'{device} last heartbeat {int(dt)} seconds ago')
         self.update_config(heartbeat=dtnow())
         return self.config['period']
 
+    def ping(self, thing: str) -> bool:
+        """
+        Ping a listener. Returns True if it isn't listening and should be restarted
+        """
+        try:
+            hn, p = self.db.find_listener_address(thing)
+            with socket.create_connection((hn, p), timeout=0.1) as sock:
+                sock.sendall(b'ping')
+                if sock.recv(1024) != b'pong':
+                    return True
+        except Exception as e:
+            self.logger.debug(f'Caught a {type(e)} while pinging {thing}: {e}')
+            return True
+        return False
+
     def send_remote_heartbeat(self) -> None:
         # touch a file on a remote server just so someone else knows we're still alive
         if (addr := self.config.get('remote_heartbeat', {}).get('address')) is not None:
             self.run_over_ssh(addr, r'date +%s > /scratch/remote_hb_'+self.db.experiment_name, port=self.config['remote_heartbeat'].get('port', 22))
 
-    def check_remote_heartbeat(self):
+    def check_remote_heartbeat(self) -> None:
         for p in os.listdir('/scratch/remote_hb_*'):
             with open(f'/scratch/{p}', 'r') as f:
                 time_str = f.read().strip()
@@ -113,9 +180,10 @@ class Hypervisor(Doberman.Monitor):
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
             self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+        time.sleep(1)
         return cp.returncode
 
-    def run_locally(self, command):
+    def run_locally(self, command: str) -> int:
         """
         Some commands don't want to run via ssh?
         """
@@ -124,9 +192,13 @@ class Hypervisor(Doberman.Monitor):
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
             self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+        time.sleep(1)
         return cp.returncode
 
     def start_device(self, device: str) -> int:
+        if device in self.last_restart and (dtnow() - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
+            self.logger.warning(f'Can\'t restart {device}, did so too recently')
+            return 1
         path = self.config['path']
         doc = self.db.get_device_setting(device)
         host = doc['host']
@@ -137,21 +209,13 @@ class Hypervisor(Doberman.Monitor):
             return self.run_locally(command)
         return self.run_over_ssh(f'{self.username}@{host}', command)
 
-    def start_pipeline(self, pipeline: str) -> int:
-        if pipeline.startswith('alarm_'):
-            # this is an alarm pipeline
-            self.db.log_command(f'start {pipeline}', 'pl_alarm', 'hypervisor')
-            return 0
-        path = self.config['path']
-        return self.run_locally(f'cd {path} && ./start_process.sh -p {pipeline}')
-
     def compress_logs(self) -> None:
         then = dtnow()-datetime.timedelta(days=7)
         self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
         p = self.logger.handlers[0].logdir(dtnow()-datetime.timedelta(days=7))
         self.run_locally(f'cd {p} && gzip --best *.log')
 
-    def dispatch(self):
+    def dispatch(self) -> None:
         # if there's nothing to do, wait this long
         dt_large = 1000
         # process commands if we're within this much of the desired time
@@ -161,6 +225,7 @@ class Hypervisor(Doberman.Monitor):
         self.logger.debug('Dispatcher starting up')
         while not self.event.is_set():
             doc = None
+            hn = None
             try:
                 with self.cv:
                     self.cv.wait_for(predicate, timeout=dt)
@@ -174,10 +239,6 @@ class Hypervisor(Doberman.Monitor):
                     if doc['to'] == 'hypervisor':
                         self.process_command(doc['command'])
                         continue
-                    if doc['to'] in self.db.distinct('pipelines', 'name') and \
-                            self.db.get_pipeline(doc['to'])['status'] == 'inactive':
-                        self.logger.warning(f'Can\'t send "{doc["command"]}" to {doc["to"]} because it isn\'t online')
-                        continue
                     if doc['to'] in self.known_devices and doc['to'] not in self.config['processes']['active']:
                         self.logger.warning(f'Can\'t send "{doc["command"]}" to {doc["to"]} because it isn\'t online')
                         continue
@@ -186,10 +247,10 @@ class Hypervisor(Doberman.Monitor):
                     with socket.create_connection((hn, p), timeout=0.1) as sock:
                         sock.sendall(doc['command'].encode())
             except Exception as e:
-                self.logger.warning(f'Dispatcher caught a {type(e)}: {e}')
+                self.logger.warning(f'Dispatcher caught a {type(e)} while messaging {hn}: {e}')
         self.logger.debug('Dispatcher shutting down')
 
-    def process_command(self, command) -> None:
+    def process_command(self, command: str) -> None:
         self.logger.debug(f'Processing {command}')
         if command[0] == '{':
             # a json document, this is for the dispatcher
@@ -203,8 +264,6 @@ class Hypervisor(Doberman.Monitor):
             self.logger.info(f'Hypervisor starting {target}')
             if target in self.known_devices:
                 self.start_device(target)
-            elif self.db.count('pipelines', {'name': target}) == 1:
-                self.start_pipeline(target)
             else:
                 self.logger.error(f'Don\'t know what "{target}" is, can\'t start it')
 
