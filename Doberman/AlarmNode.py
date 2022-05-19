@@ -59,9 +59,9 @@ class AlarmNode(Doberman.Node):
             self.escalate()
             level = self.base_level + self.escalation_level
             if self._log_alarm(level=level,
-                            message=msg,
-                            pipeline=self.pipeline.name,
-                            _hash=self.hash):
+                                message=msg,
+                                pipeline=self.pipeline.name,
+                                _hash=self.hash):
                 # only self-silence if the message was successfully sent
                 self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
                 self.messages_this_level += 1
@@ -131,15 +131,27 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
 class IntegerAlarmNode(AlarmNode):
     """
     Integer status quantities are a fundamentally different thing from physical values.
-    It makes sense to process them differently
+    It makes sense to process them differently. The thresholds should be stored as [value, message] pairs.
     """
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
-        self.conditions = kwargs['conditions']
-
     def process(self, package):
         value = package[self.input_var]
-        for val, msg in self.conditions:
-            if value == int(val):
-                self.log_alarm(msg)
+        conditions = {int(v): msg for v,msg in self.config['alarm_thresholds']}
+        for v,msg in self.config['alarm_thresholds']:
+            if value == int(v):
+                self.log_alarm(f'Alarm for {self.description}: {msg}')
                 break
+
+class BitmaskIntegerAlarmNode(AlarmNode):
+    """
+    Sometimes the integer represents a bitmask.
+    """
+    def process(self, package):
+        value = package[self.input_var]
+        conditions = {int(v): msg for v,msg in self.config['alarm_thresholds']}
+        alarm_msg = []
+        for i, msg in conditions.items():
+            if value & (1 << i):
+                alarm_msg.append(msg)
+        if len(alarm_msg):
+            self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
+
