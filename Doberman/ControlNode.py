@@ -7,19 +7,20 @@ class ControlNode(Doberman.Node):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self._log_command = kwargs['log_command']
         self.control_target = kwargs['control_target']
         self.control_value = kwargs['control_value']
 
     def set_output(self, value, _force=False):
         self.logger.debug(f'Setting output to {value}')
         if not self.is_silent and not _force:
-            self._log_command(f'set {self.control_value} {value}', self.control_target,
-                    self.name)
+            self.pipeline.send_command(
+                    command=f'set {self.control_value} {value}',
+                    to=self.control_target)
 
     def on_error_do_this(self):
         if (v := self.config.get('default_output')) is not None:
             self.set_output(v, _force=True)
+
 
 class DigitalControlNode(ControlNode):
     """
@@ -41,6 +42,7 @@ class DigitalControlNode(ControlNode):
                 self.logger.info('Condition b met')
                 self.set_output(self.config.get('output_b', 0))
 
+
 class AnalogControlNode(ControlNode):
     """
     A generalized node to handle analog output. The logic is assumed to be
@@ -54,12 +56,13 @@ class AnalogControlNode(ControlNode):
             val = min(val, max_output)
         self.set_output(val)
 
+
 class PipelineControlNode(ControlNode):
     """
     Sometimes you want one pipeline to control another.
     """
     def process(self, package):
-        for char in range(ord('c'), ord('z')+1):
+        for char in map(chr, range(ord('c'), ord('z')+1)):
             if package.get(f'condition_{char}', False):
                 # do something
                 action, target = self.config.get(f'action_{char}', (None, None))
@@ -68,9 +71,7 @@ class PipelineControlNode(ControlNode):
 
         if package.get('condition_test', False):
             # this one is mainly for testing
-            self.pipeline.db.log_command(f'pipelinectl_stop test_pipeline',
-                    to=self.pipeline.monitor.name, issuer='test_pipeline',
-                    bypass_hypervisor=True)
+            self.control_pipeline('stop', self.pipeline.name)
 
     def control_pipeline(self, action, pipeline):
         if self.is_silent:
@@ -83,6 +84,6 @@ class PipelineControlNode(ControlNode):
             target = 'pl_convert'
         else:
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
-        self.pipeline.db.log_command(f'pipelinectl_{action} {pipeline}', to=target,
-                issuer=self.pipeline.name, bypass_hypervisor=True)
+        self.pipeline.send_command(command=f'pipelinectl_{action} {pipeline}',
+                to=target, issuer=self.pipeline.name)
 

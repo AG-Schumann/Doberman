@@ -1,11 +1,8 @@
 import Doberman
-import datetime
-from socket import getfqdn, create_connection
+from socket import getfqdn
 import time
 import requests
-import json
 import pytz
-import itertools
 import random
 
 __all__ = 'Database'.split()
@@ -137,18 +134,6 @@ class Database(object):
         for doc in cursor:
             yield doc
 
-    def get_experiment_config(self, name, field=None):
-        """
-        Gets an experiment config document
-        :param name: the name of the document
-        :param field: a specific field
-        :returns: The whole document if field = None, either just the field
-        """
-        doc = self.read_from_db('experiment_config', {'name': name}, onlyone=True)
-        if doc and field and field in doc:
-            return doc[field]
-        return doc
-
     def distinct(self, collection_name, field, cuts={}, **kwargs):
         """
         Transfer function for collection.distinct
@@ -177,28 +162,16 @@ class Database(object):
             self.update_db(collection_name, {'_id': doc['_id']}, updates)
         return doc
 
-    def log_command(self, command, to, issuer, delay=0, bypass_hypervisor=False):
+    def get_comms_info(self, subsystem: str):
         """
-        Issue a command to someone else
-        :param command: the command for them to process
-        :param to: who the command is for
-        :param issuer: who is issuing the command
-        :param delay: how far into the future the command should happen, default 0
-        :param bypass_hypervisor: bool, communicate directly with recipient?
-        :returns: None
+        Get a hostname and ports for the given subsystem
+        :param subsystem: string, either "data" or "command"
+        :returns: (hostname, {"send": <port>, "recv": <port>})
         """
-        doc = {
-                'to': to,
-                'command': command,
-                'by': issuer,
-                'time': time.time() + delay
-                }
-        try:
-            hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
-            with create_connection((hn, p), timeout=0.1) as sock:
-                sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
-        except Exception as e:
-            self.logger.debug(f'Caught a {type(e)}: {e}')
+        if subsystem not in ['data', 'command']:
+            return None, None
+        doc = self.get_experiment_config('hypervisor')
+        return doc['host'], doc['comms'][subsystem]
 
     def get_experiment_config(self, name, field=None):
         """
@@ -402,11 +375,14 @@ class Database(object):
         else:
             # probably a pipeline, assume it runs on the master host
             host = self.find_listener_address('hypervisor')[0]
+
+        # gain an exclusive lock on the collection
         while self.update_db('dispatch', {'name': '_lock', 'host': '', 'port': -1}, {'$set': {'port': 1}}) == 0:
             time.sleep(random.random())
         s = ', '.join(map(lambda d: f'{d["name"]}:{d["port"]}', self.read_from_db('dispatch', {'host': host})))
         self.logger.debug(f'Existing leases on {host}: {s}')
         try:
+            self.delete_documents('dispatch', {'host': host, 'name': name})
             for doc in self.aggregate('dispatch', [
                 {'$match': {'host': host}},
                 {'$group': {

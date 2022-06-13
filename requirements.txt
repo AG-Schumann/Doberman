@@ -3,3 +3,4 @@ pymongo
 psutil
 requests
 python-dateutil
+zmq

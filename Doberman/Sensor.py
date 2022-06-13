@@ -1,5 +1,6 @@
 import threading
 import time
+import zmq
 
 __all__ = 'Sensor MultiSensor'.split()
 
@@ -21,6 +22,10 @@ class Sensor(threading.Thread):
         doc = self.db.get_sensor_setting(name=self.name)
         self.setup(doc)
         self.update_config(doc)
+        ctx = zmq.Context.instance()
+        self.socket = ctx.socket(zmq.PUB)
+        hostname, ports = self.db.get_comms_info('data')
+        self.socket.connect(f'tcp://{hostname}:{ports["in"]}')
 
     def run(self):
         self.logger.debug(f'{self.name} Starting')
@@ -73,7 +78,6 @@ class Sensor(threading.Thread):
             value = None
         if value is not None:
             value = self.more_processing(value)
-            #self.logger.debug(f'{self.name} measured {value}')
             self.send_downstream(value, pkg['time'])
         else:
             self.logger.debug(f'{self.name} got None')
@@ -95,7 +99,7 @@ class Sensor(threading.Thread):
         tags = {'subsystem': self.subsystem, 'device': self.device_name, 'sensor': self.name}
         fields = {'value': value}
         self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
-        self.db.send_value_to_pipelines(self.name, value, timestamp)
+        self.socket.send_string(f'{self.name} {timestamp:.3f} {value}')
 
 
 class MultiSensor(Sensor):
@@ -153,5 +157,5 @@ class MultiSensor(Sensor):
             tags = {'sensor': n, 'subsystem': self.subsystem[n], 'device': self.device_name}
             fields = {'value': v}
             self.db.write_to_influx(topic=self.topics[n], tags=tags, fields=fields, timestamp=timestamp)
-            self.db.send_value_to_pipelines(n, v, timestamp)
+            self.socket.send_string(f'{n} {timestamp:.3f} {v}')
 
