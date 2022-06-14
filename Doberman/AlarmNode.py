@@ -59,9 +59,9 @@ class AlarmNode(Doberman.Node):
             self.escalate()
             level = self.base_level + self.escalation_level
             if self._log_alarm(level=level,
-                            message=msg,
-                            pipeline=self.pipeline.name,
-                            _hash=self.hash):
+                               message=msg,
+                               pipeline=self.pipeline.name,
+                               _hash=self.hash):
                 # only self-silence if the message was successfully sent
                 self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
                 self.messages_this_level += 1
@@ -82,21 +82,26 @@ class DeviceRespondingBase(AlarmNode):
         if (dt := ((now := time.time()) - package['time'])) > dt_max:
             self.log_alarm(
                 (f'Is {self.device} responding correctly? No new value for '
-                f'{self.input_var} has been seen in {int(dt)} seconds'),
+                 f'{self.input_var} has been seen in {int(dt)} seconds'),
                 now)
         else:
             self.reset_alarm()
         return None
 
+
 class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode):
     pass
+
 
 class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
     pass
 
+
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
-    A simple alarm
+    A simple alarm. Checks a value against the thresholds stored in its sensor document.
+    Then endpoints of the interval are assumed to represent acceptable values, only
+    values outside are considered 'alarm'.
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
@@ -125,4 +130,41 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
                 msg += f'{values[-1]:.3g} is outside allowed range of'
                 msg += f' {low:.3g} to {high:.3g}.'
             self.log_alarm(msg, packages[-1]['time'])
+
+
+class IntegerAlarmNode(AlarmNode):
+    """
+    Integer status quantities are a fundamentally different thing from physical values.
+    It makes sense to process them differently. The thresholds should be stored as [value, message] pairs.
+    """
+    def process(self, package):
+        value = int(package[self.input_var])
+        for v, msg in self.config['alarm_thresholds'].items():
+            if value == int(v):
+                self.log_alarm(f'Alarm for {self.description}: {msg}')
+                break
+
+
+class BitmaskIntegerAlarmNode(AlarmNode):
+    """
+    Sometimes the integer represents a bitmask. The threshold config for this
+    looks different:
+    [
+        (bitmask, value, msg),
+        (0x3, 1, "msg"),
+    }
+    This means you look at bits[0] and [1], and if they equal 1 then you send "msg"
+    (meaning bit[0]=1 and bit[1]=0). Both bitmask and value are assumed to be in **hex**
+    and will be integer-cast before use (mask = int(mask, base=16))
+    """
+    def process(self, package):
+        value = int(package[self.input_var])
+        alarm_msg = []
+        for mask, target, msg in self.config['alarm_thresholds']:
+            mask = int(mask, base=16)
+            target = int(target, base=16)
+            if value & mask == target:
+                alarm_msg.append(msg)
+        if len(alarm_msg):
+            self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
 

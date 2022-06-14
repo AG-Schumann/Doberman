@@ -62,19 +62,17 @@ class Node(object):
         """
         Sends a completed package on to downstream nodes
         """
-        #self.logger.debug(f'{self.name} sending downstream {package}')
         for node in self.downstream_nodes:
             node.receive_from_upstream(package)
 
     def receive_from_upstream(self, package):
-        #self.logger.debug(f'{self.name} receiving from upstream')
         self.buffer.add(package)
 
     def load_config(self, doc):
         """
         Load whatever runtime values are necessary
         """
-        for k,v in doc.items():
+        for k, v in doc.items():
             if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
                 self.buffer.set_length(int(v))
             else:
@@ -99,12 +97,18 @@ class Node(object):
         """
         pass
 
+
 class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.accept_old = kwargs.get('accept_old', False)
+
     def process(self, *args, **kwargs):
         return None
+
 
 class InfluxSourceNode(SourceNode):
     """
@@ -131,7 +135,6 @@ class InfluxSourceNode(SourceNode):
         super().setup(**kwargs)
         if self.input_var.startswith('X_SYNC_'):
             raise ValueError('Cannot use Influx for SYNC signals')
-        self.accept_old = kwargs.get('accept_old', False)
         config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
         if config_doc.get('schema', 'v2') == 'v1':
@@ -187,6 +190,7 @@ class InfluxSourceNode(SourceNode):
         self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp*(10**-9), self.output_var: val}
 
+
 class SensorSourceNode(SourceNode):
     """
     A node to support synchronous pipeline input directly from the sensors
@@ -203,7 +207,7 @@ class SensorSourceNode(SourceNode):
 
     def receive_from_upstream(self, package):
         """
-        This won't get called from the "operating" thread so we 
+        This won't get called from the "operating" thread so we
         wrap with CV
         """
         with self.cv:
@@ -215,12 +219,13 @@ class SensorSourceNode(SourceNode):
                 self.pipeline.has_new.add(self.name)
             self.cv.notify()
 
+
 class PipelineSourceNode(SourceNode):
     """
     A node to source info about another pipeline.
     The input_var is the name of another PL
     """
-    def setup(**kwargs):
+    def setup(self, **kwargs):
         super().setup(**kwargs)
         self.get_from_db = kwargs['get_pipeline_stats']
 
@@ -228,6 +233,7 @@ class PipelineSourceNode(SourceNode):
         doc = self.get_from_db(self.input_var)
         # TODO discuss renaming fields?
         return doc
+
 
 class BufferNode(Node):
     """
@@ -250,6 +256,7 @@ class BufferNode(Node):
         # deep copy
         return list(map(dict, self.buffer))
 
+
 class MedianFilterNode(BufferNode):
     """
     Filters a value by taking the median of its buffer. If the length is even,
@@ -270,6 +277,7 @@ class MedianFilterNode(BufferNode):
         else:
             # odd length
             return values[l//2]
+
 
 class MergeNode(BufferNode):
     """
@@ -318,17 +326,18 @@ class MergeNode(BufferNode):
         for key in common_keys:
             new_package[key] = self.merge_field(key, packages)
         for p in packages:
-            for k,v in p.items():
+            for k, v in p.items():
                 if k in common_keys:
                     continue
                 new_package[k] = v
         return new_package
 
-    def load_config(self, config):
+    def load_config(self, doc):
         """
         No configurable values for a MergeNode
         """
         return
+
 
 class IntegralNode(BufferNode):
     """
@@ -354,6 +363,7 @@ class IntegralNode(BufferNode):
         integral /= (t[0] - t[-1-offset])
         return integral
 
+
 class DerivativeNode(BufferNode):
     """
     Calculates the derivative of the specified value over the specified duration by a chi-square linear fit to
@@ -376,11 +386,12 @@ class DerivativeNode(BufferNode):
         y = [p[self.input_var] for p in packages]
         B = sum(v*v for v in t)
         C = len(packages)
-        D = sum(tt*vv for (tt,vv) in zip(t,y))
+        D = sum(tt*vv for (tt, vv) in zip(t, y))
         E = sum(y)
         F = sum(t)
         slope = (D*C-E*F)/(B*C - F*F)
         return slope
+
 
 class PolynomialNode(Node):
     """
@@ -397,7 +408,7 @@ class PolynomialNode(Node):
     """
     def process(self, package):
         xform = self.config.get('transform', [0,1])
-        return sum(a*package[self.input_var]**i for i,a in enumerate(xform))
+        return sum(a*package[self.input_var]**i for i, a in enumerate(xform))
 
 class InfluxSinkNode(Node):
     """
@@ -423,6 +434,7 @@ class InfluxSinkNode(Node):
                 'device': self.device, 'subsystem': self.subsystem},
                 fields={'value': package[self.input_var]}, timestamp=package['time'])
             self.send_to_pipelines(self.output_var, package[self.input_var], package['time'])
+
 
 class EvalNode(Node):
     """
@@ -451,6 +463,6 @@ class EvalNode(Node):
         for k, v in c.items():
             # the website casts things as strings because fuck you, so we float them here
             c[k] = float(v)
-        v = {k:package[k] for k in self.input_var}
+        v = {k: package[k] for k in self.input_var}
         return eval(self.operation)
 
