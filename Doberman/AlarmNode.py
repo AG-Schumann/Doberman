@@ -139,7 +139,7 @@ class IntegerAlarmNode(AlarmNode):
     """
     def process(self, package):
         value = int(package[self.input_var])
-        for v, msg in self.config['alarm_thresholds']:
+        for v, msg in self.config['alarm_thresholds'].items():
             if value == int(v):
                 self.log_alarm(f'Alarm for {self.description}: {msg}')
                 break
@@ -147,13 +147,23 @@ class IntegerAlarmNode(AlarmNode):
 
 class BitmaskIntegerAlarmNode(AlarmNode):
     """
-    Sometimes the integer represents a bitmask.
+    Sometimes the integer represents a bitmask. The threshold config for this
+    looks different:
+    [
+        (bitmask, value, msg),
+        (0x3, 1, "msg"),
+    }
+    This means you look at bits[0] and [1], and if they equal 1 then you send "msg"
+    (meaning bit[0]=1 and bit[1]=0). Both bitmask and value are assumed to be in **hex**
+    and will be integer-cast before use (mask = int(mask, base=16))
     """
     def process(self, package):
         value = int(package[self.input_var])
         alarm_msg = []
-        for i, msg in self.config['alarm_thresholds']:
-            if value & (1 << int(i)):
+        for mask, target, msg in self.config['alarm_thresholds']:
+            mask = int(mask, base=16)
+            target = int(target, base=16)
+            if value & mask == target:
                 alarm_msg.append(msg)
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
