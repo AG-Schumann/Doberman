@@ -13,7 +13,7 @@ class Pipeline(threading.Thread):
     automatable tasks
     """
     def __init__(self, **kwargs):
-        threading.Thread.__ini__(self)
+        threading.Thread.__init__(self)
         self.db = kwargs['db']
         self.logger = kwargs['logger']
         self.name = kwargs['name']
@@ -317,12 +317,13 @@ class SyncPipeline(Pipeline):
             socks = dict(poller.poll(timeout=1000))
             if socks.get(socket) == zmq.POLLIN:
                 try:
+                    msg = None
                     msg = socket.recv_string()
                     n, t, v = msg.split(' ')
                     t = float(t)
                     v = float(v) if '.' in v else int(v)
                     has_new.add(n)
-                    for node in self.listens_for(n):
+                    for node in self.listens_for[n]:
                         node.receive_from_upstream({n: v, 'time': t})
                 except Exception as e:
                     self.logger.debug(f'{type(e)}: {msg}')

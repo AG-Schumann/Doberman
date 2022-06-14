@@ -255,10 +255,10 @@ class Hypervisor(Doberman.Monitor):
         cmd_ack = {}
 
         while not self.event.is_set():
-            next_ping = time.time() - last_ping + ping_period
+            next_ping = last_ping + ping_period - time.time()
             next_command = queue[0][0] - time.time() if len(queue) > 0 else ping_period
             timeout_ms = min(next_ping, next_command) * 1000
-            socks = dict(poller.poll(timeout=timeout_ms))
+            socks = dict(poller.poll(timeout=int(timeout_ms)))
 
             if (now := time.time()) - last_ping > ping_period or not len(socks):
                 # one ping only
