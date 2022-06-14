@@ -3,7 +3,6 @@ import Doberman
 from pymongo import MongoClient
 import argparse
 import os
-import datetime
 import pprint
 from pytz import utc
 
@@ -56,13 +55,14 @@ def main(mongo_client):
     else:
         print('No action specified')
         return
-    logger = Doberman.utils.get_logger(name=kwargs['name'], db=db)
+    logger = Doberman.utils.get_logger(kwargs['name'], db=db)
     db.logger = logger
     kwargs['logger'] = logger
+    my_logger = Doberman.utils.get_child_logger('monitor', logger)
     try:
         monitor = ctor(**kwargs)
     except Exception as e:
-        logger.critical(f'Caught a {type(e)} while constructing {kwargs["name"]}: {e}')
+        my_logger.critical(f'Caught a {type(e)} while constructing {kwargs["name"]}: {e}')
         return
     monitor.event.wait()
     print('Shutting down')

@@ -59,7 +59,7 @@ class PipelineControlNode(ControlNode):
     Sometimes you want one pipeline to control another.
     """
     def process(self, package):
-        for char in range(ord('c'), ord('z')+1):
+        for char in map(chr, range(ord('c'), ord('z')+1)):
             if package.get(f'condition_{char}', False):
                 # do something
                 action, target = self.config.get(f'action_{char}', (None, None))

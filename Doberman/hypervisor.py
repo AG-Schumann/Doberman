@@ -46,6 +46,7 @@ class Hypervisor(Doberman.Monitor):
         path = self.config['path']
         for thing in 'alarm control convert'.split():
             self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
+            time.sleep(0.1)
 
         # now start the rest of the things
         self.last_restart = {}
@@ -128,6 +129,7 @@ class Hypervisor(Doberman.Monitor):
             else:
                 # claims to be active and has heartbeated recently
                 self.logger.debug(f'{device} last heartbeat {int(dt)} seconds ago')
+            time.sleep(0.1)
         self.update_config(heartbeat=dtnow())
         return self.config['period']
 
@@ -212,7 +214,7 @@ class Hypervisor(Doberman.Monitor):
     def compress_logs(self) -> None:
         then = dtnow()-datetime.timedelta(days=7)
         self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
-        p = self.logger.handlers[0].logdir(dtnow()-datetime.timedelta(days=7))
+        p = self.logger.handlers[0].oh.logdir(dtnow()-datetime.timedelta(days=7))
         self.run_locally(f'cd {p} && gzip --best *.log')
 
     def dispatch(self) -> None:
