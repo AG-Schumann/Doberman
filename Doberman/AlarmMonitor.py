@@ -153,13 +153,8 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f'Sending SMS to {tonumber}')
             response = requests.post(url, data=data)
             if response.status_code != 200:
-                self.logger.error(f"Couldn't send message, status"
-                                  + f" {response.status_code}: {response.content.decode('ascii')}")
+                self.logger.error(f"Couldn't send message, status {response.status_code}: {response.content.decode('ascii')}")
 
-        except Exception as e:
-            self.logger.error(f'Could not send SMS: {e}, {type(e)}')
-            return -1
-        return 0
 
     def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
         """

@@ -395,7 +395,7 @@ class PolynomialNode(Node):
     """
     def process(self, package):
         xform = self.config.get('transform', [0, 1])
-        return sum(a*package[self.input_var]**i for i, a in enumerate(xform)
+        return sum(a*package[self.input_var]**i for i, a in enumerate(xform))
 
 class InfluxSinkNode(Node):
     """

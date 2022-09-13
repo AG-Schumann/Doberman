@@ -58,7 +58,7 @@ def main(mongo_client):
     logger = Doberman.utils.get_logger(kwargs['name'], db=db)
     db.logger = logger
     kwargs['logger'] = logger
-    my_logger = Doberman.utils.get_child_logger('monitor', logger)
+    my_logger = Doberman.utils.get_child_logger('monitor', db, logger)
     try:
         monitor = ctor(**kwargs)
     except Exception as e:

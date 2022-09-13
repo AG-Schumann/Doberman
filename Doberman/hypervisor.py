@@ -85,7 +85,7 @@ class Hypervisor(Doberman.Monitor):
             _, p = heappop(q)
             now = time.time()
             socket.send_string(f'X_SYNC_{p} {now:.3f} 0')
-            heappush((now+p, p))
+            heappush(q, (now+p, p))
 
     def update_config(self, unmanage=None, manage=None, active=None, heartbeat=None, status=None) -> None:
         updates = {}

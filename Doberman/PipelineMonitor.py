@@ -34,7 +34,7 @@ class PipelineMonitor(Doberman.Monitor):
             return -1
         try:
             p = Doberman.Pipeline.create(doc, db=self.db,
-                    logger=Doberman.utils.get_child_logger(name, self.logger),
+                    logger=Doberman.utils.get_child_logger(name, self.db, self.logger),
                     name=name, monitor=self)
             p.build(doc)
         except Exception as e:

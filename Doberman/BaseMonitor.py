@@ -60,7 +60,6 @@ class Monitor(object):
                     pop.append(n)
         map(self.threads.pop, pop)
         self.db.notify_hypervisor(inactive=self.name)
-        self.db.release_listener_port(self.name)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):
         """

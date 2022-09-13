@@ -24,7 +24,7 @@ class DeviceMonitor(Doberman.Monitor):
         self.logger.debug(f'Constructing {sensor_name}')
         sensor_doc = self.db.get_sensor_setting(sensor_name)
         kwargs = {'sensor_name': sensor_name, 'db': self.db,
-                  'logger': Doberman.utils.get_child_logger(sensor_name, self.logger),
+                  'logger': Doberman.utils.get_child_logger(sensor_name, self.db, self.logger),
                   'device_name': self.name, 'device': self.device}
         if 'multi_sensor' in sensor_doc:
             if isinstance(sensor_doc['multi_sensor'], list):
@@ -35,7 +35,7 @@ class DeviceMonitor(Doberman.Monitor):
                 self.logger.debug(f'Not constructing {sensor} because it isn\'t the multi primary')
         else:
             sensor = Doberman.Sensor(**kwargs)
-        self.register(name=sensor, obj=sensor, period=sensor.readout_interval)
+        self.register(name=sensor_name, obj=sensor, period=sensor.readout_interval)
 
     def shutdown(self):
         if self.device is None:
@@ -57,7 +57,7 @@ class DeviceMonitor(Doberman.Monitor):
             self.device.close()
         try:
             self.device = self.device_ctor(self.db.get_device_setting(self.name),
-                                           Doberman.utils.get_child_logger('device', self.logger), self.event)
+                                           Doberman.utils.get_child_logger('device',self.db, self.logger), self.event)
         except Exception as e:
             self.logger.error(f'Could not open device. Error: {e} ({type(e)})')
             self.device = None

@@ -25,7 +25,8 @@ class Sensor(threading.Thread):
         ctx = zmq.Context.instance()
         self.socket = ctx.socket(zmq.PUB)
         hostname, ports = self.db.get_comms_info('data')
-        self.socket.connect(f'tcp://{hostname}:{ports["in"]}')
+        self.socket.connect(f'tcp://{hostname}:{ports["recv"]}')
+        self.logger.debug('29')
 
     def run(self):
         self.logger.debug(f'Starting')

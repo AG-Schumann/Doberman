@@ -116,11 +116,11 @@ class OutputHandler(object):
         self.flush_cycle = 0
         self.rotate()
 
-    def rotate(self, when):
+    def rotate(self):
         if self.f is not None:
             self.f.close()
         self.today = datetime.date.today()
-        logdir = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
+        logdir = f'/global/logs/{self.experiment}/{self.today.year}/{self.today.month:02d}.{self.today.day:02d}'
         os.makedirs(logdir, exist_ok=True)
         full_path = os.path.join(logdir, self.filename)
         self.f = open(full_path, 'a')
@@ -150,7 +150,7 @@ def get_logger(name, db):
     logger.setLevel(logging.DEBUG)
     return logger
 
-def get_child_logger(name, main_logger):
+def get_child_logger(name, db, main_logger):
     logger = logging.getLogger(name)
     logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
     logger.setLevel(logging.DEBUG)
