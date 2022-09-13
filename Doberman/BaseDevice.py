@@ -26,9 +26,7 @@ class Device(object):
         if 'address' in opts:
             for k, v in opts['address'].items():
                 setattr(self, k, v)
-        if 'additional_params' in opts:
-            for k, v in opts['additional_params'].items():
-                setattr(self, k, v)
+        self.params = opts.get('params', {})
         self.sensors = opts['sensors']
         self.logger = logger
         self.event = event
