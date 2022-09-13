@@ -100,6 +100,10 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.accept_old = kwargs.get('accept_old', False)
+
     def process(self, *args, **kwargs):
         return None
 
@@ -129,7 +133,6 @@ class InfluxSourceNode(SourceNode):
         super().setup(**kwargs)
         if self.input_var.startswith('X_SYNC_'):
             raise ValueError('Cannot use Influx for SYNC signals')
-        self.accept_old = kwargs.get('accept_old', False)
         config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
         if config_doc.get('schema', 'v2') == 'v1':
@@ -202,6 +205,7 @@ class SensorSourceNode(SourceNode):
         """
         package[self.output_var] = package.pop(self.input_var)
         super().receive_from_upstream(package)
+
 
 
 class PipelineSourceNode(SourceNode):
@@ -314,7 +318,7 @@ class MergeNode(BufferNode):
                 new_package[k] = v
         return new_package
 
-    def load_config(self, config):
+    def load_config(self, doc):
         """
         No configurable values for a MergeNode
         """
@@ -345,6 +349,7 @@ class IntegralNode(BufferNode):
                         for i in range(1, len(packages)-offset))
         integral /= (t[0] - t[-1-offset])
         return integral
+
 
 class DerivativeNode(BufferNode):
     """
@@ -390,8 +395,7 @@ class PolynomialNode(Node):
     """
     def process(self, package):
         xform = self.config.get('transform', [0, 1])
-        return sum(a*package[self.input_var]**i for i, a in enumerate(xform))
-
+        return sum(a*package[self.input_var]**i for i, a in enumerate(xform)
 
 class InfluxSinkNode(Node):
     """
@@ -419,6 +423,7 @@ class InfluxSinkNode(Node):
                                  fields=fields, timestamp=package['time'])
             out = f'{self.output_var} {package["time"]:.3f} {package[self.input_var]}'
             self.pipeline.data_socket.send_string(out)
+
 
 
 class EvalNode(Node):

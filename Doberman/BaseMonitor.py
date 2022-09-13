@@ -52,6 +52,7 @@ class Monitor(object):
             for n, t in self.threads.items():
                 try:
                     self.logger.debug(f'Stopping {n}')
+                    t.event.set()
                     t.join()
                 except Exception as e:
                     self.logger.debug(f'Can\'t close {n}-thread. {e}')
