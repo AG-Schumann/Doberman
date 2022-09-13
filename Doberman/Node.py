@@ -42,13 +42,13 @@ class Node(object):
     def _process_base(self, status):
         self.logger.debug(f'{self.name} processing')
         self.is_silent = status == 'silent'
-        package = self.get_package() # TODO discuss this wrt BufferNodes
+        package = self.get_package()  # TODO discuss this wrt BufferNodes
         ret = self.process(package)
         if ret is None:
             pass
         elif isinstance(ret, dict):
             package = dict(ret)
-        else: # ret is a number or something
+        else:  # ret is a number or something
             if isinstance(self, BufferNode):
                 package = package[-1]
             package[self.output_var] = ret
@@ -62,20 +62,18 @@ class Node(object):
         """
         Sends a completed package on to downstream nodes
         """
-        #self.logger.debug(f'{self.name} sending downstream {package}')
         for node in self.downstream_nodes:
             node.receive_from_upstream(package)
 
     def receive_from_upstream(self, package):
-        #self.logger.debug(f'{self.name} receiving from upstream')
         self.buffer.add(package)
 
     def load_config(self, doc):
         """
         Load whatever runtime values are necessary
         """
-        for k,v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode):
+        for k, v in doc.items():
+            if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
                 self.buffer.set_length(int(v))
             else:
                 self.config[k] = v
@@ -98,6 +96,7 @@ class Node(object):
         Only really makes sense for ControlNodes
         """
         pass
+
 
 class SourceNode(Node):
     """
@@ -195,36 +194,26 @@ class SensorSourceNode(SourceNode):
     """
     A node to support synchronous pipeline input directly from the sensors
     """
-    def shutdown(self):
-        self.pipeline.monitor.unregister_listener(self)
-
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.cv = kwargs['cv']
-        self.pipeline.monitor.register_listener(self)
-        if kwargs.get('new_value_required', False) in [True, 'true'] or self.input_var.startswith('X_SYNC'):
+        if kwargs.get('new_value_required', False) or \
+                self.input_var.startswith('X_SYNC'):
             self.pipeline.required_inputs.add(self.name)
 
     def receive_from_upstream(self, package):
         """
-        This won't get called from the "operating" thread so we 
-        wrap with CV
+        This gets called when a new value shows up
         """
-        with self.cv:
-            if package[self.input_var] is not None or self.accept_old:
-                # rename input_var -> output_var
-                package[self.output_var] = package.pop(self.input_var)
-                super().receive_from_upstream(package)
-                # let the pipeline know that we've got mail
-                self.pipeline.has_new.add(self.name)
-            self.cv.notify()
-
+        package[self.output_var] = package.pop(self.input_var)
+        super().receive_from_upstream(package)
+        
+        
 class PipelineSourceNode(SourceNode):
     """
     A node to source info about another pipeline.
     The input_var is the name of another PL
     """
-    def setup(**kwargs):
+    def setup(self, **kwargs):
         super().setup(**kwargs)
         self.get_from_db = kwargs['get_pipeline_stats']
 
@@ -254,7 +243,8 @@ class BufferNode(Node):
         # deep copy
         return list(map(dict, self.buffer))
 
-class MedianFilter(BufferNode):
+
+class MedianFilterNode(BufferNode):
     """
     Filters a value by taking the median of its buffer. If the length is even,
     the two values adjacent to the middle are averaged.
@@ -274,6 +264,7 @@ class MedianFilter(BufferNode):
         else:
             # odd length
             return values[l//2]
+
 
 class MergeNode(BufferNode):
     """
@@ -315,24 +306,23 @@ class MergeNode(BufferNode):
     def process(self, packages):
         new_package = {}
         common_keys = set(packages[0].keys())
-        uncommon_keys = set(packages[0].keys())
         for p in packages[1:]:
             common_keys &= set(p.keys())
-            uncommon_keys ^= set(p.keys())
         for key in common_keys:
             new_package[key] = self.merge_field(key, packages)
         for p in packages:
-            for k,v in p.items():
+            for k, v in p.items():
                 if k in common_keys:
                     continue
                 new_package[k] = v
         return new_package
 
-    def load_config(self, config):
+    def load_config(self, doc):
         """
         No configurable values for a MergeNode
         """
         return
+
 
 class IntegralNode(BufferNode):
     """
@@ -354,9 +344,11 @@ class IntegralNode(BufferNode):
         offset = int(self.config.get('t_offset', 0))
         t = [p['time'] for p in packages]
         v = [p[self.input_var] for p in packages]
-        integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 for i in range(1, len(packages)-offset))
+        integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 
+                        for i in range(1, len(packages)-offset))
         integral /= (t[0] - t[-1-offset])
         return integral
+
 
 class DerivativeNode(BufferNode):
     """
@@ -380,11 +372,12 @@ class DerivativeNode(BufferNode):
         y = [p[self.input_var] for p in packages]
         B = sum(v*v for v in t)
         C = len(packages)
-        D = sum(tt*vv for (tt,vv) in zip(t,y))
+        D = sum(tt*vv for (tt, vv) in zip(t, y))
         E = sum(y)
         F = sum(t)
         slope = (D*C-E*F)/(B*C - F*F)
         return slope
+
 
 class PolynomialNode(Node):
     """
@@ -400,8 +393,8 @@ class PolynomialNode(Node):
         specify [0, 1], a quadratic could be [c, b, a], etc
     """
     def process(self, package):
-        xform = self.config.get('transform', [0,1])
-        return sum(a*package[self.input_var]**i for i,a in enumerate(xform))
+        xform = self.config.get('transform', [0, 1])
+        return sum(a*package[self.input_var]**i for i, a in enumerate(xform)
 
 class InfluxSinkNode(Node):
     """
@@ -418,15 +411,18 @@ class InfluxSinkNode(Node):
         self.topic = kwargs['topic']
         self.subsystem = kwargs['subsystem']
         self.write_to_influx = kwargs['write_to_influx']
-        self.send_to_pipelines = kwargs['send_to_pipelines']
         self.device = kwargs['device']
 
     def process(self, package):
         if not self.is_silent:
-            self.write_to_influx(topic=self.topic, tags={'sensor': self.output_var,
-                'device': self.device, 'subsystem': self.subsystem},
-                fields={'value': package[self.input_var]}, timestamp=package['time'])
-            self.send_to_pipelines(self.output_var, package[self.input_var], package['time'])
+            tags = {'sensor': self.output_var, 'device': self.device,
+                    'subsystem': self.subsystem}
+            fields = {'value': package[self.input_var]}
+            self.write_to_influx(topic=self.topic, tags=tags,
+                                 fields=fields, timestamp=package['time'])
+            out = f'{self.output_var} {package["time"]:.3f} {package[self.input_var]}'
+            self.pipeline.data_socket.send_string(out)
+
 
 class EvalNode(Node):
     """
@@ -453,8 +449,10 @@ class EvalNode(Node):
     def process(self, package):
         c = self.config.get('c', {})
         for k, v in c.items():
-            # the website casts things as strings because fuck you, so we float them here
+            # the website casts things as strings because fuck you
+            # so we float them here. This means strings are out
+            # TODO figure out a fix
             c[k] = float(v)
-        v = {k:package[k] for k in self.input_var}
+        v = {k: package[k] for k in self.input_var}
         return eval(self.operation)
 

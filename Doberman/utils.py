@@ -5,8 +5,6 @@ import datetime
 import signal
 import os.path
 import os
-import inspect
-import re
 import logging
 import logging.handlers
 from pytz import utc
@@ -16,13 +14,10 @@ from math import floor, log10
 import itertools
 
 
+number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
+
 def dtnow():
     return datetime.datetime.now(tz=utc) # no timezone nonsense, now
-
-__all__ = 'dtnow find_plugin number_regex get_logger make_hash sensible_sig_figs SortedBuffer'.split()
-
-number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
-doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
 def find_plugin(name, path):
     """
@@ -75,66 +70,20 @@ class SignalHandler(object):
 
 class DobermanLogger(logging.Handler):
     """
-    Custom logger for Doberman. DEBUG goes to disk in one file, INFO and higher also goes to disk in another file,
-    WARNING and higher go to the database. The DEBUG files will get purged regularly because they'll be quite bulky,
-    while "important" info will remain in the long-term logfiles. Logfiles will get rotated daily with folder
-    structure YYYY/MM.DD and unique named files.
+    A custom logging handler.
     """
-    def __init__(self, db, name):
+    def __init__(self, db, name, output_handler):
         logging.Handler.__init__(self)
-        self.mutex = threading.Lock()
         self.db = db
         self.name = name
-        self.experiment = db.experiment_name
-        self.db_name = 'logging'
         self.collection_name = 'logs'
-        self.today = datetime.date.today()
-        self.f = None
-        self.open_files(self.today)
-        self.flush_cycle = 0
-
-    def rotate(self, when):
-        if self.f is not None:
-            self.f.close()
-        self.today = datetime.date.today()
-        self.open_files(when)
-
-    def open_files(self, when):
-        self.f = open(self.full_file_path(when), 'a')
-
-    def full_file_path(self, when):
-        return os.path.join(self.logdir(when), self.filename(when))
-
-    def filename(self, when):
-        return f'{self.name}.log'
-
-    def logdir(self, when):
-        """
-        Returns a directory where you can put the day's logs. Creates the directories if they dont exist
-        """
-        # TODO have the path be configurable somehow?
-        p = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
-        os.makedirs(p, exist_ok=True)
-        return p
+        self.oh = output_handler
 
     def emit(self, record):
         msg_datetime = datetime.datetime.fromtimestamp(record.created)
         msg_date = datetime.date(msg_datetime.year, msg_datetime.month, msg_datetime.day)
         m = self.format_message(msg_datetime, record.levelname, record.funcName, record.lineno, record.getMessage())
-        with self.mutex:
-            # we wrap anything hitting files or stdout with a mutex because logging happens from
-            # multiple threads, and files aren't thread-safe
-            if msg_date != self.today:
-                # it's a brand new day, and the sun is high...
-                self.rotate(msg_date)
-            print(m)
-            self.f.write(m + '\n')
-            self.flush_cycle += 1
-            if self.flush_cycle > 10: # TODO make config value?
-                # if we don't regularly flush the buffers, messages will sit around in memory rather than actually
-                # get pushed to disk, and we don't want this. If we do it too frequently it's slow
-                self.f.flush()
-                self.flush_cycle = 0
+        self.oh.write(m, msg_date)
         if record.levelno > logging.INFO:
             rec = dict(
                 msg=record.getMessage(),
@@ -149,10 +98,61 @@ class DobermanLogger(logging.Handler):
     def format_message(self, when, level, func_name, lineno, msg):
         return f'{when.isoformat(sep=" ")} | {str(level).upper()} | {self.name} | {func_name} | {lineno} | {msg}'
 
+class OutputHandler(object):
+    """
+    We need a single object that owns the file we log to,
+    so we can pass references to it to child loggers.
+    I don't know how to do c++-style static class members,
+    so this is how I solve this problem.
+    Files go to /global/logs/<experiment>/YYYY/MM.DD, folders being created as necessary.
+    """
+    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle')
+
+    def __init__(self, name, experiment):
+        self.mutex = threading.Lock()
+        self.filename = f'{name}.log'
+        self.experiment = experiment
+        self.f = None
+        self.flush_cycle = 0
+        self.rotate()
+
+    def rotate(self, when):
+        if self.f is not None:
+            self.f.close()
+        self.today = datetime.date.today()
+        logdir = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
+        os.makedirs(logdir, exist_ok=True)
+        full_path = os.path.join(logdir, self.filename)
+        self.f = open(full_path, 'a')
+
+    def write(self, message, date):
+        with self.mutex:
+            # we wrap anything hitting files or stdout with a mutex because logging happens from
+            # multiple threads, and files aren't thread-safe
+            if date != self.today:
+                # it's a brand new day, and the sun is high...
+                self.rotate(date)
+            if message[-1] == '\n':
+                message = message[:-1]
+            print(message)
+            self.f.write(f'{message}\n')
+            self.flush_cycle += 1
+            if self.flush_cycle > 3:
+                # if we don't regularly flush the buffers, messages will sit around in memory rather than actually
+                # get pushed to disk, and we don't want this. If we do it too frequently it's slow
+                self.f.flush()
+                self.flush_cycle = 0
 
 def get_logger(name, db):
+    oh = OutputHandler(name, db.experiment_name)
     logger = logging.getLogger(name)
-    logger.addHandler(DobermanLogger(db, name))
+    logger.addHandler(DobermanLogger(db, name, oh))
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+def get_child_logger(name, main_logger):
+    logger = logging.getLogger(name)
+    logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
     logger.setLevel(logging.DEBUG)
     return logger
 

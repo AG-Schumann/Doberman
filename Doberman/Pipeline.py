@@ -1,24 +1,37 @@
 import Doberman
 import time
 import threading
+import json
+import zmq
+import collections
 
 __all__ = 'Pipeline SyncPipeline'.split()
 
-class Pipeline(object):
+class Pipeline(threading.Thread):
     """
     A generic data-processing pipeline digraph for simple or complex
     automatable tasks
     """
     def __init__(self, **kwargs):
+        threading.Thread.__init__(self)
         self.db = kwargs['db']
         self.logger = kwargs['logger']
         self.name = kwargs['name']
         self.monitor = kwargs['monitor']
         self.cycles = 0
         self.last_error = -1
+        self.event = threading.Event()
         self.subpipelines = []
         self.silenced_at_level = 0  # to support disjoint alarm pipelines
         self.required_inputs = set() # this needs to be in this class even though it's only used in Sync
+        self.ctx = kwargs.get('context') or zmq.Context.instance()
+        self.command_socket = self.ctx.socket(zmq.REQ)
+        host, ports = self.db.get_comms_info('command')
+        self.command_socket.connect(f'tcp://{host}:{ports["send"]}')
+        host, ports = self.db.get_comms_info('data')
+        self.data_socket = self.ctx.socket(zmq.PUB)
+        self.data_socket.connect(f'tcp://{host}:{ports["send"]}')
+        self.depends_on = []
 
     @staticmethod
     def create(config, **kwargs):
@@ -31,6 +44,7 @@ class Pipeline(object):
         return Pipeline(**kwargs)
 
     def stop(self):
+        self.event.set()
         try:
             self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
@@ -41,6 +55,11 @@ class Pipeline(object):
                         pass
         except Exception as e:
             self.logger.debug(f'Caught a {type(e)} while stopping: {e}')
+
+    def run(self):
+        while not self.event.is_set():
+            interval = self.process_cycle()
+            self.event.wait(interval)
 
     def process_cycle(self):
         """
@@ -66,7 +85,7 @@ class Pipeline(object):
                     self.last_error = self.cycles
                     msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
                     if isinstance(node, Doberman.SourceNode):
-                        drift = 0.1 # extra few ms to help with misalignment
+                        drift = 0.1  # extra few ms to help with misalignment
                     if self.cycles <= self.startup_cycles:
                         # we expect errors during startup as buffers get filled
                         self.logger.debug(msg)
@@ -82,15 +101,13 @@ class Pipeline(object):
                     break
                 t_end = time.time()
                 timing[node.name] = (t_end-t_start)*1000
-        total_timing = ', '.join(f'{k}: {v:.1f}' for k,v in timing.items())
-        #self.logger.debug(f'Processing time: total {sum(timing.values()):.1f} ms, individual {total_timing}')
         self.cycles += 1
         self.db.set_pipeline_value(self.name,
                 [('heartbeat', Doberman.utils.dtnow()),
                     ('cycles', self.cycles),
                     ('error', self.last_error),
                     ('rate', sum(timing.values()))])
-        drift = max(drift, 0.001) # min 1ms of drift
+        drift = max(drift, 0.001)  # min 1ms of drift
         return max(d['readout_interval'] for d in sensor_docs.values()) + drift
 
     def build(self, config):
@@ -184,7 +201,8 @@ class Pipeline(object):
         self.calculate_jointedness(graph)
 
         # we do the reconfigure step here so we can estimate startup cycles
-        self.reconfigure(config['node_config'], {n: self.db.get_sensor_setting(n) for n in self.depends_on})
+        self.reconfigure(config['node_config'],
+                         {n: self.db.get_sensor_setting(n) for n in self.depends_on})
         for pl in self.subpipelines:
             for node in pl:
                 if isinstance(node, Doberman.BufferNode) and not isinstance(node, Doberman.MergeNode):
@@ -250,35 +268,66 @@ class Pipeline(object):
         """
         Silence this pipeline for a set amount of time
         """
+        doc = {
+                'to': self.monitor.name,
+                'from': self.name,
+                'time': time.time()+duration,
+                'command': f'pipelinectl_active {self.name}'
+                }
         self.db.set_pipeline_value(self.name, [('status', 'silent'), ('silent_until', time.time()+duration)])
-        self.db.log_command(f'pipelinectl_active {self.name}', to=self.monitor.name,
-                issuer=self.name, delay=duration)
+        self.command_socket.send_string(json.dumps(doc))
+        _ = self.command_socket.recv_string()
         self.silenced_at_level = level
 
-class SyncPipeline(threading.Thread, Pipeline):
+    def send_command(self, command, to):
+        """
+        Send a command to the HV
+        """
+        self.command_socket.send_string(json.dumps({
+            'to': to, 'time': time.time(),
+            'from': self.name, 'command': command}))
+        _ = self.command_socket.recv_string()
+
+
+class SyncPipeline(Pipeline):
     """
-    A subclass to handle synchronous operation where input comes directly from
-    the sensors rather than via the database
+    A subclass to handle synchronous operation where input comes from
+    the data communication bus rather than via the database. self.run
+    sits around waiting for data to come in, and only runs once a set
+    minimum number of nodes have received new values.
     """
-    def __init__(self, **kwargs):
-        threading.Thread.__init__(self)
-        Pipeline.__init__(self, **kwargs)
-        self.cv = threading.Condition()
-        self.event = threading.Event()
-        self.has_new = set()
+    def build(self, config):
+        super().build(config)
+        self.listens_for = collections.defaultdict(list)
+        for pl in self.subpipelines:
+            for node in pl:
+                if isinstance(node, Doberman.SensorSourceNode):
+                    self.listens_for[node.input_var].append(node)
 
     def run(self):
-        self.logger.debug(f'Required inputs: {self.required_inputs}')
-        predicate = lambda: (len(self.has_new) > 0 and self.has_new >= self.required_inputs) or self.event.is_set()
+        socket = self.ctx.socket(zmq.SUB)
+        host, ports = self.db.get_comms_info('data')
+        socket.connect(f'tcp://{host}:{ports["receive"]}')
+        for name in self.depends_on:
+            socket.setsockopt_string(zmq.SUBSCRIBE, name)
+        poller = zmq.Poller()
+        poller.register(socket, zmq.POLLIN)
+        has_new = set()
         while not self.event.is_set():
-            with self.cv:
-                self.cv.wait_for(predicate)
-            self.process_cycle()
-            self.has_new.clear()
-
-    def stop(self):
-        self.event.set()
-        with self.cv:
-            self.cv.notify()
-        return super().stop()
-
+            socks = dict(poller.poll(timeout=1000))
+            if socks.get(socket) == zmq.POLLIN:
+                try:
+                    msg = None
+                    msg = socket.recv_string()
+                    n, t, v = msg.split(' ')
+                    t = float(t)
+                    v = float(v) if '.' in v else int(v)
+                    has_new.add(n)
+                    for node in self.listens_for[n]:
+                        node.receive_from_upstream({n: v, 'time': t})
+                except Exception as e:
+                    self.logger.debug(f'{type(e)}: {msg}')
+                else:
+                    if has_new >= self.required_inputs:
+                        self.process_cycle()
+                        has_new.clear()

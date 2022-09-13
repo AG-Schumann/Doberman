@@ -20,18 +20,22 @@ class DeviceMonitor(Doberman.Monitor):
         self.register(name='heartbeat', obj=self.heartbeat,
                       period=self.db.get_experiment_config(name='hypervisor', field='period'), _no_stop=True)
 
-    def start_sensor(self, rd):
-        self.logger.debug('Constructing ' + rd)
-        sensor_doc = self.db.get_sensor_setting(rd)
-        kwargs = {'sensor_name': rd, 'logger': self.logger, 'db': self.db,
+    def start_sensor(self, sensor_name):
+        self.logger.debug(f'Constructing {sensor_name}')
+        sensor_doc = self.db.get_sensor_setting(sensor_name)
+        kwargs = {'sensor_name': sensor_name, 'db': self.db,
+                  'logger': Doberman.utils.get_child_logger(sensor_name, self.logger),
                   'device_name': self.name, 'device': self.device}
-        if 'multi_sensor' in sensor_doc and isinstance(sensor_doc['multi_sensor'], list):
-            # the "base" multisensor stores all the names in the list
-            # the "secondary" multisensors store the name of the base
-            sensor = Doberman.MultiSensor(**kwargs)
+        if 'multi_sensor' in sensor_doc:
+            if isinstance(sensor_doc['multi_sensor'], list):
+                # the "primary" multisensor stores all the names in the list
+                # the "secondary" multisensors store the name of the base
+                sensor = Doberman.MultiSensor(**kwargs)
+            else:
+                self.logger.debug(f'Not constructing {sensor} because it isn\'t the multi primary')
         else:
             sensor = Doberman.Sensor(**kwargs)
-        self.register(name=rd, obj=sensor, period=sensor.readout_interval)
+        self.register(name=sensor, obj=sensor, period=sensor.readout_interval)
 
     def shutdown(self):
         if self.device is None:
@@ -53,7 +57,7 @@ class DeviceMonitor(Doberman.Monitor):
             self.device.close()
         try:
             self.device = self.device_ctor(self.db.get_device_setting(self.name),
-                                           self.logger, self.event)
+                                           Doberman.utils.get_child_logger('device', self.logger), self.event)
         except Exception as e:
             self.logger.error(f'Could not open device. Error: {e} ({type(e)})')
             self.device = None

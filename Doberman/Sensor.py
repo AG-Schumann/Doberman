@@ -1,5 +1,6 @@
 import threading
 import time
+import zmq
 
 __all__ = 'Sensor MultiSensor'.split()
 
@@ -21,9 +22,13 @@ class Sensor(threading.Thread):
         doc = self.db.get_sensor_setting(name=self.name)
         self.setup(doc)
         self.update_config(doc)
+        ctx = zmq.Context.instance()
+        self.socket = ctx.socket(zmq.PUB)
+        hostname, ports = self.db.get_comms_info('data')
+        self.socket.connect(f'tcp://{hostname}:{ports["in"]}')
 
     def run(self):
-        self.logger.debug(f'{self.name} Starting')
+        self.logger.debug(f'Starting')
         while not self.event.is_set():
             loop_top = time.time()
             doc = self.db.get_sensor_setting(name=self.name)
@@ -31,7 +36,7 @@ class Sensor(threading.Thread):
             if doc['status'] == 'online':
                 self.do_one_measurement()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug(f'{self.name} Returning')
+        self.logger.debug(f'Returning')
 
     def setup(self, config_doc):
         """
@@ -64,19 +69,18 @@ class Sensor(threading.Thread):
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info(f'{self.name} didn\'t get anything from the device!')
+            self.logger.info(f'Didn\'t get anything from the device!')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'{self.name} got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
         if value is not None:
             value = self.more_processing(value)
-            #self.logger.debug(f'{self.name} measured {value}')
             self.send_downstream(value, pkg['time'])
         else:
-            self.logger.debug(f'{self.name} got None')
+            self.logger.debug(f'Got None')
         return
 
     def more_processing(self, value):
@@ -95,8 +99,7 @@ class Sensor(threading.Thread):
         tags = {'subsystem': self.subsystem, 'device': self.device_name, 'sensor': self.name}
         fields = {'value': value}
         self.db.write_to_influx(topic=self.topic, tags=tags, fields=fields, timestamp=timestamp)
-        self.db.send_value_to_pipelines(self.name, value, timestamp)
-
+        self.socket.send_string(f'{self.name} {timestamp:.3f} {value}')
 
 class MultiSensor(Sensor):
     """
@@ -153,5 +156,4 @@ class MultiSensor(Sensor):
             tags = {'sensor': n, 'subsystem': self.subsystem[n], 'device': self.device_name}
             fields = {'value': v}
             self.db.write_to_influx(topic=self.topics[n], tags=tags, fields=fields, timestamp=timestamp)
-            self.db.send_value_to_pipelines(n, v, timestamp)
-
+            self.socket.send_string(f'{n} {timestamp:.3f} {v}')
