@@ -2,7 +2,7 @@ import time
 import requests
 import json
 import smtplib
-from datetime import datetime, timezone
+from datetime import timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -153,8 +153,8 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f'Sending SMS to {tonumber}')
             response = requests.post(url, data=data)
             if response.status_code != 200:
-                self.logger.error(f"Couldn't send message, status {response.status_code}: {response.content.decode('ascii')}")
-
+                self.logger.error(f"Couldn't send message, status {response.status_code}: "
+                                  f"{response.content.decode('ascii')}")
 
     def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
         """

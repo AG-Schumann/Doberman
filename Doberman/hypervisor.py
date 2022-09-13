@@ -1,6 +1,5 @@
 import Doberman
 import subprocess
-import typing as ty
 import time
 import os.path
 import os
@@ -167,7 +166,7 @@ class Hypervisor(Doberman.Monitor):
             cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True, timeout=30)
         except subprocess.TimeoutExpired:
             self.logger.error(f'Command to {address} timed out!')
-            return
+            return -1
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
@@ -188,7 +187,8 @@ class Hypervisor(Doberman.Monitor):
         return cp.returncode
 
     def start_device(self, device: str) -> int:
-        if device in self.last_restart and (dtnow() - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
+        if device in self.last_restart and \
+                (dtnow() - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
             self.logger.warning(f'Can\'t restart {device}, did so too recently')
             return 1
         path = self.config['path']
@@ -233,8 +233,6 @@ class Hypervisor(Doberman.Monitor):
     def dispatcher(self, ping_period=5) -> None:
         """
         This function handles the command-passing communication subsystem
-        :param incoming_port: what port to listen on?
-        :param outgoing_port: what port to broadcast on?
         :param ping_period: how often do pings happen? Default 5 (seconds)
         """
         ctx = zmq.Context.instance()
@@ -275,13 +273,13 @@ class Hypervisor(Doberman.Monitor):
                     try:
                         doc = json.loads(msg)
                         self.logger.debug(f'Incoming command from {doc["from"]}')
-                        heappush((float(doc['time']), doc['to'], doc['command']))
+                        heappush(queue, (float(doc['time']), doc['to'], doc['command']))
                     except Exception as e:
                         self.logger.debug(f'Caught a {type(e)} while processing. {e}')
                         self.logger.debug(msg)
                 elif msg.startswith('ack'):  # command acknowledgement
+                    _, name, cmd_hash = msg.split(' ')
                     try:
-                        _, name, cmd_hash = msg.split(' ')
                         del cmd_ack[cmd_hash]
                     except KeyError:
                         self.logger.debug(f'Unknown hash from {name}: {cmd_hash}')
@@ -289,7 +287,7 @@ class Hypervisor(Doberman.Monitor):
                         self.logger.debug(f'Caught a {type(e)}: {e}')
                         self.logger.debug(msg)
                 else:
-                    # Proabably an internal command from a pipeline?
+                    # Probably an internal command from a pipeline?
                     self.process_command(msg)
             if len(queue) > 0 and queue[0][0]-now < 0.001:
                 _, to, cmd = heappop(queue)
@@ -297,12 +295,12 @@ class Hypervisor(Doberman.Monitor):
                     self.process_command(cmd)
                 else:
                     cmd_hash = Doberman.utils.make_hash(now, to, cmd, hash_length=6)
-                    self.outgoing.send_string(f'{to} {cmd_hash} {cmd}')
-                    cmd_ack[cmd_hash] = (name, now())
+                    outgoing.send_string(f'{to} {cmd_hash} {cmd}')
+                    cmd_ack[cmd_hash] = (name, dtnow())
             pop = []
             for h, (n, t) in cmd_ack.items():
                 if now - t > 5:
-                    self.logger.warning(f'Command to {n} hasn\'t been ack\'d in {now-t:.1f} sec')
+                    self.logger.warning(f"Command to {n} hasn't been ack'd in {now-t:.1f} sec")
                     pop.append(h)
             map(cmd_ack.pop, pop)
 

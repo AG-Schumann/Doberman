@@ -7,11 +7,13 @@ import collections
 
 __all__ = 'Pipeline SyncPipeline'.split()
 
+
 class Pipeline(threading.Thread):
     """
     A generic data-processing pipeline digraph for simple or complex
     automatable tasks
     """
+
     def __init__(self, **kwargs):
         threading.Thread.__init__(self)
         self.db = kwargs['db']
@@ -23,7 +25,7 @@ class Pipeline(threading.Thread):
         self.event = threading.Event()
         self.subpipelines = []
         self.silenced_at_level = 0  # to support disjoint alarm pipelines
-        self.required_inputs = set() # this needs to be in this class even though it's only used in Sync
+        self.required_inputs = set()  # this needs to be in this class even though it's only used in Sync
         self.ctx = kwargs.get('context') or zmq.Context.instance()
         self.command_socket = self.ctx.socket(zmq.REQ)
         host, ports = self.db.get_comms_info('command')
@@ -67,7 +69,7 @@ class Pipeline(threading.Thread):
         pipelines, or called by run() for sync pipelines
         """
         doc = self.db.get_pipeline(self.name)
-        sensor_docs = {n:self.db.get_sensor_setting(n) for n in self.depends_on}
+        sensor_docs = {n: self.db.get_sensor_setting(n) for n in self.depends_on}
         self.reconfigure(doc['node_config'], sensor_docs)
         status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
         if status != 'silent':
@@ -100,13 +102,13 @@ class Pipeline(threading.Thread):
                     # but we should allow other subpipelines to run
                     break
                 t_end = time.time()
-                timing[node.name] = (t_end-t_start)*1000
+                timing[node.name] = (t_end - t_start) * 1000
         self.cycles += 1
         self.db.set_pipeline_value(self.name,
-                [('heartbeat', Doberman.utils.dtnow()),
-                    ('cycles', self.cycles),
-                    ('error', self.last_error),
-                    ('rate', sum(timing.values()))])
+                                   [('heartbeat', Doberman.utils.dtnow()),
+                                    ('cycles', self.cycles),
+                                    ('error', self.last_error),
+                                    ('rate', sum(timing.values()))])
         drift = max(drift, 0.001)  # min 1ms of drift
         return max(d['readout_interval'] for d in sensor_docs.values()) + drift
 
@@ -146,10 +148,10 @@ class Pipeline(threading.Thread):
                     # all this node's requirements are created
                     node_type = kwargs.pop('type')
                     node_kwargs = {
-                            'pipeline': self,
-                            'logger': self.logger,
-                            '_upstream': existing_upstream, # we _ the key because of the update line below
-                            }
+                        'pipeline': self,
+                        'logger': self.logger,
+                        '_upstream': existing_upstream,  # we _ the key because of the update line below
+                    }
                     node_kwargs.update(kwargs)
                     try:
                         n = getattr(Doberman, node_type)(**node_kwargs)
@@ -165,7 +167,8 @@ class Pipeline(threading.Thread):
                         for field in fields:
                             setup_kwargs[field] = doc.get(field)
                     elif isinstance(n, (Doberman.InfluxSinkNode)):
-                        if (doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                        if (
+                        doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
                             raise ValueError(f'Invalid output_var for {n.name}: {kwargs.get("output_var")}')
                         for field in fields:
                             setup_kwargs[field] = doc.get(field)
@@ -209,7 +212,7 @@ class Pipeline(threading.Thread):
                     num_buffer_nodes += 1
                     longest_buffer = max(longest_buffer, n.buffer.length)
 
-        self.startup_cycles = num_buffer_nodes + longest_buffer # I think?
+        self.startup_cycles = num_buffer_nodes + longest_buffer  # I think?
         self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
 
     def calculate_jointedness(self, graph):
@@ -240,7 +243,7 @@ class Pipeline(threading.Thread):
                 for i, node in enumerate(nodes):
                     if len(node.upstream_nodes) == 0 or all(u.name in pl for u in node.upstream_nodes):
                         pl[node.name] = nodes.pop(i)
-                        break # break because i is no longer valid
+                        break  # break because i is no longer valid
 
             self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
             self.subpipelines.append(list(pl.values()))
@@ -257,9 +260,9 @@ class Pipeline(threading.Thread):
                 if isinstance(node, Doberman.AlarmNode):
                     rd = sensor_docs[node.input_var]
                     this_node_config.update(
-                            alarm_thresholds=rd['alarm_thresholds'],
-                            readout_interval=rd['readout_interval'],
-                            alarm_recurrence=rd['alarm_recurrence'])
+                        alarm_thresholds=rd['alarm_thresholds'],
+                        readout_interval=rd['readout_interval'],
+                        alarm_recurrence=rd['alarm_recurrence'])
                     if isinstance(node, Doberman.SimpleAlarmNode):
                         this_node_config.update(length=rd['alarm_recurrence'])
                 node.load_config(this_node_config)
@@ -269,12 +272,12 @@ class Pipeline(threading.Thread):
         Silence this pipeline for a set amount of time
         """
         doc = {
-                'to': self.monitor.name,
-                'from': self.name,
-                'time': time.time()+duration,
-                'command': f'pipelinectl_active {self.name}'
-                }
-        self.db.set_pipeline_value(self.name, [('status', 'silent'), ('silent_until', time.time()+duration)])
+            'to': self.monitor.name,
+            'from': self.name,
+            'time': time.time() + duration,
+            'command': f'pipelinectl_active {self.name}'
+        }
+        self.db.set_pipeline_value(self.name, [('status', 'silent'), ('silent_until', time.time() + duration)])
         self.command_socket.send_string(json.dumps(doc))
         _ = self.command_socket.recv_string()
         self.silenced_at_level = level
@@ -296,6 +299,7 @@ class SyncPipeline(Pipeline):
     sits around waiting for data to come in, and only runs once a set
     minimum number of nodes have received new values.
     """
+
     def build(self, config):
         super().build(config)
         self.listens_for = collections.defaultdict(list)
@@ -331,4 +335,3 @@ class SyncPipeline(Pipeline):
                     if has_new >= self.required_inputs:
                         self.process_cycle()
                         has_new.clear()
-

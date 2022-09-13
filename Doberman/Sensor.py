@@ -4,6 +4,7 @@ import zmq
 
 __all__ = 'Sensor MultiSensor'.split()
 
+
 class Sensor(threading.Thread):
     """
     A thread responsible for scheduling readouts and processing the returned data.
@@ -89,7 +90,7 @@ class Sensor(threading.Thread):
         Does something interesting with the value. Should return a value
 
         """
-        value = sum(a*value**i for i, a in enumerate(self.xform))
+        value = sum(a * value ** i for i, a in enumerate(self.xform))
         value = int(value) if self.is_int else float(value)
         return value
 
@@ -146,7 +147,7 @@ class MultiSensor(Sensor):
         for name, value in zip(self.all_names, values):
             if value is None:
                 continue
-            value = sum(a*value**j for j, a in enumerate(self.xform[name]))
+            value = sum(a * value ** j for j, a in enumerate(self.xform[name]))
             _values[name] = int(value) if self.is_int[name] else float(value)
         return _values
 
@@ -159,4 +160,3 @@ class MultiSensor(Sensor):
             fields = {'value': v}
             self.db.write_to_influx(topic=self.topics[n], tags=tags, fields=fields, timestamp=timestamp)
             self.socket.send_string(f'{n} {timestamp:.3f} {v}')
-

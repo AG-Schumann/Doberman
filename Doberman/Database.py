@@ -2,8 +2,7 @@ import Doberman
 from socket import getfqdn
 import time
 import requests
-import pytz
-import random
+from datetime import timezone
 
 __all__ = 'Database'.split()
 
@@ -19,18 +18,19 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         self._db = mongo_client[self.experiment_name]
-        influx_cfg = self.read_from_db('experiment_config', {'name': 'influx'}, onlyone=True)
+        self._common_db = mongo_client['common']
+        influx_cfg = self.read_from_db('experiment_config', {'name': 'influx'}, only_one=True)
         url = influx_cfg['url']
         query_params = [('precision', influx_cfg.get('precision', 'ms'))]
         if (influx_version := influx_cfg.get('version', 2)) == 1:
             query_params += [('u', influx_cfg['username']),
-                            ('p', influx_cfg['password']),
-                            ('db', influx_cfg['org'])]
+                             ('p', influx_cfg['password']),
+                             ('db', influx_cfg['org'])]
             url += '/write?'
             headers = {}
         elif influx_version == 2:
             query_params += [('org', influx_cfg['org']),
-                            ('bucket', bucket_override or influx_cfg['bucket'])]
+                             ('bucket', bucket_override or influx_cfg['bucket'])]
             url += '/api/v2/write?'
             headers = {'Authorization': 'Token ' + influx_cfg['token']}
         else:
@@ -56,7 +56,7 @@ class Database(object):
 
         :param collection_name: name of the collection
         :param document: a dictionary or iterable of dictionaries
-        :param **kwargs: any keyword args, passed to collection.insert_(one|many)
+        :key **kwargs: any keyword args, passed to collection.insert_(one|many)
         :returns 0 if successful, -1 if a multiple insert failed, -2 if a single
         insert failed, or 1 if `document` has the wrong type
         """
@@ -76,22 +76,25 @@ class Database(object):
         self.logger.error(f'Not sure what to do with {type(document)} type')
         return 1
 
-    def read_from_db(self, collection_name, cuts={}, onlyone=False, **kwargs):
+    def read_from_db(self, collection_name, cuts={}, only_one=False, **kwargs):
         """
         Finds one or more documents that pass the specified cuts
 
         :param collection_name: name of the collection
         :param cuts: dictionary of the query to apply. Default {}
-        :param onlyone: bool, if only one document is requested
-        :param **kwargs: keyword args passed to collection.find. The 'sort' kwarg
+        :param only_one: bool, if only one document is requested
+        :key **kwargs: keyword args passed to collection.find. The 'sort' kwarg
         is handled separately because otherwise it doesn't do anything
-        :returns document if onlyone=True else cursor
+        :returns document if only_one=True else cursor
         """
-        collection = self._db[collection_name]
+        if collection_name == 'hosts':
+            collection = self._common_db[collection_name]
+        else:
+            collection = self._db[collection_name]
         cursor = collection.find(cuts, **kwargs)
         if 'sort' in kwargs:
             cursor.sort(kwargs['sort'])
-        if onlyone:
+        if only_one:
             for doc in cursor:
                 return doc
         else:
@@ -104,7 +107,7 @@ class Database(object):
         :param collection_name: name of the collection
         :param cuts: the dictionary specifying the query
         :param updates: the dictionary specifying the desired changes
-        :param **kwargs: keyword args passed to collection.update_many
+        :key **kwargs: keyword args passed to collection.update_many
         :returns: number of modified documents
         """
         collection = self._db[collection_name]
@@ -127,7 +130,7 @@ class Database(object):
         Does a database aggregation operation
         :param collection: string, the name of the collection
         :param pipeline: the aggregation pipeline stages
-        :param **kwargs: any kwargs to pass to the aggregator
+        :key **kwargs: any kwargs to pass to the aggregator
         :yields: documents
         """
         cursor = self._db[collection].aggregate(pipeline, **kwargs)
@@ -157,7 +160,7 @@ class Database(object):
         :**kwargs: keyword args passed to readFromDatabase
         :returns document
         """
-        doc = self.read_from_db(collection_name, cuts, onlyone=True, **kwargs)
+        doc = self.read_from_db(collection_name, cuts, only_one=True, **kwargs)
         if doc is not None:
             self.update_db(collection_name, {'_id': doc['_id']}, updates)
         return doc
@@ -176,10 +179,11 @@ class Database(object):
     def get_experiment_config(self, name, field=None):
         """
         Gets a document or parameter from the experimental configs
+        :param name: config_doc name from ['alarm', 'doberview_config', 'hypervisor', 'influx']
         :param field: which field you want, default None which gives you all of them
         :returns: either the whole document or a specific field
         """
-        doc = self.read_from_db('experiment_config', {'name': name}, onlyone=True)
+        doc = self.read_from_db('experiment_config', {'name': name}, only_one=True)
         if doc is not None and field is not None:
             return doc.get(field)
         return doc
@@ -190,15 +194,15 @@ class Database(object):
         :param name: the pipeline in question
         :returns:
         """
-        return self.read_from_db('pipelines', {'name': name}, onlyone=True,
-                projection={'status': 1, 'cycles': 1, 'error': 1, 'rate': 1, '_id': 0})
+        return self.read_from_db('pipelines', {'name': name}, only_one=True,
+                                 projection={'status': 1, 'cycles': 1, 'error': 1, 'rate': 1, '_id': 0})
 
     def get_pipeline(self, name):
         """
         Gets a pipeline config doc
         :param name: the name of the pipeline
         """
-        return self.read_from_db('pipelines', {'name': name}, onlyone=True)
+        return self.read_from_db('pipelines', {'name': name}, only_one=True)
 
     def get_pipelines(self, flavor):
         """
@@ -231,7 +235,7 @@ class Database(object):
         protocols = self.get_experiment_config('alarm', 'protocols')
         if len(protocols) < level:
             self.logger.error(f'No message protocols for alarm level {level}! '
-                               'Defaulting to highest level defined')
+                              'Defaulting to highest level defined')
             return protocols[-1]
         return protocols[level]
 
@@ -260,7 +264,6 @@ class Database(object):
                     recipient_names.add(doc['name'])
         return list(recipient_names)
 
-
     def get_contact_addresses(self, level):
         """
         Returns a list of addresses to contact at 'level' who are currently on shift,
@@ -277,13 +280,12 @@ class Database(object):
                 try:
                     ret[p].append(doc[p])
                 except KeyError:
-                    contactname = doc['name']
-                    self.logger.info(f"No {p} contact details for {contactname}")
+                    self.logger.info(f"No {p} contact details for {doc['name']}")
         return ret
 
     def get_heartbeat(self, device=None):
-        doc = self.read_from_db('devices', cuts={'name': device}, onlyone=True)
-        return doc['heartbeat'].replace(tzinfo=pytz.utc)
+        doc = self.read_from_db('devices', cuts={'name': device}, only_one=True)
+        return doc['heartbeat'].replace(tzinfo=timezone.utc)
 
     def update_heartbeat(self, device=None):
         """
@@ -302,7 +304,7 @@ class Database(object):
         :returns: the value of the named field
         """
         doc = self.read_from_db('devices', cuts={'name': name},
-                                onlyone=True)
+                                only_one=True)
         if field is not None:
             return doc[field]
         return doc
@@ -327,7 +329,7 @@ class Database(object):
         :returns: named field, or the whole doc
         """
         doc = self.read_from_db('sensors', cuts={'name': name},
-                onlyone=True)
+                                only_one=True)
         return doc[field] if field is not None and field in doc else doc
 
     def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
@@ -355,7 +357,7 @@ class Database(object):
         """
         if host is None:
             host = self.hostname
-        doc = self.read_from_db('hosts', {'name': host}, onlyone=True)
+        doc = self.read_from_db('hosts', {'name': host}, only_one=True)
         if doc is not None and field is not None and field in doc:
             return doc[field]
         return doc
@@ -389,7 +391,8 @@ class Database(object):
             self.logger.error(f'Got status code {r.status_code} instead of 200/204')
             try:
                 self.logger.error(r.json())
-            except:
+            except Exception as e:
+                self.logger.error(f'{type(e)}: {e}')
                 self.logger.error(r.content)
 
     def send_value_to_pipelines(self, sensor, value, timestamp):
@@ -402,10 +405,10 @@ class Database(object):
         """
         for pl in ['pl_alarm', 'pl_control', 'pl_convert']:
             self.log_command(
-                        f'sensor_value {sensor} {timestamp} {value}',
-                        to=pl,
-                        issuer=None,
-                        bypass_hypervisor=True)
+                f'sensor_value {sensor} {timestamp} {value}',
+                to=pl,
+                issuer=None,
+                bypass_hypervisor=True)
 
     def get_current_status(self):
         """
@@ -413,7 +416,7 @@ class Database(object):
         """
         status = {}
         now = dtnow()
-        for host_doc in self.read_from_db('common', 'hosts'):
+        for host_doc in self.read_from_db('hosts'):
             hostname = host_doc['hostname']
             status[hostname] = {
                 'status': host_doc['status'],
@@ -422,7 +425,7 @@ class Database(object):
             }
             for device_name in host_doc['default']:
                 try:
-                    device_doc = self.read_from_db('devices', cuts={'name': device_name}, onlyone=True)
+                    device_doc = self.read_from_db('devices', cuts={'name': device_name}, only_one=True)
                     status[hostname]['devices'][device_name] = {
                         'last_heartbeat': (now - device_doc['heartbeat']).total_seconds(),
                         'sensors': {}

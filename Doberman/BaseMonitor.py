@@ -33,7 +33,7 @@ class Monitor(object):
         self.setup()
         self.logger.debug('Child setup completed')
         time.sleep(1)
-        self.register(obj=self.check_threads, period=30, name='checkthreads', _no_stop=True)
+        self.register(obj=self.check_threads, period=30, name='check_threads', _no_stop=True)
 
     def __del__(self):
         pass
@@ -70,7 +70,7 @@ class Monitor(object):
         :param period: how often (in seconds) you want this thing done. If obj is a
             function and returns a number, this will be used as the period. Default None
         :param _no_stop: bool, should this thread be allowed to stop? Default false
-        :param **kwargs: any kwargs that obj needs to be called
+        :key **kwargs: any kwargs that obj needs to be called
         :returns: None
         """
         self.logger.debug('Registering ' + name)
@@ -78,7 +78,7 @@ class Monitor(object):
             # obj is a thread
             t = obj
             if not hasattr(t, 'event'):
-                raise ValueError('Register received misformed object')
+                raise ValueError('Register received malformed object')
         else:
             # obj is a function, must wrap with FunctionHandler
             if kwargs:
@@ -209,4 +209,3 @@ class FunctionHandler(threading.Thread):
                 self.logger.error(f'{self.name} caught a {type(e)}: {e}')
             self.event.wait(loop_top + self.period - time.time())
         self.logger.debug(f'Returning {self.name}')
-
