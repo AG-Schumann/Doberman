@@ -1,11 +1,8 @@
 import Doberman
-import datetime
-from socket import getfqdn, create_connection
+from socket import getfqdn
 import time
 import requests
-import json
 import pytz
-import itertools
 import random
 
 __all__ = 'Database'.split()
@@ -137,18 +134,6 @@ class Database(object):
         for doc in cursor:
             yield doc
 
-    def get_experiment_config(self, name, field=None):
-        """
-        Gets an experiment config document
-        :param name: the name of the document
-        :param field: a specific field
-        :returns: The whole document if field = None, either just the field
-        """
-        doc = self.read_from_db('experiment_config', {'name': name}, onlyone=True)
-        if doc and field and field in doc:
-            return doc[field]
-        return doc
-
     def distinct(self, collection_name, field, cuts={}, **kwargs):
         """
         Transfer function for collection.distinct
@@ -177,28 +162,16 @@ class Database(object):
             self.update_db(collection_name, {'_id': doc['_id']}, updates)
         return doc
 
-    def log_command(self, command, to, issuer, delay=0, bypass_hypervisor=False):
+    def get_comms_info(self, subsystem: str):
         """
-        Issue a command to someone else
-        :param command: the command for them to process
-        :param to: who the command is for
-        :param issuer: who is issuing the command
-        :param delay: how far into the future the command should happen, default 0
-        :param bypass_hypervisor: bool, communicate directly with recipient?
-        :returns: None
+        Get a hostname and ports for the given subsystem
+        :param subsystem: string, either "data" or "command"
+        :returns: (hostname, {"send": <port>, "recv": <port>})
         """
-        doc = {
-                'to': to,
-                'command': command,
-                'by': issuer,
-                'time': time.time() + delay
-                }
-        try:
-            hn, p = self.find_listener_address(to if bypass_hypervisor else 'hypervisor')
-            with create_connection((hn, p), timeout=0.1) as sock:
-                sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
-        except Exception as e:
-            self.logger.debug(f'Caught a {type(e)}: {e}')
+        if subsystem not in ['data', 'command']:
+            return None, None
+        doc = self.get_experiment_config('hypervisor')
+        return doc['host'], doc['comms'][subsystem]
 
     def get_experiment_config(self, name, field=None):
         """
@@ -357,20 +330,6 @@ class Database(object):
                 onlyone=True)
         return doc[field] if field is not None and field in doc else doc
 
-    def get_runmode_setting(self, runmode=None, field=None):
-        """
-        Reads default Doberman settings from database.
-
-        :param runmode: the runmode to get settings for
-        :param field: the name of the setting
-        :returns: the setting dictionary if name=None, otherwise the specific field
-        """
-        doc = self.read_from_db('runmodes',
-                                {'mode': runmode}, onlyone=True)
-        if field is not None:
-            return doc[field]
-        return doc
-
     def notify_hypervisor(self, active=None, inactive=None, unmanage=None):
         """
         A way for devices to tell the hypervisor when they start and stop and stuff
@@ -389,77 +348,6 @@ class Database(object):
             self.update_db('experiment_config', {'name': 'hypervisor'},
                            updates)
         return
-
-    def assign_listener_address(self, name):
-        """
-        Assign a hostname and port for communication
-        :param name: who will get this assignment
-        :returns: None
-        """
-        if name in self.distinct('devices', 'name'):
-            # this is a device
-            host = self.get_device_setting(name, field='host')
-        else:
-            # probably a pipeline, assume it runs on the master host
-            host = self.find_listener_address('hypervisor')[0]
-        while self.update_db('dispatch', {'name': '_lock', 'host': '', 'port': -1}, {'$set': {'port': 1}}) == 0:
-            time.sleep(random.random())
-        s = ', '.join(map(lambda d: f'{d["name"]}:{d["port"]}', self.read_from_db('dispatch', {'host': host})))
-        self.logger.debug(f'Existing leases on {host}: {s}')
-        try:
-            for doc in self.aggregate('dispatch', [
-                {'$match': {'host': host}},
-                {'$group': {
-                    '_id': '$host',
-                    'min_port': {'$min': '$port'},
-                    'max_port': {'$max': '$port'},
-                    'num_ports': {'$sum': 1},
-                    'ports': {'$push': '$port'}}},
-                {'$project': {
-                    'name': name,
-                    'host': '$_id',
-                    '_id': 0,
-                    'port': {'$cond': [
-                                {'$eq': [ # are the ports densely-packed?
-                                    {'$subtract': ['$max_port', '$min_port']},
-                                    {'$subtract': ['$num_ports', 1]}
-                                ]},
-                                {'$add': ['$max_port', 1]}, # if so, max + 1
-                                {'$first': {'$filter': { # if not, find an open port
-                                    'input': {'$range': ['$min_port', '$max_port']},
-                                    'as': 'p',
-                                    'cond': {'$not': {'$in': ['$$p', '$ports']}}
-                                    }}}
-                                ]}
-                    }}]):
-                self.logger.debug(f'Assigning {host}:{doc["port"]}')
-                self.insert_into_db('dispatch', doc)
-        except Exception as e:
-            self.logger.error(f'Caught a {type(e)} during port assignment: {e}')
-        self.update_db('dispatch', {'name': '_lock', 'host': ''}, {'$set': {'port': -1}})
-
-    def find_listener_address(self, name):
-        """
-        Get a hostname and port to communicate over. If none exist, raise an error
-
-        :param name: the name of someone
-        :returns: (string, int) tuple of the hostname and port
-        """
-        if name in self.address_cache:
-            return self.address_cache[name]
-        if (doc := self.read_from_db('dispatch', {'name': name}, onlyone=True)) is None:
-            raise ValueError(f'No assigned listener info for {name}')
-        host, port = doc['host'], doc['port']
-        if name in ['pl_alarm', 'pl_control', 'pl_convert', 'hypervisor']:
-            self.address_cache[name] = (host, int(port))
-        return host, int(port)
-
-    def release_listener_port(self, name):
-        """
-        Return the port used by <name> to the pool
-        """
-        if name != 'hypervisor':
-            self.delete_documents('dispatch', {'name': name})
 
     def get_host_setting(self, host=None, field=None):
         """

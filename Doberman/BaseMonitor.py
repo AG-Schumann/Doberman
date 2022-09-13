@@ -2,7 +2,7 @@ import Doberman
 import threading
 from functools import partial
 import time
-import socket
+import zmq
 
 __all__ = 'Monitor'.split()
 
@@ -28,13 +28,6 @@ class Monitor(object):
         self.restart_info = {}
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        if self.name != 'hypervisor':
-            self.db.assign_listener_address(self.name)
-        _, port = self.db.find_listener_address(self.name)
-        # is the lambda necessary? Maybe? We sometimes crashed without it for
-        # reasons I don't understand
-        l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
-        self.register(name='listener', obj=l, _no_stop=True)
         self.db.notify_hypervisor(active=self.name)
         self.logger.debug('Child setup starting')
         self.setup()
@@ -145,6 +138,43 @@ class Monitor(object):
                         except Exception as e:
                             self.logger.error(f'{n}-thread won\'t restart: {e}')
 
+    def listen(self):
+        """
+        Listens for incoming commands
+        """
+        host, ports = self.db.get_comms_info('command')
+        ctx = zmq.Context.instance()
+        incoming = ctx.socket(zmq.SUB)
+        outgoing = ctx.socket(zmq.REQ)
+
+        incoming.setsockopt_string(zmq.SUBSCRIBE, 'ping')
+        incoming.setsockopt_string(zmq.SUBSCRIBE, self.name)
+
+        incoming.connect(f'tcp://{host}:{ports["recv"]}')
+        outgoing.connect(f'tcp://{host}:{ports["send"]}')
+
+        poller = zmq.Poller()
+        poller.register(incoming, zmq.POLLIN)
+
+        while not self.event.is_set():
+            socks = dict(poller.poll(timeout=1000))
+
+            if socks.get(incoming) == zmq.POLLIN:
+                msg = incoming.recv_string()
+                if msg.startswith('ping'):
+                    outgoing.send_string(f'pong {self.name}')
+                    _ = outgoing.recv_string()
+                else:
+                    try:
+                        # name, hash, command
+                        _, cmd_hash, command = msg.split(' ', maxsplit=2)
+                        self.process_command(command)
+                        outgoing.send_string(f'ack {self.name} {cmd_hash}')
+                        _ = outgoing.recv_string()
+                    except Exception as e:
+                        self.logger.warning(f'Caught a {type(e)} while processing command: {e}')
+                        self.logger.debug(msg)
+
     def process_command(self, command):
         """
         A function for base classes to implement to handle any commands
@@ -181,38 +211,3 @@ class FunctionHandler(threading.Thread):
             self.event.wait(loop_top + self.period - time.time())
         self.logger.debug(f'Returning {self.name}')
 
-
-class Listener(threading.Thread):
-    """
-    This class listens for incoming commands and handles them
-    """
-
-    def __init__(self, port, logger, event, process_command):
-        threading.Thread.__init__(self)
-        self.port = port
-        self.logger = logger
-        self.event = event
-        self.process_command = process_command
-        self.packet_size = 2048
-
-    def run(self):
-        self.logger.debug('Listener starting up')
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(1)
-            sock.bind(('', self.port))
-            sock.listen()
-            while not self.event.is_set():
-                data = None
-                addr = None
-                try:
-                    conn, addr = sock.accept()
-                    with conn:
-                        if (data := conn.recv(self.packet_size)) == b'ping':
-                            conn.sendall(b'pong')
-                        else:
-                            self.process_command(data.strip().decode())
-                except socket.timeout:
-                    pass
-                except Exception as e:
-                    self.logger.info(f'Listener caught a {type(e)} while handling {data} from {addr}: {e}')
-        self.logger.debug('Listener shutting down')
