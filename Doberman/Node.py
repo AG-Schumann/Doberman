@@ -103,8 +103,13 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.accept_old = kwargs.get('accept_old', False)
+
     def process(self, *args, **kwargs):
         return None
+
 
 class InfluxSourceNode(SourceNode):
     """
@@ -131,7 +136,6 @@ class InfluxSourceNode(SourceNode):
         super().setup(**kwargs)
         if self.input_var.startswith('X_SYNC_'):
             raise ValueError('Cannot use Influx for SYNC signals')
-        self.accept_old = kwargs.get('accept_old', False)
         config_doc = kwargs['influx_cfg']
         topic = kwargs['topic']
         if config_doc.get('schema', 'v2') == 'v1':
@@ -198,7 +202,7 @@ class SensorSourceNode(SourceNode):
         super().setup(**kwargs)
         self.cv = kwargs['cv']
         self.pipeline.monitor.register_listener(self)
-        if kwargs.get('new_value_required', False) or self.input_var.startswith('X_SYNC'):
+        if kwargs.get('new_value_required', False) in [True, 'true'] or self.input_var.startswith('X_SYNC'):
             self.pipeline.required_inputs.add(self.name)
 
     def receive_from_upstream(self, package):

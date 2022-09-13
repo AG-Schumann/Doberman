@@ -56,6 +56,7 @@ class PipelineMonitor(Doberman.Monitor):
         """
         Register a node to listen for named sensor inputs
         """
+        self.logger.debug(f'{node.name} listens for {node.input_var}')
         self.listeners[node.input_var][node.hash] = node
 
     def unregister_listener(self, node):

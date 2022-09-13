@@ -25,12 +25,16 @@ class DigitalControl(ControlNode):
     """
     A generalized node to handle digital output. The logic is assumed to be
     upstream.
+
+    If condition_a is true, the output is set to 1.
+    Otherwise, if condition_b is true, the output is set to 0.
+    If neither condition is true, the output is left unchanged.
     """
     def process(self, package):
         if package['condition_a']:
             self.logger.info('Condition a met')
             self.set_output(self.config.get('output_a', 1))
-        elif package['condition_b']:
+        elif self.config.get('one_input', True) or package['condition_b']:
             self.logger.info('Condition b met')
             self.set_output(self.config.get('output_b', 0))
 

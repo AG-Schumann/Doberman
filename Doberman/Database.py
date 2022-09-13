@@ -198,7 +198,7 @@ class Database(object):
             with create_connection((hn, p), timeout=0.1) as sock:
                 sock.sendall((command if bypass_hypervisor else json.dumps(doc)).encode())
         except Exception as e:
-            self.logger.debug(f'Caught a {type(e)}: {e}')
+            self.logger.debug(f'Caught a {type(e)} sending to "{hn}": {e}')
 
     def get_experiment_config(self, name, field=None):
         """
@@ -402,7 +402,7 @@ class Database(object):
         else:
             # probably a pipeline, assume it runs on the master host
             host = self.find_listener_address('hypervisor')[0]
-        while self.update_db('dispatch', {'name': '_lock', 'host': '', 'port': -1}, {'$set': {'port': 1}}) == 0:
+        while self.update_db('dispatch', {'name': '_lock', 'host': '', 'port': -1}, {'$set': {'port': 1, 'host': f'{host}:{name}'}}) == 0:
             time.sleep(random.random())
         s = ', '.join(map(lambda d: f'{d["name"]}:{d["port"]}', self.read_from_db('dispatch', {'host': host})))
         self.logger.debug(f'Existing leases on {host}: {s}')
@@ -436,7 +436,7 @@ class Database(object):
                 self.insert_into_db('dispatch', doc)
         except Exception as e:
             self.logger.error(f'Caught a {type(e)} during port assignment: {e}')
-        self.update_db('dispatch', {'name': '_lock', 'host': ''}, {'$set': {'port': -1}})
+        self.update_db('dispatch', {'name': '_lock'}, {'$set': {'port': -1, 'host': ''}})
 
     def find_listener_address(self, name):
         """
