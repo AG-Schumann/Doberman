@@ -130,7 +130,7 @@ class OutputHandler(object):
             # multiple threads, and files aren't thread-safe
             if date != self.today:
                 # it's a brand new day, and the sun is high...
-                self.rotate(date)
+                self.rotate()
             if message[-1] == '\n':
                 message = message[:-1]
             print(message)
@@ -141,6 +141,9 @@ class OutputHandler(object):
                 # get pushed to disk, and we don't want this. If we do it too frequently it's slow
                 self.f.flush()
                 self.flush_cycle = 0
+    
+    def get_logdir(self, date):
+        return f'/global/logs/{self.experiment}/{date.year}/{date.month:02d}.{date.day:02d}'
 
 def get_logger(name, db):
     oh = OutputHandler(name, db.experiment_name)

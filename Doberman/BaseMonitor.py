@@ -34,6 +34,8 @@ class Monitor(object):
         self.logger.debug('Child setup completed')
         time.sleep(1)
         self.register(obj=self.check_threads, period=30, name='check_threads', _no_stop=True)
+        self.register(obj=self.listen, name='listen', _no_stop=True)
+
 
     def __del__(self):
         pass

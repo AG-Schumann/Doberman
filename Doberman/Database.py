@@ -18,7 +18,6 @@ class Database(object):
         self.hostname = getfqdn()
         self.experiment_name = experiment_name
         self._db = mongo_client[self.experiment_name]
-        self._common_db = mongo_client['common']
         influx_cfg = self.read_from_db('experiment_config', {'name': 'influx'}, only_one=True)
         url = influx_cfg['url']
         query_params = [('precision', influx_cfg.get('precision', 'ms'))]
@@ -87,10 +86,7 @@ class Database(object):
         is handled separately because otherwise it doesn't do anything
         :returns document if only_one=True else cursor
         """
-        if collection_name == 'hosts':
-            collection = self._common_db[collection_name]
-        else:
-            collection = self._db[collection_name]
+        collection = self._db[collection_name]
         cursor = collection.find(cuts, **kwargs)
         if 'sort' in kwargs:
             cursor.sort(kwargs['sort'])

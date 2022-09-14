@@ -43,7 +43,7 @@ class Hypervisor(Doberman.Monitor):
         # now start the rest of the things
         self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
-        self.dispatcher = threading.Thread(target=self.dispatcher)
+        self.dispatcher = threading.Thread(target=self.dispatch)
         self.dispatcher.start()  # TODO get this registered somehow
         self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
@@ -109,12 +109,14 @@ class Hypervisor(Doberman.Monitor):
         self.known_devices = self.db.distinct('devices', 'name')
         path = self.config['path']
         for pl in 'alarm control convert'.split():
-            if time.time()-self.last_pong.get(f'pl_{pl}', 100) > 30 and \
-                    (dtnow()-self.last_restart[f'pl_{pl}']).total_seconds() > 60:
+            if time.time()-self.last_pong.get(f'pl_{pl}', 100) > 30 and (dtnow()-self.last_restart[f'pl_{pl}']).total_seconds() > 60:
+                self.logger.debug(f'Failed to ping pl_{pl}, resterting it')
                 self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
 
         for device in managed:
+            self.logger.debug(device)
             if device not in active:
+                self.logger.debug(f'{device} is managed but not active. I will start it.')
                 # device isn't running and it's supposed to be
                 if self.start_device(device):
                     self.logger.error(f'Problem starting {device}, check the debug logs')
@@ -126,8 +128,7 @@ class Hypervisor(Doberman.Monitor):
                     self.logger.error(f'Problem starting {device}, check the debug logs')
                 else:
                     self.logger.debug(f'{device} restarted')
-            elif self.last_pong.get(device, 100) > 30 and \
-                    (now-self.last_restart[device]).total_seconds() > 60:
+            elif time.time() - self.last_pong.get(device, 100) > 30:
                 self.logger.error(f'Failed to ping {device}, restarting it')
                 self.start_device(device)
             else:
@@ -204,7 +205,7 @@ class Hypervisor(Doberman.Monitor):
     def compress_logs(self) -> None:
         then = dtnow()-datetime.timedelta(days=7)
         self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
-        p = self.logger.handlers[0].oh.logdir(dtnow()-datetime.timedelta(days=7))
+        p = self.logger.handlers[0].oh.get_logdir(dtnow()-datetime.timedelta(days=7))
         self.run_locally(f'cd {p} && gzip --best *.log')
 
     def data_broker(self) -> None:
@@ -230,7 +231,7 @@ class Hypervisor(Doberman.Monitor):
 
         return
 
-    def dispatcher(self, ping_period=5) -> None:
+    def dispatch(self, ping_period=5) -> None:
         """
         This function handles the command-passing communication subsystem
         :param ping_period: how often do pings happen? Default 5 (seconds)
@@ -241,12 +242,10 @@ class Hypervisor(Doberman.Monitor):
         outgoing = ctx.socket(zmq.PUB)
 
         _, ports = self.db.get_comms_info('command')
-
         # send/recv seems backwards because it is here. we "recv" on the
         # line everyone else 'sends' on
         incoming.bind(f'tcp://*:{ports["send"]}')
-        outgoing.bind(f'tpc://*:{ports["recv"]}')
-
+        outgoing.bind(f'tcp://*:{ports["recv"]}')
         poller = zmq.Poller()
         poller.register(incoming, zmq.POLLIN)
         last_ping = time.time()
