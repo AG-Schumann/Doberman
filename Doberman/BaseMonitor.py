@@ -53,7 +53,6 @@ class Monitor(object):
                 t.event.set()
             for n, t in self.threads.items():
                 try:
-                    self.logger.debug(f'Stopping {n}')
                     t.event.set()
                     t.join()
                 except Exception as e:
@@ -169,6 +168,9 @@ class Monitor(object):
                     try:
                         # name, hash, command
                         _, cmd_hash, command = msg.split(' ', maxsplit=2)
+                        if command == 'stop':
+                            # We have to ack this before stopping
+                            outgoing.send_string(f'ack {self.name} {cmd_hash}')
                         self.process_command(command)
                         outgoing.send_string(f'ack {self.name} {cmd_hash}')
                         _ = outgoing.recv_string()

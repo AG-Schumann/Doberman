@@ -22,7 +22,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         super().setup()
         self.current_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         self.current_shifters.sort()
-        self.register(obj=self.check_shifters, period=600, name='shiftercheck', _no_stop=True)
+        self.register(obj=self.check_shifters, period=60, name='shiftercheck', _no_stop=True)
 
     def get_connection_details(self, which):
         detail_doc = self.db.get_experiment_config('alarm')
@@ -204,9 +204,9 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             msg = f'{", ".join(new_shifters)} '
             msg += ('is ' if len(new_shifters) == 1 else 'are ')
             msg += f'now on shift.'
+            self.current_shifters = new_shifters
             self.log_alarm(level=1,
                            message=msg,
                            pipeline='AlarmMonitor',
                            _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
                            )
-            self.current_shifters = new_shifters

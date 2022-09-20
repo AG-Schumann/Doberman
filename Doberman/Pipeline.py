@@ -176,7 +176,6 @@ class Pipeline(threading.Thread):
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['send_to_pipelines'] = self.db.send_value_to_pipelines
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
-                    setup_kwargs['log_command'] = self.db.log_command
                     for k in 'escalation_config silence_duration'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
@@ -311,7 +310,7 @@ class SyncPipeline(Pipeline):
     def run(self):
         socket = self.ctx.socket(zmq.SUB)
         host, ports = self.db.get_comms_info('data')
-        socket.connect(f'tcp://{host}:{ports["receive"]}')
+        socket.connect(f'tcp://{host}:{ports["recv"]}')
         for name in self.depends_on:
             socket.setsockopt_string(zmq.SUBSCRIBE, name)
         poller = zmq.Poller()

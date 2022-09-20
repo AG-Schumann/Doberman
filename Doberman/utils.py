@@ -154,6 +154,8 @@ def get_logger(name, db):
 
 def get_child_logger(name, db, main_logger):
     logger = logging.getLogger(name)
+    if logger.hasHandlers():
+        logger.handlers.clear()
     logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
     logger.setLevel(logging.DEBUG)
     return logger
