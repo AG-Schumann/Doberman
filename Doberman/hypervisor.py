@@ -117,7 +117,6 @@ class Hypervisor(Doberman.Monitor):
                 self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
 
         for device in managed:
-            self.logger.debug(device)
             if device not in active:
                 self.logger.debug(f'{device} is managed but not active. I will start it.')
                 # device isn't running and it's supposed to be
