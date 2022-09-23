@@ -1,6 +1,5 @@
 import Doberman
 import subprocess
-import typing as ty
 import time
 import os.path
 import os
@@ -33,19 +32,20 @@ class Hypervisor(Doberman.Monitor):
                 for activity in activities:
                     self.run_over_ssh(f'{self.username}@{host}', activity)
 
-        self.last_restart = {}
         self.last_pong = {}
         # start the three Pipeline monitors
         path = self.config['path']
         for thing in 'alarm control convert'.split():
             self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
-            self.last_restart[f'pl_{thing}'] = dtnow()
             time.sleep(0.1)
         # now start the rest of the things
         self.known_devices = self.db.distinct('devices', 'name')
         self.cv = threading.Condition()
-        self.dispatcher = threading.Thread(target=self.dispatcher)
+        self.dispatcher = threading.Thread(target=self.dispatch)
         self.dispatcher.start()  # TODO get this registered somehow
+        self.broker_context = zmq.Context.instance()
+        self.broker = threading.Thread(target=self.data_broker, args=(self.broker_context,))
+        self.broker.start()
         self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
         if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
             self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
@@ -71,6 +71,8 @@ class Hypervisor(Doberman.Monitor):
         self.event.set()
         self.update_config(status='offline')
         self.dispatcher.join()
+        self.broker_context.term()
+        self.broker.join()
         self.sync.join()
 
     def sync_signals(self, periods: list) -> None:
@@ -85,7 +87,7 @@ class Hypervisor(Doberman.Monitor):
             _, p = heappop(q)
             now = time.time()
             socket.send_string(f'X_SYNC_{p} {now:.3f} 0')
-            heappush((now+p, p))
+            heappush(q, (now+p, p))
 
     def update_config(self, unmanage=None, manage=None, active=None, heartbeat=None, status=None) -> None:
         updates = {}
@@ -110,12 +112,13 @@ class Hypervisor(Doberman.Monitor):
         self.known_devices = self.db.distinct('devices', 'name')
         path = self.config['path']
         for pl in 'alarm control convert'.split():
-            if time.time()-self.last_pong.get(f'pl_{pl}', 100) > 30 and \
-                    (dtnow()-self.last_restart[f'pl_{pl}']).total_seconds() > 60:
+            if time.time()-self.last_pong.get(f'pl_{pl}', 100) > 30:
+                self.logger.debug(f'Failed to ping pl_{pl}, restarting it')
                 self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
 
         for device in managed:
             if device not in active:
+                self.logger.debug(f'{device} is managed but not active. I will start it.')
                 # device isn't running and it's supposed to be
                 if self.start_device(device):
                     self.logger.error(f'Problem starting {device}, check the debug logs')
@@ -127,8 +130,7 @@ class Hypervisor(Doberman.Monitor):
                     self.logger.error(f'Problem starting {device}, check the debug logs')
                 else:
                     self.logger.debug(f'{device} restarted')
-            elif self.last_pong.get(device, 100) > 30 and \
-                    (now-self.last_restart[device]).total_seconds() > 60:
+            elif time.time() - self.last_pong.get(device, 100) > 30:
                 self.logger.error(f'Failed to ping {device}, restarting it')
                 self.start_device(device)
             else:
@@ -167,7 +169,7 @@ class Hypervisor(Doberman.Monitor):
             cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True, timeout=30)
         except subprocess.TimeoutExpired:
             self.logger.error(f'Command to {address} timed out!')
-            return
+            return -1
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
@@ -188,13 +190,9 @@ class Hypervisor(Doberman.Monitor):
         return cp.returncode
 
     def start_device(self, device: str) -> int:
-        if device in self.last_restart and (dtnow() - self.last_restart[device]).total_seconds() < self.config['restart_timeout']:
-            self.logger.warning(f'Can\'t restart {device}, did so too recently')
-            return 1
         path = self.config['path']
         doc = self.db.get_device_setting(device)
         host = doc['host']
-        self.last_restart[device] = dtnow()
         self.update_config(manage=device)
         command = f"cd {path} && ./start_process.sh -d {device}"
         if host == self.localhost:
@@ -204,14 +202,13 @@ class Hypervisor(Doberman.Monitor):
     def compress_logs(self) -> None:
         then = dtnow()-datetime.timedelta(days=7)
         self.logger.info(f'Compressing logs from {then.year}-{then.month:02d}-{then.day:02d}')
-        p = self.logger.handlers[0].oh.logdir(dtnow()-datetime.timedelta(days=7))
+        p = self.logger.handlers[0].oh.get_logdir(dtnow()-datetime.timedelta(days=7))
         self.run_locally(f'cd {p} && gzip --best *.log')
 
-    def data_broker(self) -> None:
+    def data_broker(self, ctx) -> None:
         """
         This functions sets up the middle-man for the data-passing subsystem
         """
-        ctx = zmq.Context.instance()
         incoming = ctx.socket(zmq.XSUB)
         outgoing = ctx.socket(zmq.XPUB)
 
@@ -220,21 +217,16 @@ class Hypervisor(Doberman.Monitor):
         # ports seem backwards because they should be here and only here
         incoming.bind(f'tcp://*:{ports["send"]}')
         outgoing.bind(f'tcp://*:{ports["recv"]}')
-
-        while not self.event.is_set():
+        
+        try:
             zmq.proxy(incoming, outgoing)
+        except zmq.ContextTerminated:
+            incoming.close()
+            outgoing.close()
 
-        # probably never get here
-        incoming.close()
-        outgoing.close()
-
-        return
-
-    def dispatcher(self, ping_period=5) -> None:
+    def dispatch(self, ping_period=5) -> None:
         """
         This function handles the command-passing communication subsystem
-        :param incoming_port: what port to listen on?
-        :param outgoing_port: what port to broadcast on?
         :param ping_period: how often do pings happen? Default 5 (seconds)
         """
         ctx = zmq.Context.instance()
@@ -243,12 +235,10 @@ class Hypervisor(Doberman.Monitor):
         outgoing = ctx.socket(zmq.PUB)
 
         _, ports = self.db.get_comms_info('command')
-
         # send/recv seems backwards because it is here. we "recv" on the
         # line everyone else 'sends' on
         incoming.bind(f'tcp://*:{ports["send"]}')
-        outgoing.bind(f'tpc://*:{ports["recv"]}')
-
+        outgoing.bind(f'tcp://*:{ports["recv"]}')
         poller = zmq.Poller()
         poller.register(incoming, zmq.POLLIN)
         last_ping = time.time()
@@ -274,14 +264,13 @@ class Hypervisor(Doberman.Monitor):
                 elif msg.startswith('{'):  # incoming external command
                     try:
                         doc = json.loads(msg)
-                        self.logger.debug(f'Incoming command from {doc["from"]}')
-                        heappush((float(doc['time']), doc['to'], doc['command']))
+                        heappush(queue, (float(doc['time']), doc['to'], doc['command']))
                     except Exception as e:
                         self.logger.debug(f'Caught a {type(e)} while processing. {e}')
                         self.logger.debug(msg)
                 elif msg.startswith('ack'):  # command acknowledgement
+                    _, name, cmd_hash = msg.split(' ')
                     try:
-                        _, name, cmd_hash = msg.split(' ')
                         del cmd_ack[cmd_hash]
                     except KeyError:
                         self.logger.debug(f'Unknown hash from {name}: {cmd_hash}')
@@ -289,7 +278,7 @@ class Hypervisor(Doberman.Monitor):
                         self.logger.debug(f'Caught a {type(e)}: {e}')
                         self.logger.debug(msg)
                 else:
-                    # Proabably an internal command from a pipeline?
+                    # Probably an internal command from a pipeline?
                     self.process_command(msg)
             if len(queue) > 0 and queue[0][0]-now < 0.001:
                 _, to, cmd = heappop(queue)
@@ -297,12 +286,12 @@ class Hypervisor(Doberman.Monitor):
                     self.process_command(cmd)
                 else:
                     cmd_hash = Doberman.utils.make_hash(now, to, cmd, hash_length=6)
-                    self.outgoing.send_string(f'{to} {cmd_hash} {cmd}')
-                    cmd_ack[cmd_hash] = (name, now())
+                    outgoing.send_string(f'{to} {cmd_hash} {cmd}')
+                    cmd_ack[cmd_hash] = (to, dtnow())
             pop = []
             for h, (n, t) in cmd_ack.items():
-                if now - t > 5:
-                    self.logger.warning(f'Command to {n} hasn\'t been ack\'d in {now-t:.1f} sec')
+                if (waiting := (dtnow() - t).total_seconds()) > 5:
+                    self.logger.warning(f"Command to {n} hasn't been ack'd in {waiting:.1f} sec")
                     pop.append(h)
             map(cmd_ack.pop, pop)
 
@@ -324,7 +313,6 @@ class Hypervisor(Doberman.Monitor):
                 return
             self.logger.info(f'Hypervisor now managing {device}')
             self.update_config(manage=device)
-            self.last_restart[device] = dtnow()  # need this
 
         elif command.startswith('unmanage'):
             _, device = command.split(' ', maxsplit=1)

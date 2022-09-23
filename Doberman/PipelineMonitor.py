@@ -32,9 +32,10 @@ class PipelineMonitor(Doberman.Monitor):
         if (doc := self.db.get_pipeline(name)) is None:
             self.logger.error(f'No pipeline named {name} found')
             return -1
+        self.logger.debug(f'starting pipeline {name}')
         try:
             p = Doberman.Pipeline.create(doc, db=self.db,
-                    logger=Doberman.utils.get_child_logger(name, self.logger),
+                    logger=Doberman.utils.get_child_logger(name, self.db, self.logger),
                     name=name, monitor=self)
             p.build(doc)
         except Exception as e:
@@ -47,7 +48,7 @@ class PipelineMonitor(Doberman.Monitor):
         return 0
 
     def stop_pipeline(self, name):
-        self.logger.debug(f'Stopping {name}')
+        self.logger.debug(f'stopping pipeline {name}')
         self.pipelines[name].stop()
         self.stop_thread(name)
         del self.pipelines[name]
