@@ -127,7 +127,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         Designed for usewith smscreator.de
         """
         # Get connection details
-        connection_details = self.get_connection_details('smscreator')
+        connection_details = self.get_connection_details('websms')
         if connection_details is None:
             raise KeyError("No connection details obtained from database.")
         # Compose connection details and addresses
@@ -137,6 +137,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         if not phone_numbers:
             raise ValueError("No phone number given.")
 
+        now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%Y-%m-%dT%H:%M:%S')
         message = str(message)
         # Long messages are shortened to avoid excessive fees
         if len(message) > maxmessagelength:
@@ -150,6 +151,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             data = postparameters
             data['Recipient'] = tonumber
             data['SMSText'] = message
+            data['SendDate'] = now
             self.logger.warning(f'Sending SMS to {tonumber}')
             response = requests.post(url, data=data)
             if response.status_code != 200:
