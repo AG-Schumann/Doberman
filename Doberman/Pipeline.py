@@ -155,6 +155,8 @@ class Pipeline(threading.Thread):
                     node_kwargs.update(kwargs)
                     try:
                         n = getattr(Doberman, node_type)(**node_kwargs)
+                    except AttributeError as e:
+                        raise ValueError(f'Node type "{node_type}" not implemented for node {kwargs["name"]}. Maybe you missed suffix "Node".')
                     except Exception as e:
                         self.logger.debug(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
                         self.logger.debug(f'Args: {node_kwargs}')
