@@ -1,6 +1,5 @@
 import importlib
 import importlib.machinery
-import time
 import datetime
 import signal
 import os.path
@@ -116,11 +115,11 @@ class OutputHandler(object):
         self.flush_cycle = 0
         self.rotate()
 
-    def rotate(self, when):
+    def rotate(self):
         if self.f is not None:
             self.f.close()
         self.today = datetime.date.today()
-        logdir = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
+        logdir = f'/global/logs/{self.experiment}/{self.today.year}/{self.today.month:02d}.{self.today.day:02d}'
         os.makedirs(logdir, exist_ok=True)
         full_path = os.path.join(logdir, self.filename)
         self.f = open(full_path, 'a')
@@ -131,7 +130,7 @@ class OutputHandler(object):
             # multiple threads, and files aren't thread-safe
             if date != self.today:
                 # it's a brand new day, and the sun is high...
-                self.rotate(date)
+                self.rotate()
             if message[-1] == '\n':
                 message = message[:-1]
             print(message)
@@ -142,6 +141,9 @@ class OutputHandler(object):
                 # get pushed to disk, and we don't want this. If we do it too frequently it's slow
                 self.f.flush()
                 self.flush_cycle = 0
+    
+    def get_logdir(self, date):
+        return f'/global/logs/{self.experiment}/{date.year}/{date.month:02d}.{date.day:02d}'
 
 def get_logger(name, db):
     oh = OutputHandler(name, db.experiment_name)
@@ -150,8 +152,10 @@ def get_logger(name, db):
     logger.setLevel(logging.DEBUG)
     return logger
 
-def get_child_logger(name, main_logger):
+def get_child_logger(name, db, main_logger):
     logger = logging.getLogger(name)
+    if logger.hasHandlers():
+        logger.handlers.clear()
     logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
     logger.setLevel(logging.DEBUG)
     return logger

@@ -2,7 +2,7 @@ import time
 import requests
 import json
 import smtplib
-from datetime import datetime, timezone
+from datetime import timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -22,7 +22,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         super().setup()
         self.current_shifters = self.db.distinct('contacts', 'name', {'on_shift': True})
         self.current_shifters.sort()
-        self.register(obj=self.check_shifters, period=600, name='shiftercheck', _no_stop=True)
+        self.register(obj=self.check_shifters, period=60, name='shiftercheck', _no_stop=True)
 
     def get_connection_details(self, which):
         detail_doc = self.db.get_experiment_config('alarm')
@@ -127,7 +127,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         Designed for usewith smscreator.de
         """
         # Get connection details
-        connection_details = self.get_connection_details('smscreator')
+        connection_details = self.get_connection_details('websms')
         if connection_details is None:
             raise KeyError("No connection details obtained from database.")
         # Compose connection details and addresses
@@ -137,6 +137,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         if not phone_numbers:
             raise ValueError("No phone number given.")
 
+        now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime('%Y-%m-%dT%H:%M:%S')
         message = str(message)
         # Long messages are shortened to avoid excessive fees
         if len(message) > maxmessagelength:
@@ -150,16 +151,12 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             data = postparameters
             data['Recipient'] = tonumber
             data['SMSText'] = message
+            data['SendDate'] = now
             self.logger.warning(f'Sending SMS to {tonumber}')
             response = requests.post(url, data=data)
             if response.status_code != 200:
-                self.logger.error(f"Couldn't send message, status"
-                                  + f" {response.status_code}: {response.content.decode('ascii')}")
-
-        except Exception as e:
-            self.logger.error(f'Could not send SMS: {e}, {type(e)}')
-            return -1
-        return 0
+                self.logger.error(f"Couldn't send message, status {response.status_code}: "
+                                  f"{response.content.decode('ascii')}")
 
     def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
         """
@@ -209,9 +206,9 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             msg = f'{", ".join(new_shifters)} '
             msg += ('is ' if len(new_shifters) == 1 else 'are ')
             msg += f'now on shift.'
+            self.current_shifters = new_shifters
             self.log_alarm(level=1,
                            message=msg,
                            pipeline='AlarmMonitor',
                            _hash=Doberman.utils.make_hash(time.time(), 'AlarmMonitor'),
                            )
-            self.current_shifters = new_shifters
