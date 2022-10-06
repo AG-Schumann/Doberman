@@ -162,7 +162,6 @@ class Monitor(object):
             if socks.get(incoming) == zmq.POLLIN:
                 msg = incoming.recv_string()
                 if msg.startswith('ping'):
-                    self.logger.debug(f'ping: {self.name}')
                     outgoing.send_string(f'pong {self.name}')
                     _ = outgoing.recv_string()
                 else:
