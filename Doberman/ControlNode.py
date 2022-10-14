@@ -72,9 +72,10 @@ class PipelineControlNode(Doberman.Node):
                 action, target = self.config.get(f'action_{char}', (None, None))
                 if action and target:
                     self.control_pipeline(action, target)"""
-        for condition, action in self.actions.items():
+        for condition, actions in self.actions.items():
             if package.get(condition, False):
-               self.control_pipeline(*action)
+               for action in actions:
+                   self.control_pipeline(*action)
 
         if package.get('condition_test', False):
             # this one is mainly for testing
