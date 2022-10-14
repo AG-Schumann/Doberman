@@ -244,7 +244,7 @@ class BufferNode(Node):
 
     def load_config(self, doc):
         bufferlength = doc.pop('length')
-        self.buffer.set_length(int(v))
+        self.buffer.set_length(int(bufferlength))
         super().load_config(doc)
 
     def get_package(self):
