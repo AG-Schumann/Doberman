@@ -57,17 +57,24 @@ class AnalogControlNode(ControlNode):
         self.set_output(val)
 
 
-class PipelineControlNode(ControlNode):
+class PipelineControlNode(Doberman.Node):
     """
     Sometimes you want one pipeline to control another.
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.actions = kwargs['actions']
+
     def process(self, package):
-        for char in map(chr, range(ord('c'), ord('z')+1)):
+        """for char in map(chr, range(ord('c'), ord('z')+1)):
             if package.get(f'condition_{char}', False):
                 # do something
                 action, target = self.config.get(f'action_{char}', (None, None))
                 if action and target:
-                    self.control_pipeline(action, target)
+                    self.control_pipeline(action, target)"""
+        for condition, action in self.actions.items():
+            if package.get(condition, False):
+               self.control_pipeline(*action)
 
         if package.get('condition_test', False):
             # this one is mainly for testing
@@ -84,6 +91,7 @@ class PipelineControlNode(ControlNode):
             target = 'pl_convert'
         else:
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
+        self.logger.debug(f"Sending {action} to {pipeline}")
         self.pipeline.send_command(command=f'pipelinectl_{action} {pipeline}',
-                to=target, issuer=self.pipeline.name)
+                to=target)
 
