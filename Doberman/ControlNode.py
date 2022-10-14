@@ -11,7 +11,7 @@ class ControlNode(Doberman.Node):
         self.control_value = kwargs['control_value']
 
     def set_output(self, value, _force=False):
-        self.logger.debug(f'Setting output to {value}')
+        self.logger.debug(f'Setting {self.control_target} {self.control_value} to {value}')
         if not self.is_silent and not _force:
             self.pipeline.send_command(
                     command=f'set {self.control_value} {value}',
@@ -36,10 +36,10 @@ class DigitalControlNode(ControlNode):
             self.set_output(package[self.input_var])
         else:
             if package['condition_a']:
-                self.logger.info('Condition a met')
+                self.logger.info(f'{self.name}: condition a met')
                 self.set_output(self.config.get('output_a', 1))
             elif package['condition_b']:
-                self.logger.info('Condition b met')
+                self.logger.info(f'{self.name}: condition b met')
                 self.set_output(self.config.get('output_b', 0))
 
 

@@ -202,7 +202,7 @@ class SensorSourceNode(SourceNode):
         super().setup(**kwargs)
         if kwargs.get('new_value_required', False) or \
                 self.input_var.startswith('X_SYNC'):
-            self.pipeline.required_inputs.add(self.name)
+            self.pipeline.required_inputs.add(self.input_var)
 
     def receive_from_upstream(self, package):
         """
