@@ -72,10 +72,7 @@ class Node(object):
         Load whatever runtime values are necessary
         """
         for k, v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
-                self.buffer.set_length(int(v))
-            else:
-                self.config[k] = v
+            self.config[k] = v
 
     def process(self, package):
         """
@@ -245,6 +242,11 @@ class BufferNode(Node):
         super().setup(**kwargs)
         self.strict = kwargs.get('strict_length', False)
 
+    def load_config(self, doc):
+        bufferlength = doc.pop('length')
+        self.buffer.set_length(int(v))
+        super().load_config(doc)
+
     def get_package(self):
         if self.strict and len(self.buffer) != self.buffer.length:
             raise ValueError(f'{self.name} is not full')
@@ -298,6 +300,11 @@ class MergeNode(BufferNode):
         super().setup(**kwargs)
         self.strict = True
         self.method = kwargs.get('merge_how', 'avg')
+
+    def load_config(self, doc):
+        # Special case of BufferNode where we shouldn't set length
+        # Reverse load_config override
+        Node.load_config(self, doc)
 
     def merge_field(self, field, packages):
         how = self.method
