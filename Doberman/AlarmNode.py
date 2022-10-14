@@ -111,8 +111,7 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
         self.sensor_config_needed += ['alarm_thresholds', 'alarm_recurrence']
 
     def load_config(self, doc):
-        bufferlength = doc.pop('alarm_recurrence')
-        self.buffer.set_length(int(v))
+        doc.update(length=doc['alarm_recurrence'])
         super().load_config(doc)
 
     def process(self, packages):
