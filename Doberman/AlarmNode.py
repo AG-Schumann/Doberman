@@ -139,7 +139,7 @@ class IntegerAlarmNode(AlarmNode):
     """
     def process(self, package):
         value = int(package[self.input_var])
-        for v, msg in self.config['alarm_thresholds'].items():
+        for v, msg in self.config['alarm_values'].items():
             if value == int(v):
                 self.log_alarm(f'Alarm for {self.description}: {msg}')
                 break
