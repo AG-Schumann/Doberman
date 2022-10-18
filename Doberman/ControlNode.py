@@ -66,12 +66,6 @@ class PipelineControlNode(Doberman.Node):
         self.actions = kwargs['actions']
 
     def process(self, package):
-        """for char in map(chr, range(ord('c'), ord('z')+1)):
-            if package.get(f'condition_{char}', False):
-                # do something
-                action, target = self.config.get(f'action_{char}', (None, None))
-                if action and target:
-                    self.control_pipeline(action, target)"""
         for condition, actions in self.actions.items():
             if package.get(condition, False):
                for action in actions:
