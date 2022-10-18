@@ -50,7 +50,11 @@ class Node(object):
         else:  # ret is a number or something
             if isinstance(self, BufferNode):
                 package = package[-1]
-            package[self.output_var] = ret
+            try:
+                package[self.output_var] = ret
+            except TypeError:
+                # Presumably a cryptic unhashable type error
+                self.logger.warning(f"Bad value ({self.output_var}) of output_var for node {self.name}")
         self.send_downstream(package)
         self.post_process()
 
