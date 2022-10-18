@@ -262,12 +262,6 @@ class Pipeline(threading.Thread):
                     rd = sensor_docs[node.input_var]
                     for config_item in node.sensor_config_needed:
                         this_node_config[config_item] = rd[config_item]
-                    """this_node_config.update(
-                        alarm_thresholds=rd['alarm_thresholds'],
-                        readout_interval=rd['readout_interval'],
-                        alarm_recurrence=rd['alarm_recurrence'])
-                    if isinstance(node, Doberman.SimpleAlarmNode):
-                        this_node_config.update(length=rd['alarm_recurrence'])"""
                 node.load_config(this_node_config)
 
     def silence_for(self, duration, level=0):
