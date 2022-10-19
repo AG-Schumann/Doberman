@@ -17,6 +17,7 @@ class AlarmNode(Doberman.Node):
         self.auto_silence_duration = kwargs['silence_duration']
         self.messages_this_level = 0
         self.hash = None
+        self.sensor_config_needed = ['readout_interval']
 
     def escalate(self):
         """
@@ -75,6 +76,7 @@ class DeviceRespondingBase(AlarmNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.accept_old = True
+        self.sensor_config_needed += ['alarm_recurrence']
 
     def process(self, package):
         # the 2 is a fudge factor
@@ -106,6 +108,11 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.strict = True
+        self.sensor_config_needed += ['alarm_thresholds', 'alarm_recurrence']
+
+    def load_config(self, doc):
+        doc.update(length=doc['alarm_recurrence'])
+        super().load_config(doc)
 
     def process(self, packages):
         values = [p[self.input_var] for p in packages]
@@ -137,9 +144,13 @@ class IntegerAlarmNode(AlarmNode):
     Integer status quantities are a fundamentally different thing from physical values.
     It makes sense to process them differently. The thresholds should be stored as [value, message] pairs.
     """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.sensor_config_needed += ['alarm_values']
+
     def process(self, package):
         value = int(package[self.input_var])
-        for v, msg in self.config['alarm_thresholds'].items():
+        for v, msg in self.config['alarm_values'].items():
             if value == int(v):
                 self.log_alarm(f'Alarm for {self.description}: {msg}')
                 break

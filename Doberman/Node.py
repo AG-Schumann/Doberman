@@ -50,7 +50,11 @@ class Node(object):
         else:  # ret is a number or something
             if isinstance(self, BufferNode):
                 package = package[-1]
-            package[self.output_var] = ret
+            try:
+                package[self.output_var] = ret
+            except TypeError:
+                # Presumably a cryptic unhashable type error
+                self.logger.warning(f"Bad value ({self.output_var}) of output_var for node {self.name}")
         self.send_downstream(package)
         self.post_process()
 
@@ -72,10 +76,7 @@ class Node(object):
         Load whatever runtime values are necessary
         """
         for k, v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
-                self.buffer.set_length(int(v))
-            else:
-                self.config[k] = v
+            self.config[k] = v
 
     def process(self, package):
         """
@@ -202,7 +203,7 @@ class SensorSourceNode(SourceNode):
         super().setup(**kwargs)
         if kwargs.get('new_value_required', False) or \
                 self.input_var.startswith('X_SYNC'):
-            self.pipeline.required_inputs.add(self.name)
+            self.pipeline.required_inputs.add(self.input_var)
 
     def receive_from_upstream(self, package):
         """
@@ -244,6 +245,11 @@ class BufferNode(Node):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.strict = kwargs.get('strict_length', False)
+
+    def load_config(self, doc):
+        bufferlength = doc.pop('length')
+        self.buffer.set_length(int(bufferlength))
+        super().load_config(doc)
 
     def get_package(self):
         if self.strict and len(self.buffer) != self.buffer.length:
@@ -298,6 +304,11 @@ class MergeNode(BufferNode):
         super().setup(**kwargs)
         self.strict = True
         self.method = kwargs.get('merge_how', 'avg')
+
+    def load_config(self, doc):
+        # Special case of BufferNode where we shouldn't set length
+        # Reverse load_config override
+        Node.load_config(self, doc)
 
     def merge_field(self, field, packages):
         how = self.method
