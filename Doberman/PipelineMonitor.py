@@ -33,7 +33,7 @@ class PipelineMonitor(Doberman.Monitor):
             self.logger.error(f'No pipeline named {name} found')
             return
         if (doc['status']=='active'):
-            self.logger.error(f'The pipeline named {name} is already active')
+            self.logger.debug(f'The pipeline named {name} is already active')
             return
         self.logger.debug(f'starting pipeline {name}')
         self.db.set_pipeline_value(name, [('status', 'active')])
