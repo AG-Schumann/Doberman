@@ -11,6 +11,7 @@ class AlarmNode(Doberman.Node):
         self.description = kwargs['description']
         self.device = kwargs['device']
         self._log_alarm = kwargs['log_alarm']
+        self.max_reading_delay = kwargs['max_reading_delay']
         self.escalation_config = kwargs['escalation_config']
         self.escalation_level = 0
         self.base_level = kwargs['alarm_level']
@@ -79,9 +80,7 @@ class DeviceRespondingBase(AlarmNode):
         self.sensor_config_needed += ['alarm_recurrence']
 
     def process(self, package):
-        # the 2 is a fudge factor
-        dt_max = (2 + self.config['alarm_recurrence']) * self.config['readout_interval']
-        if (dt := ((now := time.time()) - package['time'])) > dt_max:
+        if (dt := ((now := time.time()) - package['time'])) > self.max_reading_delay:
             self.log_alarm(
                 (f'Is {self.device} responding correctly? No new value for '
                  f'{self.input_var} has been seen in {int(dt)} seconds'),

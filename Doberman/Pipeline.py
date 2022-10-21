@@ -178,7 +178,7 @@ class Pipeline(threading.Thread):
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['send_to_pipelines'] = self.db.send_value_to_pipelines
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
-                    for k in 'escalation_config silence_duration'.split():
+                    for k in 'escalation_config silence_duration max_reading_delay'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
                     setup_kwargs['cv'] = getattr(self, 'cv', None)
