@@ -74,7 +74,7 @@ class Pipeline(threading.Thread):
         status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
         if status != 'silent':
             # reset
-            self.silenced_at_level = 0
+            self.silenced_at_level = -1
         timing = {}
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         drift = 0
@@ -264,7 +264,7 @@ class Pipeline(threading.Thread):
                         this_node_config[config_item] = rd[config_item]
                 node.load_config(this_node_config)
 
-    def silence_for(self, duration, level=0):
+    def silence_for(self, duration, level=-1):
         """
         Silence this pipeline for a set amount of time
         """
