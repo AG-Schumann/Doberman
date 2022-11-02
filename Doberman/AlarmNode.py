@@ -55,7 +55,7 @@ class AlarmNode(Doberman.Node):
         # Only send message if pipeline is silenced at base_level or above, 
         # or if it is silenced at level -1 (universal)
         if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.base_level:
-            self.logger.debug(msg)
+            self.logger.error(msg)
             if self.hash is None:
                 self.hash = Doberman.utils.make_hash(ts or time.time(), self.pipeline.name)
                 self.alarm_start = ts or time.time()
@@ -73,7 +73,7 @@ class AlarmNode(Doberman.Node):
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
         else:
-            self.logger.error(msg)
+            self.logger.debug(msg)
 
 class DeviceRespondingBase(AlarmNode):
     """
@@ -85,7 +85,7 @@ class DeviceRespondingBase(AlarmNode):
         self.sensor_config_needed += ['alarm_recurrence']
 
     def process(self, package):
-        if (dt := ((now := time.time()) - package['time'])) > self.max_reading_delay:
+        if (dt := ((now := time.time()) - package['time'])) > self.config['readout_interval'] + self.max_reading_delay:
             self.log_alarm(
                 (f'Is {self.device} responding correctly? No new value for '
                  f'{self.input_var} has been seen in {int(dt)} seconds'),
