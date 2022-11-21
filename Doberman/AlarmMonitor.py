@@ -36,7 +36,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         # Get connection details
         connection_details = self.get_connection_details('twilio')
         if connection_details is None:
-            raise KeyError("No connection details obtained from database.")
+            raise KeyError("No phone connection details obtained from database.")
         # Compose connection details and addresses
         url = connection_details['url']
         fromnumber = connection_details['fromnumber']
@@ -66,7 +66,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f'Making phone call to {tonumber}')
             response = requests.post(url, auth=auth, data=data)
             if response.status_code != 201:
-                self.logger.error(f"Couldn't place call, status"
+                raise RuntimeError(f"Couldn't place call, status"
                                   + f" {response.status_code}: {response.json()['message']}")
 
     def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
@@ -74,52 +74,49 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         # Get connection details
         connection_details = self.get_connection_details('email')
         if connection_details is None:
-            return -1
-        try:
-            # Compose connection details and addresses
-            now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime("%Y-%m-%d %H:%M %Z")
-            server_addr = connection_details['server']
-            port = int(connection_details['port'])
-            fromaddr = connection_details['fromaddr']
-            password = connection_details['password']
-            if not isinstance(toaddr, list):
-                toaddr = toaddr.split(',')
-            recipients = toaddr
-            msg = MIMEMultipart()
-            msg['From'] = fromaddr
-            msg['To'] = ', '.join(toaddr)
-            if cc:
-                if not isinstance(cc, list):
-                    cc = cc.split(',')
-                msg['Cc'] = ', '.join(cc)
-                recipients.extend(cc)
-            if bcc:
-                if not isinstance(bcc, list):
-                    bcc = bcc.split(',')
-                msg['Bcc'] = ', '.join(bcc)
-                recipients.extend(bcc)
-            msg['Subject'] = subject
-            if add_signature:
-                signature = f'\n\n----------\nMessage created on {now} by Doberman slow control.'
-                body = str(message) + signature
-            else:
-                body = str(message)
-            msg.attach(MIMEText(body, 'plain'))
+            raise ValueError("No email connection details found")
 
-            # Connect and send
-            if server_addr == 'localhost':  # From localhost
-                smtp = smtplib.SMTP(server_addr)
-                smtp.sendmail(fromaddr, toaddr, msg.as_string())
-            else:  # with e.g. gmail
-                server = smtplib.SMTP(server_addr, port)
-                server.starttls()
-                server.login(fromaddr, password)
-                server.sendmail(fromaddr, recipients, msg.as_string())
-                server.quit()
-            self.logger.info(f'Mail (Subject:{subject}) sent to {",".join(recipients)}')
-        except Exception as e:
-            self.logger.warning(f'Could not send mail: {e} ({type(e)})')
-            return 0
+        # Compose connection details and addresses
+        now = dtnow().replace(tzinfo=timezone.utc).astimezone(tz=None).strftime("%Y-%m-%d %H:%M %Z")
+        server_addr = connection_details['server']
+        port = int(connection_details['port'])
+        fromaddr = connection_details['fromaddr']
+        password = connection_details['password']
+        if not isinstance(toaddr, list):
+            toaddr = toaddr.split(',')
+        recipients = toaddr
+        msg = MIMEMultipart()
+        msg['From'] = fromaddr
+        msg['To'] = ', '.join(toaddr)
+        if cc:
+            if not isinstance(cc, list):
+                cc = cc.split(',')
+            msg['Cc'] = ', '.join(cc)
+            recipients.extend(cc)
+        if bcc:
+            if not isinstance(bcc, list):
+                bcc = bcc.split(',')
+            msg['Bcc'] = ', '.join(bcc)
+            recipients.extend(bcc)
+        msg['Subject'] = subject
+        if add_signature:
+            signature = f'\n\n----------\nMessage created on {now} by Doberman slow control.'
+            body = str(message) + signature
+        else:
+            body = str(message)
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Connect and send
+        if server_addr == 'localhost':  # From localhost
+            smtp = smtplib.SMTP(server_addr)
+            smtp.sendmail(fromaddr, toaddr, msg.as_string())
+        else:  # with e.g. gmail
+            server = smtplib.SMTP(server_addr, port)
+            server.starttls()
+            server.login(fromaddr, password)
+            server.sendmail(fromaddr, recipients, msg.as_string())
+            server.quit()
+        self.logger.info(f'Mail (Subject:{subject}) sent to {",".join(recipients)}')
 
     def send_sms(self, phone_numbers, message):
         """
@@ -155,37 +152,25 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             self.logger.warning(f'Sending SMS to {tonumber}')
             response = requests.post(url, data=data)
             if response.status_code != 200:
-                self.logger.error(f"Couldn't send message, status {response.status_code}: "
+                raise RuntimeError(f"Couldn't send message, status {response.status_code}: "
                                   f"{response.content.decode('ascii')}")
 
     def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
         """
         Sends 'message' to the contacts specified by 'level'.
-        Returns 1 if all messages were sent successfully, 0 otherwise
         """
-        ret = 1
         for protocol, recipients in self.db.get_contact_addresses(level).items():
             if protocol == 'sms':
                 message = f'{self.db.experiment_name.upper()} {message}'
-                if self.send_sms(recipients, message) == -1:
-                    self.logger.error('Could not send SMS')
-                    ret = 0
+                self.send_sms(recipients, message)
             elif protocol == 'email':
                 subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
-                if self.send_email(toaddr=recipients, subject=subject,
-                                   message=message) == -1:
-                    self.logger.error('Could not send email!')
-                    ret = 0
+                self.send_email(toaddr=recipients, subject=subject,
+                                message=message)
             elif protocol == 'phone':
-                try:
-                    self.send_phonecall(recipients, message)
-                except Exception as e:
-                    self.logger.error(f'Unable to make call: {type(e)}, {e}')
-                    ret = 0
+                self.send_phonecall(recipients, message)
             else:
-                self.logger.warning(f"Couldn't send alarm message. Protocol {protocol} unknown.")
-                ret = 0
-        return ret
+                raise ValueError(f"Couldn't send alarm message. Protocol {protocol} unknown.")
 
     def check_shifters(self):
         """

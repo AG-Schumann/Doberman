@@ -11,6 +11,7 @@ class AlarmNode(Doberman.Node):
         self.description = kwargs['description']
         self.device = kwargs['device']
         self._log_alarm = kwargs['log_alarm']
+        self.max_reading_delay = kwargs['max_reading_delay']
         self.escalation_config = kwargs['escalation_config']
         self.escalation_level = 0
         self.base_level = kwargs['alarm_level']
@@ -51,23 +52,28 @@ class AlarmNode(Doberman.Node):
         """
         Let the outside world know that something is going on
         """
-        if not self.is_silent or self.pipeline.silenced_at_level < self.base_level:
-            self.logger.debug(msg)
+        # Only send message if pipeline is silenced at base_level or above, 
+        # or if it is silenced at level -1 (universal)
+        if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.base_level:
+            self.logger.error(msg)
             if self.hash is None:
                 self.hash = Doberman.utils.make_hash(ts or time.time(), self.pipeline.name)
                 self.alarm_start = ts or time.time()
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
             level = self.base_level + self.escalation_level
-            if self._log_alarm(level=level,
-                               message=msg,
-                               pipeline=self.pipeline.name,
-                               _hash=self.hash):
-                # only self-silence if the message was successfully sent
+            try:
+                self._log_alarm(level=level,
+                                message=msg,
+                                pipeline=self.pipeline.name,
+                                _hash=self.hash)
+                # self-silence if the message was successfully sent
                 self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
                 self.messages_this_level += 1
+            except Exception as e:
+                self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
         else:
-            self.logger.error(msg)
+            self.logger.debug(msg)
 
 class DeviceRespondingBase(AlarmNode):
     """
@@ -79,9 +85,7 @@ class DeviceRespondingBase(AlarmNode):
         self.sensor_config_needed += ['alarm_recurrence']
 
     def process(self, package):
-        # the 2 is a fudge factor
-        dt_max = (2 + self.config['alarm_recurrence']) * self.config['readout_interval']
-        if (dt := ((now := time.time()) - package['time'])) > dt_max:
+        if (dt := ((now := time.time()) - package['time'])) > self.config['readout_interval'] + self.max_reading_delay:
             self.log_alarm(
                 (f'Is {self.device} responding correctly? No new value for '
                  f'{self.input_var} has been seen in {int(dt)} seconds'),

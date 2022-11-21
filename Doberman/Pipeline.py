@@ -74,7 +74,7 @@ class Pipeline(threading.Thread):
         status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
         if status != 'silent':
             # reset
-            self.silenced_at_level = 0
+            self.silenced_at_level = -1
         timing = {}
         self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         drift = 0
@@ -178,7 +178,7 @@ class Pipeline(threading.Thread):
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
                     setup_kwargs['send_to_pipelines'] = self.db.send_value_to_pipelines
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
-                    for k in 'escalation_config silence_duration'.split():
+                    for k in 'escalation_config silence_duration max_reading_delay'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
                     setup_kwargs['cv'] = getattr(self, 'cv', None)
@@ -264,7 +264,7 @@ class Pipeline(threading.Thread):
                         this_node_config[config_item] = rd[config_item]
                 node.load_config(this_node_config)
 
-    def silence_for(self, duration, level=0):
+    def silence_for(self, duration, level=-1):
         """
         Silence this pipeline for a set amount of time
         """
