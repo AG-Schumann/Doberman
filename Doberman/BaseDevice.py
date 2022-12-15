@@ -261,8 +261,6 @@ class LANDevice(Device):
     eol = '\r'
 
     def setup(self):
-        if not hasattr(self, 'msg_sleep'):
-            self.msg_sleep = 0.01
         self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
