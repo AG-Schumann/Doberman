@@ -105,7 +105,6 @@ class Device(object):
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        #self.logger.debug(f'Scheduling {command}')
         with self.cv:
             self.cmd_queue.append((command, ret))
             self.cv.notify()
@@ -257,15 +256,16 @@ class LANDevice(Device):
     Class for LAN-connected devices
     """
     msg_wait = 1.0 # Seconds to wait for response
-    recv_interval = 0.01 # Socket polling interval
-    eol = '\r'
+    recv_interval = 0.1 # Socket polling interval
+    eol = b'\r'
 
     def setup(self):
         self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self._device.settimeout(self.recv_interval)
+            self._device.settimeout(5) # Longer timeout when connecting as don't repeat
             self._device.connect((self.ip, int(self.port)))
+            self._device.settimeout(self.recv_interval)
         except socket.error as e:
             raise ValueError(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
         self._connected = True
@@ -289,14 +289,12 @@ class LANDevice(Device):
             self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -2
             return ret
-        #time.sleep(self.msg_sleep)
 
         starttime = time.time()
         try:
             # Read until we get the end-of-line character
             data = b''
             for i in range(int(self.msg_wait / self.recv_interval)+1):
-                time.sleep(self.recv_interval)
                 try:
                     data += self._device.recv(self.packet_bytes)
                 except socket.timeout:
@@ -304,7 +302,6 @@ class LANDevice(Device):
                 if data.endswith(self.eol):
                     break
             ret['data'] = data
-            self.logger.debug(f"It took {time.time() - starttime:0.3f} s to get the data!")
         except socket.error as e:
             self.logger.fatal('Could not receive data from device. Error: %s' % e)
             ret['retcode'] = -2
