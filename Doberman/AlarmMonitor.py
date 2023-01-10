@@ -159,18 +159,24 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         """
         Sends 'message' to the contacts specified by 'level'.
         """
+        exception = None
         for protocol, recipients in self.db.get_contact_addresses(level).items():
-            if protocol == 'sms':
-                message = f'{self.db.experiment_name.upper()} {message}'
-                self.send_sms(recipients, message)
-            elif protocol == 'email':
-                subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
-                self.send_email(toaddr=recipients, subject=subject,
-                                message=message)
-            elif protocol == 'phone':
-                self.send_phonecall(recipients, message)
-            else:
-                raise ValueError(f"Couldn't send alarm message. Protocol {protocol} unknown.")
+            try:
+                if protocol == 'sms':
+                    message = f'{self.db.experiment_name.upper()} {message}'
+                    self.send_sms(recipients, message)
+                elif protocol == 'email':
+                    subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
+                    self.send_email(toaddr=recipients, subject=subject,
+                                    message=message)
+                elif protocol == 'phone':
+                    self.send_phonecall(recipients, message)
+                else:
+                    raise ValueError(f"Couldn't send alarm message. Protocol {protocol} unknown.")
+            except Exception as e:
+                exception = e # Save it for later but try other methods anyway
+        if exception is not None:
+            raise exception
 
     def check_shifters(self):
         """

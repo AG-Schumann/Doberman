@@ -57,6 +57,14 @@ class PipelineMonitor(Doberman.Monitor):
         self.stop_thread(name)
         del self.pipelines[name]
 
+    def testalarm(self, level):
+        message = f"This is a level {level} test alarm"
+        try:
+            self.log_alarm(level, message)
+        except Exception as e:
+            self.logger.error(f"Couldn't send level {level} alarm")
+            self.logger.debug(f"{type(e)}: {e}")
+
     def process_command(self, command):
         try:
             if command.startswith('pipelinectl_start'):
@@ -92,6 +100,10 @@ class PipelineMonitor(Doberman.Monitor):
                     self.db.update_db('pipelines', {'name': name}, {'$unset': {'silent_until': 1}})
             elif command == 'stop':
                 self.sh.event.set()
+            elif command.startswith('testalarm'):
+                _, level = command.split(' ')
+                self.logger.debug(f'Sending level {level} test alarm')
+                self.testalarm(int(level))
             else:
                 self.logger.info(f'I don\'t understand command "{command}"')
         except Exception as e:
