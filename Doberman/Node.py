@@ -38,9 +38,9 @@ class Node(object):
         """
         pass
 
-    def _process_base(self, status):
+    def _process_base(self, is_silent):
         self.logger.debug(f'{self.name} processing')
-        self.is_silent = status == 'silent'
+        self.is_silent = is_silent
         package = self.get_package()  # TODO discuss this wrt BufferNodes
         ret = self.process(package)
         if ret is None:
