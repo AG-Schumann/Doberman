@@ -105,7 +105,6 @@ class Device(object):
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        #self.logger.debug(f'Scheduling {command}')
         with self.cv:
             self.cmd_queue.append((command, ret))
             self.cv.notify()
@@ -256,15 +255,17 @@ class LANDevice(Device):
     """
     Class for LAN-connected devices
     """
+    msg_wait = 1.0 # Seconds to wait for response
+    recv_interval = 0.1 # Socket polling interval
+    eol = b'\r'
 
     def setup(self):
-        if not hasattr(self, 'msg_sleep'):
-            self.msg_sleep = 0.01
         self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self._device.settimeout(1)
+            self._device.settimeout(5) # Longer timeout when connecting as don't repeat
             self._device.connect((self.ip, int(self.port)))
+            self._device.settimeout(self.recv_interval)
         except socket.error as e:
             raise ValueError(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
         self._connected = True
@@ -288,10 +289,18 @@ class LANDevice(Device):
             self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -2
             return ret
-        time.sleep(self.msg_sleep)
 
         try:
-            ret['data'] = self._device.recv(self.packet_bytes)
+            # Read until we get the end-of-line character
+            data = b''
+            for i in range(int(self.msg_wait / self.recv_interval)+1):
+                try:
+                    data += self._device.recv(self.packet_bytes)
+                except socket.timeout:
+                    continue
+                if data.endswith(self.eol):
+                    break
+            ret['data'] = data
         except socket.error as e:
             self.logger.fatal('Could not receive data from device. Error: %s' % e)
             ret['retcode'] = -2
