@@ -143,7 +143,7 @@ class Hypervisor(Doberman.Monitor):
     def send_remote_heartbeat(self) -> None:
         # touch a file on a remote server just so someone else knows we're still alive
         numbers = []
-        for doc in self.read_from_db('contacts', {'on_shift': True}):
+        for doc in self.db.read_from_db('contacts', {'on_shift': True}):
             numbers.add(doc['sms'])
         if (addr := self.config.get('remote_heartbeat', {}).get('address')) is not None:
             self.run_over_ssh(addr, r'date +%s > /scratch/remote_hb_'+self.db.experiment_name+','+','.join(numbers),
