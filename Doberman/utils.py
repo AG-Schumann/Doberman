@@ -1,125 +1,32 @@
-from subprocess import Popen, PIPE, TimeoutExpired
 import importlib
 import importlib.machinery
-import time
 import datetime
 import signal
 import os.path
-import inspect
-import re
+import os
 import logging
 import logging.handlers
-import serial
+from pytz import utc
+import threading
+import hashlib
+from math import floor, log10
+import itertools
 
-dtnow = datetime.datetime.now
 
-__all__ = 'FindPlugin Logger heartbeat_timer number_regex doberman_dir'.split()
-
-heartbeat_timer = 30
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
-doberman_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
-
-def refresh_tty(db):
-    """
-    Brute-force matches sensors to ttyUSB assignments by trying
-    all possible combinations, and updates the database
-    """
-    cuts = {'status': 'online', 'address.tty': {'$exists': 1, '$regex': 'USB'}}
-    if db.count('settings', 'sensors', cuts):
-        print('Some USB sensors are running! Stopping them now')
-        running_sensors = db.distinct('settings', 'sensors', 'name', cuts)
-        for name in running_sensors:
-            db.ProcessCommandStepOne('stop %s' % name)
-        time.sleep(heartbeat_timer * 1.2)
-    else:
-        running_sensors = []
-    db.update_db('settings', 'sensors',
-                 cuts={'address.tty': {'$exists': 1, '$regex': '^0|USB[1-9]?[0-9]'}},
-                 updates={'$set': {'address.tty': '0'}})
-    print('Refreshing ttyUSB mapping...')
-    proc = Popen('ls /dev/ttyUSB*', shell=True, stdout=PIPE, stderr=PIPE)
-    try:
-        out, err = proc.communicate(timeout=5)
-    except TimeoutExpired:
-        proc.kill()
-        out, err = proc.communicate()
-    if not out or err:
-        raise OSError('Could not check ttyUSB! stdout: %s, stderr %s' % (out.decode(), err.decode()))
-    tty_usbs = out.decode().splitlines()
-    cursor = db.read_from_db('settings', 'sensors',
-                             cuts={'address.tty': {'$exists': 1, '$regex': '^0|USB[1-9]?[0-9]'}})
-    sensor_config = {row['name']: row for row in cursor}
-    sensor_names = list(sensor_config.keys())
-    sensors = {name: None for name in sensor_names}
-    matched = {'sensors': [], 'ttys': []}
-    for sensor in sensor_names:
-        opts = SensorOpts(sensor_config[sensor])
-        sensors[sensor] = find_plugin(sensor, [doberman_dir])(opts)
-    dev = serial.Serial()
-    for tty in tty_usbs:
-        tty_num = int(re.search('USB([1-9]?[0-9])', tty).group(1))
-        print('Checking %s' % tty)
-        dev.port = tty
-        try:
-            dev.open()
-        except serial.SerialException as e:
-            print('Could not connect to %s: %s' % (tty, e))
-            continue
-        for name, sensor in sensors.items():
-            if name in matched['sensors']:
-                continue
-            if sensor.is_this_me(dev):
-                print('Matched %s to %s' % (tty, name))
-                matched['sensors'].append(name)
-                matched['ttys'].append(tty)
-                db.update_db('settings', 'sensors', {'name': name},
-                             {'$set': {'address.tty': 'USB%i' % tty_num}})
-                dev.close()
-                break
-            # print('Not %s' % name)
-            time.sleep(0.5)  # devices are slow
-        else:
-            print('Could not assign %s!' % tty)
-        dev.close()
-    if len(matched['sensors']) == len(sensors) - 1:  # n-1 case
-        try:
-            name = (set(sensors.keys()) - set(matched['sensors'])).pop()
-            tty = (set(tty_usbs) - set(matched['ttys'])).pop()
-            print('Matched %s to %s via n-1' % (name, tty))
-            db.update_db('settings', 'sensors', {'name': name},
-                         {'$set': {'address.tty': tty.split('tty')[-1]}})
-        except:
-            pass
-    elif len(matched['sensors']) != len(sensors):
-        print('Didn\'t find the expected number of sensors!')
-        print('Sensors unmatched:')
-        l = set(sensors.keys()) - set(matched['sensors'])
-        print('\n'.join(l))
-        print()
-        print('tty ports unmatched:')
-        l = set(tty_usbs) - set(matched['ttys'])
-        print('\n'.join(l))
-        return False
-    # for usb, name in zip(matched['ttys'],matched['sensors']):
-    #        db.updateDatabase('settings','sensors', {'name' : name},
-    #                {'$set' : {'address.ttyUSB' : int(usb.split('USB')[-1])}})
-
-    db.update_db('settings', 'current_status', {}, {'$set': {'tty_update': dtnow()}})
-    for name in running_sensors:
-        db.ParseCommand('start %s' % name)
-    return True
-
+def dtnow():
+    return datetime.datetime.now(tz=utc) # no timezone nonsense, now
 
 def find_plugin(name, path):
     """
-    Finds the sensor constructor with the specified name, in the specified paths.
+    Finds the device constructor with the specified name, in the specified paths.
     Will attempt to strip numbers off the end of the name if necessary (ex,
     'iseries1' -> iseries, 'caen_n1470' -> caen_n1470)
 
-    :param name: the name of the sensor you want
+    :param name: the name of the device you want
     :param path: a list of paths in which to search for the file
-    :returns constructor: the constructor of the requested sensor
+    :returns constructor: the constructor of the requested device
     """
     strip = False
     if not isinstance(path, (list, tuple)):
@@ -129,15 +36,15 @@ def find_plugin(name, path):
         strip = True
         spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
     if spec is None:
-        raise FileNotFoundError('Could not find a sensor named %s in %s' % (name, path))
+        raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
     try:
         if strip:
-            sensor_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
+            device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
         else:
-            sensor_ctor = getattr(spec.loader.load_module(), name)
+            device_ctor = getattr(spec.loader.load_module(), name)
     except AttributeError:
         raise AttributeError('Cound not find constructor for %s!' % name)
-    return sensor_ctor
+    return device_ctor
 
 
 class SignalHandler(object):
@@ -162,56 +69,184 @@ class SignalHandler(object):
 
 class DobermanLogger(logging.Handler):
     """
-    Custom logging interface for Doberman. Logs to
-    the database (with disk as backup).
+    A custom logging handler.
     """
-
-    def __init__(self, db, level=logging.INFO):
+    def __init__(self, db, name, output_handler):
         logging.Handler.__init__(self)
         self.db = db
-        self.db_name = 'logging'
+        self.name = name
         self.collection_name = 'logs'
-        backup_filename = datetime.date.today().isoformat()
-        self.backup_logger = logging.handlers.TimedRotatingFileHandler(
-            os.path.join(doberman_dir, 'logs', backup_filename + '.log'),
-            when='midnight', delay=True)
-        self.stream = logging.StreamHandler()
-        f = logging.Formatter('%(asctime)s | '
-                              '%(levelname)s | %(name)s | %(funcName)s | '
-                              '%(lineno)d | %(message)s')
-        self.setFormatter(f)
-        self.stream.setFormatter(f)
-        self.backup_logger.setFormatter(f)
-        self.level = level
-
-    def close(self):
-        self.backup_logger.close()
-        self.stream.close()
-        self.db = None
-
-    def __del__(self):
-        self.close()
+        self.oh = output_handler
 
     def emit(self, record):
-        self.stream.emit(record)
-        if record.levelno < self.level or record.levelno <= logging.DEBUG:
-            return
-        rec = dict(
-            msg=record.msg,
-            level=record.levelno,
-            name=record.name,
-            funcname=record.funcName,
-            lineno=record.lineno)
-        if self.db.insert_into_db(self.db_name, self.collection_name, rec):
-            self.backup_logger.emit(record)
+        msg_datetime = datetime.datetime.fromtimestamp(record.created)
+        msg_date = datetime.date(msg_datetime.year, msg_datetime.month, msg_datetime.day)
+        m = self.format_message(msg_datetime, record.levelname, record.funcName, record.lineno, record.getMessage())
+        self.oh.write(m, msg_date)
+        if record.levelno > logging.INFO:
+            rec = dict(
+                msg=record.getMessage(),
+                level=record.levelno,
+                name=record.name,
+                funcname=record.funcName,
+                lineno=record.lineno,
+                date=msg_datetime,
+                )
+            self.db.insert_into_db(self.collection_name, rec)
 
+    def format_message(self, when, level, func_name, lineno, msg):
+        return f'{when.isoformat(sep=" ")} | {str(level).upper()} | {self.name} | {func_name} | {lineno} | {msg}'
 
-def logger(name, db, loglevel='DEBUG'):
+class OutputHandler(object):
+    """
+    We need a single object that owns the file we log to,
+    so we can pass references to it to child loggers.
+    I don't know how to do c++-style static class members,
+    so this is how I solve this problem.
+    Files go to /global/logs/<experiment>/YYYY/MM.DD, folders being created as necessary.
+    """
+    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle')
+
+    def __init__(self, name, experiment):
+        self.mutex = threading.Lock()
+        self.filename = f'{name}.log'
+        self.experiment = experiment
+        self.f = None
+        self.flush_cycle = 0
+        self.rotate()
+
+    def rotate(self):
+        if self.f is not None:
+            self.f.close()
+        self.today = datetime.date.today()
+        logdir = f'/global/logs/{self.experiment}/{self.today.year}/{self.today.month:02d}.{self.today.day:02d}'
+        os.makedirs(logdir, exist_ok=True)
+        full_path = os.path.join(logdir, self.filename)
+        self.f = open(full_path, 'a')
+
+    def write(self, message, date):
+        with self.mutex:
+            # we wrap anything hitting files or stdout with a mutex because logging happens from
+            # multiple threads, and files aren't thread-safe
+            if date != self.today:
+                # it's a brand new day, and the sun is high...
+                self.rotate()
+            if message[-1] == '\n':
+                message = message[:-1]
+            print(message)
+            self.f.write(f'{message}\n')
+            self.flush_cycle += 1
+            if self.flush_cycle > 3:
+                # if we don't regularly flush the buffers, messages will sit around in memory rather than actually
+                # get pushed to disk, and we don't want this. If we do it too frequently it's slow
+                self.f.flush()
+                self.flush_cycle = 0
+    
+    def get_logdir(self, date):
+        return f'/global/logs/{self.experiment}/{date.year}/{date.month:02d}.{date.day:02d}'
+
+def get_logger(name, db):
+    oh = OutputHandler(name, db.experiment_name)
     logger = logging.getLogger(name)
-    try:
-        lvl = getattr(logging, loglevel)
-    except AttributeError:
-        lvl = logging.INFO
-    logger.setLevel(lvl)
-    logger.addHandler(DobermanLogger(db, level=lvl))
+    logger.addHandler(DobermanLogger(db, name, oh))
+    logger.setLevel(logging.DEBUG)
     return logger
+
+def get_child_logger(name, db, main_logger):
+    logger = logging.getLogger(name)
+    if logger.hasHandlers():
+        logger.handlers.clear()
+    logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+def make_hash(*args, hash_length=16):
+    """
+    Generates a hash from the provided arguments, returns
+    a hex string
+    :param *args: objects you want to be hashed. Will be converted to bytes
+    :param hash_length: how long the returned hash should be. Default 16
+    :returns: string
+    """
+    m = hashlib.sha256()
+    map(lambda a: m.update(str(a).encode()), args)
+    return m.hexdigest()[:hash_length]
+
+def sensible_sig_figs(value, lowlim, upplim, defaultsigfigs=3):
+    """
+    Rounds a sensor measurement to a sensible number of significant figures.
+
+    In general rounds to defaultsigfigs significant figures.
+    If the lowlim and upplim are rather close, have at least
+    one more than the number of decimal places to distinguish
+    them. For example: with limits 1.023 and 1.044, sensor
+    measurements have three decimal places.
+    """
+    mindps = 1 - floor(log10(upplim - lowlim))
+    minsfs = floor(log10(value)) + 1 + mindps
+    sfs = max(minsfs, defaultsigfigs)
+    return f'{value:.{sfs}g}'
+
+
+class SortedBuffer(object):
+    """
+    A custom semi-fixed-width buffer that keeps itself sorted
+    """
+    def __init__(self, length=None):
+        self._buf = []
+        self.length = length
+
+    def __len__(self):
+        return len(self._buf)
+
+    def add(self, obj):
+        """
+        Adds a new object to the queue, time-sorted
+        """
+        LARGE_NUMBER = 1e12  # you shouldn't get timestamps larger than this
+        if len(self._buf) == 0:
+            self._buf.append(obj)
+        elif len(self._buf) == 1:
+            if self._buf[0]['time'] >= obj['time']:
+                self._buf.insert(0, obj)
+            else:
+                self._buf.append(obj)
+        else:
+            idx = len(self._buf)//2
+            for i in itertools.count(2):
+                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
+                greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
+                if lesser <= obj['time'] <= greater:
+                    self._buf.insert(idx, obj)
+                    break
+                elif obj['time'] > greater:
+                    idx += max(1, len(self._buf)>>i)
+                elif obj['time'] < lesser:
+                    idx -= max(1, len(self._buf)>>i)
+        if self.length is not None and len(self._buf) > self.length:
+            self._buf = self._buf[-self.length:]
+        return
+
+    def pop_front(self):
+        if len(self._buf) > 0:
+            return self._buf.pop(0)
+        raise ValueError('Buffer empty')
+
+    def get_front(self):
+        if len(self._buf) > 0:
+            # copy
+            return dict(self._buf[0].items())
+        raise ValueError('Buffer empty')
+
+    def __getitem__(self, index):
+        return self._buf[index]
+
+    def set_length(self, length):
+        self.length = length
+
+    def clear(self):
+        self._buf = []
+
+    def __iter__(self):
+        return self._buf.__iter__()
+

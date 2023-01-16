@@ -1,6 +1,6 @@
 pyserial==3.4
 pymongo
-numpy
 psutil
 requests
 python-dateutil
+zmq
