@@ -290,6 +290,7 @@ class LANDevice(Device):
             ret['retcode'] = -2
             return ret
 
+        starttime = time.time()
         try:
             # Read until we get the end-of-line character
             data = b''

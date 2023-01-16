@@ -16,6 +16,7 @@ class AlarmNode(Doberman.Node):
         self.escalation_level = 0
         self.base_level = kwargs['alarm_level']
         self.auto_silence_duration = kwargs['silence_duration']
+        self.silence_duration_cant_send = kwargs['silence_duration_cant_send']
         self.messages_this_level = 0
         self.hash = None
         self.sensor_config_needed = ['readout_interval']
@@ -72,6 +73,7 @@ class AlarmNode(Doberman.Node):
                 self.messages_this_level += 1
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
+                self.pipeline.silence_for(self.silence_duration_cant_send, self.base_level)
         else:
             self.logger.debug(msg)
 
