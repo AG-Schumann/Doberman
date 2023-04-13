@@ -39,6 +39,7 @@ class PipelineMonitor(Doberman.Monitor):
             return
         self.logger.debug(f'starting pipeline {name}')
         self.db.set_pipeline_value(name, [('status', 'active')])
+        self.db.set_pipeline_value(name, [('silent_until', 0)])
         try:
             p = Doberman.Pipeline.create(doc, db=self.db,
                     logger=Doberman.utils.get_child_logger(name, self.db, self.logger),
