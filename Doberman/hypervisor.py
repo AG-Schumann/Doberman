@@ -72,6 +72,7 @@ class Hypervisor(Doberman.Monitor):
         # shut dow the pipeline monitors
         for thing in 'alarm_monitor control_pipeline convert_pipeline'.split():
             self.run_locally(f"screen -S {thing} -X quit")
+            self.update_config(unactive=f'pl_{thing}')
             time.sleep(0.1)
         managed = self.config['processes']['managed']
         for device in managed:
