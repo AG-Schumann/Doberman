@@ -68,6 +68,14 @@ class Hypervisor(Doberman.Monitor):
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
 
     def shutdown(self) -> None:
+        # shut dow the pipeline monitors
+        for thing in 'alarm_monitor control_pipeline convert_pipeline'.split():
+            self.run_locally(f"screen -S {thing} -X quit")
+            time.sleep(0.1)
+        managed = self.config['processes']['managed']
+        for device in managed:
+            self.stop_device(device)
+            time.sleep(0.1)
         self.event.set()
         self.update_config(status='offline')
         self.dispatcher.join()
@@ -89,7 +97,7 @@ class Hypervisor(Doberman.Monitor):
             socket.send_string(f'X_SYNC_{p} {now:.3f} 0')
             heappush(q, (now+p, p))
 
-    def update_config(self, unmanage=None, manage=None, active=None, heartbeat=None, status=None) -> None:
+    def update_config(self, unmanage=None, manage=None, active=None, unactive=None, heartbeat=None, status=None) -> None:
         updates = {}
         if unmanage:
             updates['$pull'] = {'processes.managed': unmanage}
@@ -97,6 +105,8 @@ class Hypervisor(Doberman.Monitor):
             updates['$addToSet'] = {'processes.managed': manage}
         if active:
             updates['$addToSet'] = {'processes.active': active}
+        if unactive:
+            updates['$pull'] = {'processes.active': active}
         if heartbeat:
             updates['$set']: {'heartbeat': heartbeat}
         if status:
@@ -201,6 +211,15 @@ class Hypervisor(Doberman.Monitor):
         host = doc['host']
         self.update_config(manage=device)
         command = f"cd {path} && ./start_process.sh -d {device}"
+        if host == self.localhost:
+            return self.run_locally(command)
+        return self.run_over_ssh(f'{self.username}@{host}', command)
+
+    def stop_device(self, device: str) -> int:
+        doc = self.db.get_device_setting(device)
+        host = doc['host']
+        self.update_config(unactive=device)
+        command = f"screen -S {device} -X quit"
         if host == self.localhost:
             return self.run_locally(command)
         return self.run_over_ssh(f'{self.username}@{host}', command)
