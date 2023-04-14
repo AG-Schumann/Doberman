@@ -14,7 +14,6 @@ class AlarmNode(Doberman.Node):
         self.max_reading_delay = kwargs['max_reading_delay']
         self.escalation_config = kwargs['escalation_config']
         self.escalation_level = 0
-        self.base_level = kwargs['alarm_level']
         self.auto_silence_duration = kwargs['silence_duration']
         self.silence_duration_cant_send = kwargs['silence_duration_cant_send']
         self.messages_this_level = 0
@@ -28,15 +27,15 @@ class AlarmNode(Doberman.Node):
         if self.hash is None:
             self.logger.debug('How are you escalating if there is no active alarm?')
             return
-        total_level = self.base_level + self.escalation_level
+        total_level = self.config['alarm_level'] + self.escalation_level
         if self.messages_this_level > self.escalation_config[total_level]:
-            self.logger.warning((f'{self.name} at level {self.base_level}/{self.escalation_level} '
+            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
                 f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
             max_total_level = len(self.escalation_config)-1
-            self.escalation_level = min(max_total_level - self.base_level, self.escalation_level + 1)
+            self.escalation_level = min(max_total_level - self.config['alarm_level'], self.escalation_level + 1)
             self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
-            self.logger.info((f'{self.name} at level {self.base_level}/{self.escalation_level} '
+            self.logger.info((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
                     f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} to escalate'))
 
     def reset_alarm(self):
@@ -55,25 +54,25 @@ class AlarmNode(Doberman.Node):
         """
         # Only send message if pipeline is silenced at base_level or above, 
         # or if it is silenced at level -1 (universal)
-        if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.base_level:
+        if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.config['alarm_level']:
             self.logger.error(msg)
             if self.hash is None:
                 self.hash = Doberman.utils.make_hash(ts or time.time(), self.pipeline.name)
                 self.alarm_start = ts or time.time()
                 self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
             self.escalate()
-            level = self.base_level + self.escalation_level
+            level = self.config['alarm_level'] + self.escalation_level
             try:
                 self._log_alarm(level=level,
                                 message=msg,
                                 pipeline=self.pipeline.name,
                                 _hash=self.hash)
                 # self-silence if the message was successfully sent
-                self.pipeline.silence_for(self.auto_silence_duration[level], self.base_level)
+                self.pipeline.silence_for(self.auto_silence_duration[level], self.config['alarm_level'])
                 self.messages_this_level += 1
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
-                self.pipeline.silence_for(self.silence_duration_cant_send, self.base_level)
+                self.pipeline.silence_for(self.silence_duration_cant_send, self.config['alarm_level'])
         else:
             self.logger.debug(msg)
 
