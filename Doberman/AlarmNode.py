@@ -114,7 +114,7 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.strict = True
-        self.sensor_config_needed += ['alarm_thresholds', 'alarm_recurrence']
+        self.sensor_config_needed += ['alarm_thresholds', 'alarm_recurrence', 'base_level']
 
     def load_config(self, doc):
         doc.update(length=doc['alarm_recurrence'])
@@ -152,7 +152,7 @@ class IntegerAlarmNode(AlarmNode):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.sensor_config_needed += ['alarm_values']
+        self.sensor_config_needed += ['alarm_values', 'base_level']
 
     def process(self, package):
         value = int(package[self.input_var])
