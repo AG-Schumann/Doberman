@@ -8,17 +8,17 @@ x=0
 while [[ $1 =~ ^- && ! $1 == '--' ]]; do case $1 in
   --alarm )
     target="alarm"
-    screen_name="alarm_monitor"
+    screen_name="pl_alarm"
     x=$((x+1))
     ;;
   --control )
     target="control"
-    screen_name="control_pipeline"
+    screen_name="pl_control"
     x=$((x+1))
     ;;
   --convert )
     target="convert"
-    screen_name="convert_pipeline"
+    screen_name="pl_convert"
     x=$((x+1))
     ;;
   -d | --device )
