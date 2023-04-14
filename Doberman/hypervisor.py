@@ -37,6 +37,7 @@ class Hypervisor(Doberman.Monitor):
         path = self.config['path']
         for thing in 'alarm control convert'.split():
             self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
+            self.last_pong[f'pl_{thing}'] = time.time()
             time.sleep(0.1)
         # now start the rest of the things
         self.known_devices = self.db.distinct('devices', 'name')
@@ -106,7 +107,7 @@ class Hypervisor(Doberman.Monitor):
         if active:
             updates['$addToSet'] = {'processes.active': active}
         if unactive:
-            updates['$pull'] = {'processes.active': active}
+            updates['$pull'] = {'processes.active': unactive}
         if heartbeat:
             updates['$set']: {'heartbeat': heartbeat}
         if status:
