@@ -41,7 +41,7 @@ class Pipeline(threading.Thread):
         Creates a pipeline and returns it
         """
         for node in config['pipeline']:
-            if node['type'] == 'SensorSourceNode':
+            if node['type'] in ['SensorSourceNode', 'DeviceRespondingSyncNode']:
                 return SyncPipeline(**kwargs)
         return Pipeline(**kwargs)
 
@@ -305,12 +305,14 @@ class SyncPipeline(Pipeline):
         host, ports = self.db.get_comms_info('data')
         socket.connect(f'tcp://{host}:{ports["recv"]}')
         for name in self.depends_on:
+            self.logger.debug(f'listening to {name}')
             socket.setsockopt_string(zmq.SUBSCRIBE, name)
         poller = zmq.Poller()
         poller.register(socket, zmq.POLLIN)
         has_new = set()
         while not self.event.is_set():
             socks = dict(poller.poll(timeout=1000))
+            self.logger.debug(f'I am here {socks = }')
             if socks.get(socket) == zmq.POLLIN:
                 try:
                     msg = None

@@ -213,7 +213,6 @@ class SensorSourceNode(SourceNode):
         super().receive_from_upstream(package)
 
 
-
 class PipelineSourceNode(SourceNode):
     """
     A node to source info about another pipeline.
