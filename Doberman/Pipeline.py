@@ -312,7 +312,6 @@ class SyncPipeline(Pipeline):
         has_new = set()
         while not self.event.is_set():
             socks = dict(poller.poll(timeout=1000))
-            self.logger.debug(f'I am here {socks = }')
             if socks.get(socket) == zmq.POLLIN:
                 try:
                     msg = None
