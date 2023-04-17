@@ -90,7 +90,7 @@ class DeviceRespondingBase(AlarmNode):
         if (dt := ((now := time.time()) - package['time'])) > self.config['readout_interval'] + self.max_reading_delay:
             self.log_alarm(
                 (f'Is {self.device} responding correctly? No new value for '
-                 f'{self.input_var} has been seen in {int(dt)} seconds'),
+                 f'{self.description} has been seen in {int(dt)} seconds'),
                 now)
         else:
             self.reset_alarm()
