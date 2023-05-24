@@ -43,7 +43,6 @@ def find_plugin(name, path):
         raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
     try:
         if split:
-            print('_'.join(name.split('_')[:-1]))
             device_ctor = getattr(spec.loader.load_module(), '_'.join(name.split('_')[:-1]))
         elif strip:
             device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
