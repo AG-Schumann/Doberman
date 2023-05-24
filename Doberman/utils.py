@@ -39,6 +39,7 @@ def find_plugin(name, path):
         split = True
         name_split = name.split('_')
         name_split = '_'.join(name_split[:-1])
+        spec = importlib.machinery.PathFinder.find_spec(name_split, path)
     if spec is None:
         raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
     try:
