@@ -29,6 +29,7 @@ def find_plugin(name, path):
     :returns constructor: the constructor of the requested device
     """
     strip = False
+    split = False
     if not isinstance(path, (list, tuple)):
         path = [path]
     spec = importlib.machinery.PathFinder.find_spec(name, path)
@@ -37,14 +38,13 @@ def find_plugin(name, path):
         spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
     if spec is None:
         split = True
-        name_split = name.split('_')
-        name_split = '_'.join(name_split[:-1])
-        spec = importlib.machinery.PathFinder.find_spec(name_split, path)
+        spec = importlib.machinery.PathFinder.find_spec('_'.join(name.split('_')[:-1]), path)
     if spec is None:
         raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
     try:
         if split:
-            device_ctor = getattr(spec.loader.load_module(), name_split)
+            print('_'.join(name.split('_')[:-1]))
+            device_ctor = getattr(spec.loader.load_module(), '_'.join(name.split('_')[:-1]))
         if strip:
             device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
         else:
