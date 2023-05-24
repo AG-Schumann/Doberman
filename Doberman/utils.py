@@ -45,7 +45,7 @@ def find_plugin(name, path):
         if split:
             print('_'.join(name.split('_')[:-1]))
             device_ctor = getattr(spec.loader.load_module(), '_'.join(name.split('_')[:-1]))
-        if strip:
+        elif strip:
             device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
         else:
             device_ctor = getattr(spec.loader.load_module(), name)
