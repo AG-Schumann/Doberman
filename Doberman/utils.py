@@ -36,8 +36,14 @@ def find_plugin(name, path):
         strip = True
         spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
     if spec is None:
+        split = True
+        name_split = name.split('_')
+        name_split = '_'.join(name_split[:-1])
+    if spec is None:
         raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
     try:
+        if split:
+            device_ctor = getattr(spec.loader.load_module(), name_split)
         if strip:
             device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
         else:
