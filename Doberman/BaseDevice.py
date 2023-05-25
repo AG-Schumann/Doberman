@@ -207,6 +207,10 @@ class SerialDevice(Device):
             # so we can more easily change this later
             self.msg_sleep = 1.0
 
+        if self.id != '':
+            print(self.id)
+            self._device.port = f'/dev/serial/by-id/{self.id}'
+            print(self._device.port)
         if self.tty == '0':
             raise ValueError('No tty port specified!')
         try:
