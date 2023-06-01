@@ -337,16 +337,10 @@ class MergeNode(BufferNode):
                 new_package[k] = v
         return new_package
 
-    def load_config(self, doc):
-        """
-        No configurable values for a MergeNode
-        """
-        return
-
 
 class IntegralNode(BufferNode):
     """
-    Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
+    Calculates the integral-average of the specified value of the specified duration using the trapezoid rule.
     Divides by the time interval at the end. Supports a 't_offset' config value, which is some time offset
     from the end of the buffer.
 
