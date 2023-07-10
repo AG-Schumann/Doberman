@@ -38,11 +38,9 @@ class DigitalControlNode(ControlNode):
             if package[self.input_var[0]]:
                 self.logger.info(f'{self.name}: opening')
                 self.set_output(1)
-                #self.set_output(self.config.get('output_a', 1))
             elif package[self.input_var[1]]:
                 self.logger.info(f'{self.name}: closing')
                 self.set_output(0)
-                #self.set_output(self.config.get('output_b', 0))
 
 
 class AnalogControlNode(ControlNode):
