@@ -109,10 +109,10 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
         with open(f'{directory}/remote_hb_{experiment_name}', 'r') as f:
             timestamp, numbers_string = f.read().split('\n', maxsplit=1)
             numbers = numbers_string.strip().split(',')
-            if dt := (time.time() - int(timestamp)) > self.config.get('max_delay_sms', 3*60): # default 3 minutes for sms
+            if dt := (time.time() - int(timestamp)) > float(self.config.get('max_delay_sms', 3*60)): # default 3 minutes for sms
                 msg = f"The hypervisor of {experiment_name} hasn't had a heartbeat for {int(dt/60)} minutes."
                 prd = {'sms': numbers}
-                if dt > self.config.get('max_delay_phone', 10*60): # and 10 minutes for phone + sms
+                if dt > float(self.config.get('max_delay_phone', 10*60)): # and 10 minutes for phone + sms
                     prd['phone'] = numbers
                 self.log_alarm(msg, prd)
 
