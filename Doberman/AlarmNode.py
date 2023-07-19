@@ -93,7 +93,7 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
             try:
                 self._log_alarm(message=msg,
                                 pipeline=self.pipeline.name,
-                                prot_rect_dict=prd,)
+                                prot_rec_dict=prd,)
                 # self-silence if the message was successfully sent
                 self.pipeline.silence_for(self.config.get('silence_duration', 300), -1)
             except Exception as e:
