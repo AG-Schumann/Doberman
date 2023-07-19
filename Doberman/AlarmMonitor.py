@@ -162,6 +162,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         exception = None
         if not prot_rec_dict:
             prot_rec_dict = self.db.get_contact_addresses(level)
+        self.logger.debug(f'{prot_rec_dict = }')
         for protocol, recipients in prot_rec_dict.items():
             try:
                 if protocol == 'sms':
