@@ -144,8 +144,7 @@ class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode
 
 
 class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
-    def setup(self, **kwargs):
-        super().setup(**kwargs)
+   pass
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
