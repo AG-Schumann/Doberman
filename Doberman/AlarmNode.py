@@ -146,6 +146,7 @@ class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode
 class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
     pass
 
+
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
     A simple alarm. Checks a value against the thresholds stored in its sensor document.
