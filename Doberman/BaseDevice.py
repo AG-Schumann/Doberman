@@ -153,6 +153,7 @@ class Device(object):
         """
         Implemented by a child class
         """
+        return None
 
     def close(self):
         self.event.set()

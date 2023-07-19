@@ -76,6 +76,46 @@ class AlarmNode(Doberman.Node):
         else:
             self.logger.debug(msg)
 
+class CheckRemoteHeartbeatNode(Doberman.Node):
+    """
+    A node that checks if a remote heartbeat has been updated recently and otherwise sends alarms.
+    """
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self._log_alarm = kwargs['log_alarm']
+
+    def log_alarm(self, msg, prd):
+        """
+        Let the outside world know that something is going on
+        """
+        if not self.is_silent:
+            self.logger.error(msg)
+            try:
+                self._log_alarm(message=msg,
+                                pipeline=self.pipeline.name,
+                                prot_rect_dict=prd,)
+                # self-silence if the message was successfully sent
+                self.pipeline.silence_for(self.config.get('silence_duration', 300), -1)
+            except Exception as e:
+                self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
+                self.pipeline.silence_for(self.config.get('silence_duration', 300), -1)
+        else:
+            self.logger.debug(msg)
+
+    def process(self, package):
+
+        directory = self.config.get('directory', '/scratch')
+        experiment_name = self.config.get('experiment_name]')
+        with open(f'{directory}/remote_hb_{experiment_name}', 'r') as f:
+            timestamp, numbers_string = f.read().split('\n', maxsplit=1)
+            numbers = numbers_string.strip().split(',')
+            if dt := (time.time() - int(timestamp)) > self.config.get('max_delay_sms', 3*60): # default 3 minutes for sms
+                msg = f"The hypervisor of {experiment_name} hasn't had a heartbeat for {int(dt/60)} minutes."
+                prd = {'sms': numbers}
+                if dt > self.config.get('max_delay_phone', 10*60): # and 10 minutes for phone + sms
+                    prd['phone'] = numbers
+                self.log_alarm(msg, prd)
+
 class DeviceRespondingBase(AlarmNode):
     """
     A base class to check if sensors are returning data

@@ -155,12 +155,14 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 raise RuntimeError(f"Couldn't send message, status {response.status_code}: "
                                   f"{response.content.decode('ascii')}")
 
-    def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
+    def log_alarm(self, level=None, message=None, pipeline=None, _hash=None, prot_rec_dict=None):
         """
         Sends 'message' to the contacts specified by 'level'.
         """
         exception = None
-        for protocol, recipients in self.db.get_contact_addresses(level).items():
+        if not prot_rec_dict:
+            prot_rec_dict = self.db.get_contact_addresses(level)
+        for protocol, recipients in prot_rec_dict.items():
             try:
                 if protocol == 'sms':
                     message = f'{self.db.experiment_name.upper()} {message}'
