@@ -95,10 +95,10 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                                 pipeline=self.pipeline.name,
                                 prot_rec_dict=prd,)
                 # self-silence if the message was successfully sent
-                self.pipeline.silence_for(int(self.config.get('silence_duration', 300), -1))
+                self.pipeline.silence_for(int(self.config.get('silence_duration', 300)), -1)
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
-                self.pipeline.silence_for(self.config.get('silence_duration', 300), -1)
+                self.pipeline.silence_for(int(self.config.get('silence_duration', 300)), -1)
         else:
             self.logger.debug(msg)
 
@@ -111,7 +111,6 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
             numbers = numbers_string.strip().split(',')
             dt = time.time() - int(timestamp)
             if dt  > int(self.config.get('max_delay_sms', 3*60)): # default 3 minutes for sms
-                self.logger.debug(f'{dt = }')
                 msg = f"The hypervisor of {experiment_name} hasn't had a heartbeat for {round(dt/60)} minutes."
                 prd = {'sms': numbers}
                 if dt > int(self.config.get('max_delay_phone', 10*60)): # and 10 minutes for phone + sms
