@@ -95,7 +95,7 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                                 pipeline=self.pipeline.name,
                                 prot_rec_dict=prd,)
                 # self-silence if the message was successfully sent
-                self.pipeline.silence_for(self.config.get('silence_duration', 300), -1)
+                self.pipeline.silence_for(int(self.config.get('silence_duration', 300), -1))
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
                 self.pipeline.silence_for(self.config.get('silence_duration', 300), -1)
