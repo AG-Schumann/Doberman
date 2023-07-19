@@ -45,7 +45,6 @@ class Monitor(object):
         Joins all running threads
         """
         self.event.set()
-        self.shutdown()
         pop = []
         with self.lock:
             for t in self.threads.values():
@@ -60,6 +59,7 @@ class Monitor(object):
                 else:
                     pop.append(n)
         map(self.threads.pop, pop)
+        self.shutdown()
         self.db.notify_hypervisor(inactive=self.name)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):

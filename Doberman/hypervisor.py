@@ -48,11 +48,9 @@ class Hypervisor(Doberman.Monitor):
         self.broker = threading.Thread(target=self.data_broker, args=(self.broker_context,))
         self.broker.start()
         self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
-        if (rhb := self.config.get('remote_heartbeat', {}).get('status', '')) == 'send':
-            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
-        elif rhb == 'receive':
-            self.register(obj=self.check_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True)
-
+        rhbs = self.config.get('remote_heartbeat', {})
+        for doc in rhbs.get('send', []):
+            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True, config=doc)
         time.sleep(1)
 
         # start the fixed-frequency sync signals
@@ -69,21 +67,21 @@ class Hypervisor(Doberman.Monitor):
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
 
     def shutdown(self) -> None:
-        # shut dow the pipeline monitors
-        for thing in 'alarm control convert'.split():
-            self.run_locally(f"screen -S pl_{thing} -X quit")
-            self.update_config(unactive=f'pl_{thing}')
-            time.sleep(0.1)
-        managed = self.config['processes']['managed']
-        for device in managed:
-            self.stop_device(device)
-            time.sleep(0.1)
         self.event.set()
         self.update_config(status='offline')
         self.dispatcher.join()
         self.broker_context.term()
         self.broker.join()
         self.sync.join()
+        # shut down the pipeline monitors
+        for thing in 'alarm control convert'.split():
+            self.run_locally(f"screen -S pl_{thing} -X quit")
+            self.update_config(deactivate=f'pl_{thing}')
+            time.sleep(0.1)
+        managed = self.config['processes']['managed']
+        for device in managed:
+            self.stop_device(device)
+            time.sleep(0.05)
 
     def sync_signals(self, periods: list) -> None:
         ctx = zmq.Context.instance()
@@ -99,16 +97,16 @@ class Hypervisor(Doberman.Monitor):
             socket.send_string(f'X_SYNC_{p} {now:.3f} 0')
             heappush(q, (now+p, p))
 
-    def update_config(self, unmanage=None, manage=None, active=None, unactive=None, heartbeat=None, status=None) -> None:
+    def update_config(self, unmanage=None, manage=None, activate=None, deactivate=None, heartbeat=None, status=None) -> None:
         updates = {}
         if unmanage:
             updates['$pull'] = {'processes.managed': unmanage}
         if manage:
             updates['$addToSet'] = {'processes.managed': manage}
-        if active:
-            updates['$addToSet'] = {'processes.active': active}
-        if unactive:
-            updates['$pull'] = {'processes.active': unactive}
+        if activate:
+            updates['$addToSet'] = {'processes.active': activate}
+        if deactivate:
+            updates['$pull'] = {'processes.active': deactivate}
         if heartbeat:
             updates['$set']: {'heartbeat': heartbeat}
         if status:
@@ -152,24 +150,19 @@ class Hypervisor(Doberman.Monitor):
         self.update_config(heartbeat=dtnow())
         return self.config['period']
 
-    def send_remote_heartbeat(self) -> None:
+    def send_remote_heartbeat(self, config) -> None:
         # touch a file on a remote server just so someone else knows we're still alive
         numbers = []
         for doc in self.db.read_from_db('contacts', {'on_shift': True}):
             numbers.append(doc['sms'])
-        if (addr := self.config.get('remote_heartbeat', {}).get('address')) is not None:
-            self.run_over_ssh(addr, r'date +%s > /scratch/remote_hb_'+self.db.experiment_name,
+        if (addr := config.get('address')) is not None:
+            directory = config.get('directory', '/scratch')
+            self.run_over_ssh(addr,
+                              r'date +%s > ' + directory + '/remote_hb_' + self.db.experiment_name,
+                              port=config.get('port', 22))
+            self.run_over_ssh(addr,
+                              r'echo "' + ','.join(numbers) + '" >> ' + directory + '/remote_hb_' + self.db.experiment_name,
                               port=self.config['remote_heartbeat'].get('port', 22))
-            self.run_over_ssh(addr, r'echo "' + ','.join(numbers) + '" >> /scratch/remote_hb_' + self.db.experiment_name,
-                              port=self.config['remote_heartbeat'].get('port', 22))
-
-    def check_remote_heartbeat(self) -> None:
-        for p in os.listdir('/scratch/remote_hb_*'):
-            with open(f'/scratch/{p}', 'r') as f:
-                time_str = f.read().strip()
-            if time.time() - int(time_str) > 3*60:
-                # timestamp is too old, the other server is having problems
-                self.db.log_alarm(msg=f"{p.split('_',maxsplit=2)[3]} hasn't heartbeated recently, maybe let someone know?")
 
     def run_over_ssh(self, address: str, command: str, port=22) -> int:
         """
@@ -220,7 +213,7 @@ class Hypervisor(Doberman.Monitor):
     def stop_device(self, device: str) -> int:
         doc = self.db.get_device_setting(device)
         host = doc['host']
-        self.update_config(unactive=device)
+        self.update_config(deactivate=device)
         command = f"screen -S {device} -X quit"
         if host == self.localhost:
             return self.run_locally(command)

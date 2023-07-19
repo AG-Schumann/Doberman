@@ -170,10 +170,8 @@ class Pipeline(threading.Thread):
                             raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
                         for field in fields:
                             setup_kwargs[field] = doc.get(field)
-                    elif isinstance(n, (Doberman.InfluxSinkNode)):
-                        if (
-                                doc := self.db.get_sensor_setting(
-                                    name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                    elif isinstance(n, Doberman.InfluxSinkNode):
+                        if (doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
                             raise ValueError(f'Invalid output_var for {n.name}: {kwargs.get("output_var")}')
                         for field in fields:
                             setup_kwargs[field] = doc.get(field)
