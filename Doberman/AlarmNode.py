@@ -116,6 +116,8 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                 if dt > int(self.config.get('max_delay_phone', 10*60)): # and 10 minutes for phone + sms
                     prd['phone'] = numbers
                 self.log_alarm(msg, prd)
+            else:
+                self.logger.debug(f'Last remote heartbeat from {experiment_name} was {int(dt)} seconds ago.')
 
 class DeviceRespondingBase(AlarmNode):
     """
