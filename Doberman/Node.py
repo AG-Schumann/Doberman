@@ -18,7 +18,6 @@ class Node(object):
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
-        self.creates_sync_pipelines = False
         self.logger.debug(f'{name} constructor')
 
     def __del__(self):
@@ -202,7 +201,6 @@ class SensorSourceNode(SourceNode):
 
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.creates_sync_pipelines = True
         if kwargs.get('new_value_required', False) or \
                 self.input_var.startswith('X_SYNC'):
             self.pipeline.required_inputs.add(self.input_var)

@@ -83,7 +83,6 @@ class Hypervisor(Doberman.Monitor):
             self.stop_device(device)
             time.sleep(0.05)
 
-
     def sync_signals(self, periods: list) -> None:
         ctx = zmq.Context.instance()
         socket = ctx.socket(zmq.PUB)

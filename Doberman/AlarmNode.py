@@ -143,8 +143,6 @@ class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode
 class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.creates_sync_pipelines = True
-
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
