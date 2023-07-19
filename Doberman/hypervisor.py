@@ -48,9 +48,9 @@ class Hypervisor(Doberman.Monitor):
         self.broker = threading.Thread(target=self.data_broker, args=(self.broker_context,))
         self.broker.start()
         self.register(obj=self.compress_logs, period=86400, name='log_compactor', _no_stop=True)
-        rhbs = self.config.get('remote_heartbeat', {})
-        for doc in rhbs.get('send', []):
-            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True, config=doc)
+        rhbs = self.config.get('remote_heartbeat', [])
+        for rhb in rhbs:
+            self.register(obj=self.send_remote_heartbeat, period=60, name='remote_heartbeat', _no_stop=True, config=rhb)
         time.sleep(1)
 
         # start the fixed-frequency sync signals
