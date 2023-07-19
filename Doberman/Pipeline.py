@@ -41,7 +41,7 @@ class Pipeline(threading.Thread):
         Creates a pipeline and returns it
         """
         for node in config['pipeline']:
-            if node['type'] in ['SensorSourceNode', 'DeviceRespondingSyncNode']:
+            if node.creates_sync_pipelines:
                 return SyncPipeline(**kwargs)
         return Pipeline(**kwargs)
 
