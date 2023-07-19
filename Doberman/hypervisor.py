@@ -162,7 +162,7 @@ class Hypervisor(Doberman.Monitor):
                               port=config.get('port', 22))
             self.run_over_ssh(addr,
                               r'echo "' + ','.join(numbers) + '" >> ' + directory + '/remote_hb_' + self.db.experiment_name,
-                              port=config['remote_heartbeat'].get('port', 22))
+                              port=config.get('port', 22))
 
     def run_over_ssh(self, address: str, command: str, port=22) -> int:
         """
