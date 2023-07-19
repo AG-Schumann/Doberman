@@ -144,7 +144,7 @@ class DeviceRespondingInfluxNode(DeviceRespondingBase, Doberman.InfluxSourceNode
 
 
 class DeviceRespondingSyncNode(DeviceRespondingBase, Doberman.SensorSourceNode):
-   pass
+    pass
 
 class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     """
