@@ -67,7 +67,13 @@ class Hypervisor(Doberman.Monitor):
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
 
     def shutdown(self) -> None:
-        # shut dow the pipeline monitors
+        self.event.set()
+        self.update_config(status='offline')
+        self.dispatcher.join()
+        self.broker_context.term()
+        self.broker.join()
+        self.sync.join()
+        # shut down the pipeline monitors
         for thing in 'alarm control convert'.split():
             self.run_locally(f"screen -S pl_{thing} -X quit")
             self.update_config(deactivate=f'pl_{thing}')
@@ -75,13 +81,8 @@ class Hypervisor(Doberman.Monitor):
         managed = self.config['processes']['managed']
         for device in managed:
             self.stop_device(device)
-            time.sleep(0.1)
-        self.event.set()
-        self.update_config(status='offline')
-        self.dispatcher.join()
-        self.broker_context.term()
-        self.broker.join()
-        self.sync.join()
+            time.sleep(0.05)
+
 
     def sync_signals(self, periods: list) -> None:
         ctx = zmq.Context.instance()
