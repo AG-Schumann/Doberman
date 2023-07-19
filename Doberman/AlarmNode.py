@@ -105,7 +105,7 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
     def process(self, package):
 
         directory = self.config.get('directory', '/scratch')
-        experiment_name = self.config.get('experiment_name]')
+        experiment_name = self.config.get('experiment_name')
         with open(f'{directory}/remote_hb_{experiment_name}', 'r') as f:
             timestamp, numbers_string = f.read().split('\n', maxsplit=1)
             numbers = numbers_string.strip().split(',')
