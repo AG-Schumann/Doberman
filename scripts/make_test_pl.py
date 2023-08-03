@@ -24,12 +24,6 @@ pl = {
                 'input_var': SENSOR_INPUT,
             },
             {
-                'name': 'input_sync_5',
-                'type': 'SensorSourceNode',
-                'input_var': 'X_SYNC_5',
-                'new_value_required': True
-            },
-            {
                 'name': 'filter',
                 'type': 'MedianFilterNode',
                 'input_var': SENSOR_INPUT,
