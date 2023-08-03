@@ -188,7 +188,6 @@ class InfluxSourceNode(SourceNode):
                 # still nothing
                 raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
-        self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp * (10 ** -9), self.output_var: val}
 
 
