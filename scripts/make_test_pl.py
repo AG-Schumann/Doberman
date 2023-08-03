@@ -65,7 +65,7 @@ pl = {
                 'upstream': ['integral']
             },
             {
-                'type': 'PipelineControl',
+                'type': 'PipelineControlNode',
                 'name': 'end',
                 'actions': {True: ['pipelinectl_stop test_pipeline', ]},
                 'input_var': '',
