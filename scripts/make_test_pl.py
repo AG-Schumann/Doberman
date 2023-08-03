@@ -67,7 +67,7 @@ pl = {
             {
                 'type': 'PipelineControlNode',
                 'name': 'end',
-                'actions': {'condition_test': ['pipelinectl_stop test_pipeline', ]},
+                'actions': {'condition_test': [('stop', 'test_pipeline'), ]},
                 'input_var': '',
                 'upstream': ['eval']
             }

@@ -82,7 +82,7 @@ class PipelineControlNode(Doberman.Node):
             target = 'pl_control'
         elif pipeline.startswith('alarm'):
             target = 'pl_alarm'
-        elif pipeline.startswith('convert'):
+        elif pipeline.startswith('convert') or pipeline == 'test_pipeline':
             target = 'pl_convert'
         else:
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
