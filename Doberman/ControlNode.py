@@ -5,6 +5,7 @@ class ControlNode(Doberman.Node):
     """
     Another empty base class to handle different database access
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.control_target = kwargs['control_target']
@@ -14,8 +15,8 @@ class ControlNode(Doberman.Node):
         self.logger.debug(f'Setting {self.control_target} {self.control_value} to {value}')
         if not self.is_silent and not _force:
             self.pipeline.send_command(
-                    command=f'set {self.control_value} {value}',
-                    to=self.control_target)
+                command=f'set {self.control_value} {value}',
+                to=self.control_target)
 
     def on_error_do_this(self):
         if (v := self.config.get('default_output')) is not None:
@@ -27,6 +28,7 @@ class DigitalControlNode(ControlNode):
     A generalized node to handle digital output. The logic is assumed to be
     upstream.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.one_input = kwargs.get('one_input', False)
@@ -48,6 +50,7 @@ class AnalogControlNode(ControlNode):
     A generalized node to handle analog output. The logic is assumed to be
     upstream
     """
+
     def process(self, package):
         val = package[self.input_var]
         if (min_output := self.config.get('min_output')) is not None:
@@ -61,6 +64,7 @@ class PipelineControlNode(Doberman.Node):
     """
     Sometimes you want one pipeline to control another.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.actions = kwargs['actions']
@@ -68,8 +72,8 @@ class PipelineControlNode(Doberman.Node):
     def process(self, package):
         for condition, actions in self.actions.items():
             if package.get(condition, False):
-               for action in actions:
-                   self.control_pipeline(*action)
+                for action in actions:
+                    self.control_pipeline(*action)
 
         if package.get('condition_test', False):
             # this one is mainly for testing
@@ -88,5 +92,4 @@ class PipelineControlNode(Doberman.Node):
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
         self.logger.debug(f"Sending {action} to {pipeline}")
         self.pipeline.send_command(command=f'pipelinectl_{action} {pipeline}',
-                to=target)
-
+                                   to=target)

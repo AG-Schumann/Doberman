@@ -67,9 +67,8 @@ pl = {
             {
                 'type': 'PipelineControl',
                 'name': 'end',
+                'actions': {True: ['pipelinectl_stop test_pipeline', ]},
                 'input_var': '',
-                'control_target': '',
-                'control_value': '',
                 'upstream': ['eval']
             }
         ],

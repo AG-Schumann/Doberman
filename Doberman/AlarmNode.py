@@ -209,20 +209,22 @@ class BitmaskIntegerAlarmNode(AlarmNode):
     Sometimes the integer represents a bitmask. The threshold config for this
     looks different:
     [
-        (bitmask, value, msg),
-        (0x3, 1, "msg"),
+        (bit_index, alarm_value, msg),
+        (3, 1, "msg"),
     }
-    This means you look at bits[0] and [1], and if they equal 1 then you send "msg"
-    (meaning bit[0]=1 and bit[1]=0). Both bitmask and value are assumed to be in **hex**
-    and will be integer-cast before use (mask = int(mask, base=16))
+    This means you look at bits[3] of your input and if it's 1 send "msg".
     """
     def process(self, package):
         value = int(package[self.input_var])
         alarm_msg = []
-        for mask, target, msg in self.config['alarm_thresholds']:
-            mask = int(mask, base=16)
-            target = int(target, base=16)
-            if value & mask == target:
+        for bit_index, alarm_value, msg in self.config['alarm_values']:
+            mask = 1 << bit_index
+            # Use bitwise AND to check if the bit at the specified index is 1 or 0
+            if value & mask:
+                result = 1
+            else:
+                result = 0
+            if int(alarm_value) == result:
                 alarm_msg.append(msg)
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
