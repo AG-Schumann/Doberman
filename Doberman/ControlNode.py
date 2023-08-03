@@ -71,11 +71,13 @@ class PipelineControlNode(Doberman.Node):
 
     def process(self, package):
         for condition, actions in self.actions.items():
+            self.logger.debug(condition, actions)
             if package.get(condition, False):
                 for action in actions:
                     self.control_pipeline(*action)
 
     def control_pipeline(self, action, pipeline):
+        self.logger.debug(f'contol_pipeline({action}, {pipeline})')
         if self.is_silent:
             return
         if pipeline.startswith('control'):
