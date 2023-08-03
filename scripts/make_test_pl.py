@@ -32,7 +32,7 @@ pl = {
             },
             {
                 'name': 'filter',
-                'type': 'MedianFilter',
+                'type': 'MedianFilterNode',
                 'input_var': SENSOR_INPUT,
                 'upstream': ['input_sync'],
             },
