@@ -77,7 +77,6 @@ class Pipeline(threading.Thread):
             # reset
             self.silenced_at_level = -1
         timing = {}
-        self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         drift = 0
         for pl in self.subpipelines:
             for node in pl:

@@ -11,7 +11,6 @@ class DeviceMonitor(Doberman.Monitor):
 
     def setup(self):
         plugin_dir = self.db.get_host_setting(field='plugin_dir')
-        self.logger.debug(plugin_dir)
         self.device_ctor = Doberman.utils.find_plugin(self.name, plugin_dir)
         self.device = None
         cfg_doc = self.db.get_device_setting(self.name)
