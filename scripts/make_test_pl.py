@@ -2,7 +2,6 @@ from pymongo import MongoClient
 import os
 
 SENSOR_INPUT = 'V_LB_01'
-
 pl = {
         'name': 'test_pipeline',
         'status': 'inactive',

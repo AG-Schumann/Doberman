@@ -71,23 +71,20 @@ class PipelineControlNode(Doberman.Node):
 
     def process(self, package):
         for condition, actions in self.actions.items():
-            self.logger.debug(condition, actions)
             if package.get(condition, False):
                 for action in actions:
                     self.control_pipeline(*action)
 
     def control_pipeline(self, action, pipeline):
-        self.logger.debug(f'contol_pipeline({action}, {pipeline})')
         if self.is_silent:
             return
-        if pipeline.startswith('control'):
+        if pipeline.startswith('control') or pipeline == 'test_pipeline':
             target = 'pl_control'
         elif pipeline.startswith('alarm'):
             target = 'pl_alarm'
-        elif pipeline.startswith('convert') or pipeline == 'test_pipeline':
+        elif pipeline.startswith('convert'):
             target = 'pl_convert'
         else:
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
-        self.logger.debug(f"Sending {action} to {pipeline}")
         self.pipeline.send_command(command=f'pipelinectl_{action} {pipeline}',
                                    to=target)
