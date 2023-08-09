@@ -44,11 +44,13 @@ class Monitor(object):
         """
         Joins all running threads
         """
+        self.logger.debug('BaseMonitor close')
         self.event.set()
         self.shutdown()
         pop = []
         with self.lock:
             for t in self.threads.values():
+                self.logger.debug(f'{t} will be set')
                 # set the events all here because join() blocks
                 t.event.set()
             for n, t in self.threads.items():
@@ -59,7 +61,9 @@ class Monitor(object):
                     self.logger.debug(f'Can\'t close {n}-thread. {e}')
                 else:
                     pop.append(n)
+        self.logger.debug(pop)
         map(self.threads.pop, pop)
+        self.logger.debug(f'set {self.name} inactive in DB')
         self.db.notify_hypervisor(inactive=self.name)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):

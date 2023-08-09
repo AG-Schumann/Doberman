@@ -70,18 +70,26 @@ class Hypervisor(Doberman.Monitor):
         self.register(obj=self.hypervise, period=self.config['period'], name='hypervise', _no_stop=True)
 
     def shutdown(self) -> None:
+        self.logger.debug('hypervisor shutdown')
         for thing in 'alarm control convert'.split():
+            self.logger.debug(f'pl_{thing} shutdown')
             self.run_locally(f"screen -S pl_{thing} -X quit")
             self.update_config(deactivate=f'pl_{thing}')
             time.sleep(0.1)
         managed = self.config['processes']['managed']
         for device in managed:
+            self.logger.debug(f'stop {device} ')
             self.stop_device(device)
             time.sleep(0.05)
         self.update_config(status='offline')
+        self.logger.debug('join dispatcher')
         self.dispatcher.join()
+        self.logger.debug('term broker context')
+
         self.broker_context.term()
+        self.logger.debug('join broker')
         self.broker.join()
+        self.logger.debug('join sync')
         self.sync.join()
 
     def sync_signals(self, periods: list) -> None:
