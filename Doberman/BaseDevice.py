@@ -291,7 +291,6 @@ class LANDevice(Device):
             self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -2
             return ret
-
         try:
             # Read until we get the end-of-line character
             data = b''
