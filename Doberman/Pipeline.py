@@ -48,7 +48,6 @@ class Pipeline(threading.Thread):
     def stop(self):
         self.event.set()
         try:
-            self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
                 for node in pl:
                     try:
