@@ -69,7 +69,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 raise RuntimeError(f"Couldn't place call, status"
                                   + f" {response.status_code}: {response.json()['message']}")
 
-    def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
+    def send_email(self, toaddr, subject, message, level, cc=None, bcc=None, add_signature=True,):
 
         # Get connection details
         connection_details = self.get_connection_details('email')
@@ -99,6 +99,9 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             msg['Bcc'] = ', '.join(bcc)
             recipients.extend(bcc)
         msg['Subject'] = subject
+
+        silence_duration = self.db.get_experiment_config('alarm').get('silence_duration')[level]
+        message += f'\nThis alarm is automatically silenced for {int(silence_duration/60)} minutes.'
         if add_signature:
             signature = f'\n\n----------\nMessage created on {now} by Doberman slow control.'
             body = str(message) + signature
@@ -170,7 +173,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 elif protocol == 'email':
                     subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
                     self.send_email(toaddr=recipients, subject=subject,
-                                    message=message)
+                                    message=message, level=level)
                 elif protocol == 'phone':
                     self.send_phonecall(recipients, message)
                 else:
