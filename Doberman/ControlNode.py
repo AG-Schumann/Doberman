@@ -35,7 +35,7 @@ class DigitalControlNode(ControlNode):
         self.logger.debug('process digital control node')
         self.logger.debug(package)
         if self.one_input:
-            self.lgger.debug('set output')
+            self.logger.debug('set output')
             self.set_output(package[self.input_var])
         else:
             if package[self.input_var[0]]:
