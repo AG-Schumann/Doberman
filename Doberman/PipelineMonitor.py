@@ -56,7 +56,7 @@ class PipelineMonitor(Doberman.Monitor):
 
     def stop_pipeline(self, name):
         self.logger.debug(f'stopping pipeline {name}')
-        self.pipelines[name].stop()
+        self.pipelines[name].stop(keep_status=True)
         self.stop_thread(name)
         del self.pipelines[name]
 
