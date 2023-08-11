@@ -99,25 +99,26 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             msg['Bcc'] = ', '.join(bcc)
             recipients.extend(bcc)
         msg['Subject'] = subject
+        message = f'<b>{message}</b>'
         if website_url := connection_details.get('website', None):
             # add links to view sensors of the pipeline
-            message += f'\nShow sensors involved in this pipeline:\n<ul>'
+            message += f'<br><br>Show sensors involved in this pipeline:<ul>'
             sensors = self.db.get_pipeline(pipeline).get('depends_on', [])
             for sensor in sensors:
                 message += f'<li><a href="{website_url}?sensor={sensor}">{sensor}</a></li>'
             message += '</ul>'
         silence_duration = self.db.get_experiment_config('alarm').get('silence_duration')[level]
-        message += f'\nThis alarm is automatically silenced for {int(silence_duration / 60)} minutes.'
+        message += f'This alarm is automatically silenced for <b>{int(silence_duration / 60)} minutes</b>.'
         if website_url:
             # add manual silence options
-            message += '\nTo silence the pipeline for longer, click one of the following links:\n<ul>'
+            message += '<br><br>To silence the pipeline for longer, click one of the following links:<ul>'
             for silence_for, text in zip((15, 60, 360), ('15 minutes', '1 hour', '6 hours')):
                 if silence_for > int(silence_duration/60):
                     message += f'<li><a href="{website_url}/pipeline?pipeline={pipeline}&silence={silence_for}">' \
                                f'{text}</a></li> '
                 message += '</ul>'
         if add_signature:
-            message += f'\n\n----------\nMessage created on {now} by Doberman slow control.'
+            message += f'<hr>Message created on {now} by Doberman slow control.'
         body = str(message)
         msg.attach(MIMEText(body, 'html'))
         # Connect and send
