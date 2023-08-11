@@ -116,7 +116,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 if silence_for > int(silence_duration/60):
                     message += f'<li><a href="{website_url}/pipeline?pipeline={pipeline}&silence={silence_for}">' \
                                f'{text}</a></li> '
-                message += '</ul>'
+            message += '</ul>'
         if add_signature:
             message += f'<hr>Message created on {now} by Doberman slow control.'
         body = str(message)
