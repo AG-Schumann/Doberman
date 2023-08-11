@@ -18,7 +18,8 @@ class PipelineMonitor(Doberman.Monitor):
         self.pipelines = {}
         flavor = self.name.split('_')[1]  # pl_flavor
         if flavor not in 'alarm control convert'.split():
-            raise ValueError(f'Unknown pipeline monitor {self.name}, allowed are "pl_alarm", "pl_convert", "pl_control"')
+            raise ValueError(
+                f'Unknown pipeline monitor {self.name}, allowed are "pl_alarm", "pl_convert", "pl_control"')
         for name in self.db.get_pipelines(flavor):
             self.start_pipeline(name)
         if self.name == 'pl_control':
@@ -35,27 +36,27 @@ class PipelineMonitor(Doberman.Monitor):
             self.logger.error(f'No pipeline named {name} found')
             return
         if name in self.pipelines:
-            self.logger.debug(f'I already manage a pipeline called {name}')
+            self.logger.warning(f'I already manage a pipeline called {name}')
             return
-        self.logger.debug(f'starting pipeline {name}')
+        self.logger.debug(f'Starting pipeline {name}')
         self.db.set_pipeline_value(name, [('status', 'active')])
         self.db.set_pipeline_value(name, [('silent_until', 0)])
         try:
             p = Doberman.Pipeline.create(doc, db=self.db,
-                    logger=Doberman.utils.get_child_logger(name, self.db, self.logger),
-                    name=name, monitor=self)
+                                         logger=Doberman.utils.get_child_logger(name, self.db, self.logger),
+                                         name=name, monitor=self)
             p.build(doc)
         except Exception as e:
             self.logger.error(f'{type(e)}: {e}')
             self.db.set_pipeline_value(name, [('status', 'inactive')])
-            self.logger.error(f'Could not build pipeline {name}, check debug logs')
+            self.logger.error(f'Could not build pipeline {name}')
             return
         self.register(obj=p, name=name)
         self.pipelines[p.name] = p
         return 0
 
     def stop_pipeline(self, name):
-        self.logger.debug(f'stopping pipeline {name}')
+        self.logger.debug(f'Stopping pipeline {name}')
         self.pipelines[name].stop()
         self.stop_thread(name)
         del self.pipelines[name]
@@ -107,8 +108,7 @@ class PipelineMonitor(Doberman.Monitor):
                 self.logger.debug(f'Sending level {level} test alarm')
                 self.testalarm(int(level))
             else:
-                self.logger.info(f'I don\'t understand command "{command}"')
+                self.logger.warning(f'I don\'t understand command "{command}"')
         except Exception as e:
             self.logger.error(f'Received malformed command: {command}')
             self.logger.debug(f'{type(e)}: {e}')
-

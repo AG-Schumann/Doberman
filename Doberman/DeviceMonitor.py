@@ -11,7 +11,6 @@ class DeviceMonitor(Doberman.Monitor):
 
     def setup(self):
         plugin_dir = self.db.get_host_setting(field='plugin_dir')
-        self.logger.debug(plugin_dir)
         self.device_ctor = Doberman.utils.find_plugin(self.name, plugin_dir)
         self.device = None
         cfg_doc = self.db.get_device_setting(self.name)
@@ -42,7 +41,7 @@ class DeviceMonitor(Doberman.Monitor):
     def shutdown(self):
         if self.device is None:
             return
-        self.logger.info('Stopping device')
+        self.logger.debug('Stopping device')
         self.device.event.set()
         self.device.close()
         self.device = None
@@ -81,7 +80,7 @@ class DeviceMonitor(Doberman.Monitor):
         return self.db.get_experiment_config(name='hypervisor', field='period')
 
     def process_command(self, command):
-        self.logger.info(f"Found command '{command}'")
+        self.logger.info(f"Received command '{command}'")
         if command == 'reload sensors':
             self.reload_sensors()
         elif command == 'stop':

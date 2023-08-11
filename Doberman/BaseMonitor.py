@@ -18,7 +18,7 @@ class Monitor(object):
         self.db = db
         self.logger = logger
         self.name = name
-        self.logger.debug('Monitor constructing')
+        self.logger.debug(f'Monitor "{name}" constructing')
         self.event = threading.Event()
         # we use a lock to synchronize access to the thread dictionary
         # we use an RLock because the thread that checks threads sometimes
@@ -56,7 +56,7 @@ class Monitor(object):
                     t.event.set()
                     t.join()
                 except Exception as e:
-                    self.logger.debug(f'Can\'t close {n}-thread. {e}')
+                    self.logger.error(f'Can\'t close {n}-thread. {e}')
                 else:
                     pop.append(n)
         map(self.threads.pop, pop)
@@ -112,7 +112,7 @@ class Monitor(object):
         Stops a specific thread. Thread is removed from thread dictionary
         """
         if name in self.no_stop_threads:
-            self.logger.error(f'Asked to stop thread {name}, but not permitted')
+            self.logger.warning(f'Asked to stop thread {name}, but not permitted')
             return
         with self.lock:
             if name in self.threads:
@@ -120,7 +120,7 @@ class Monitor(object):
                 self.threads[name].join()
                 del self.threads[name]
             else:
-                self.logger.info(f'Asked to stop thread {name}, but it isn\'t in the dict')
+                self.logger.warning(f'Asked to stop thread {name}, but it isn\'t in the dict')
 
     def check_threads(self):
         """
@@ -175,7 +175,7 @@ class Monitor(object):
                         outgoing.send_string(f'ack {self.name} {cmd_hash}')
                         _ = outgoing.recv_string()
                     except Exception as e:
-                        self.logger.warning(f'Caught a {type(e)} while processing command: {e}')
+                        self.logger.error(f'Caught a {type(e)} while processing command {command}: {e}')
                         self.logger.debug(msg)
 
     def process_command(self, command):
@@ -205,7 +205,6 @@ class FunctionHandler(threading.Thread):
         while not self.event.is_set():
             loop_top = time.time()
             try:
-                self.logger.debug(f'Running {self.name}')
                 ret = self.func()
                 if isinstance(ret, (int, float)) and 0. < ret:
                     self.period = ret

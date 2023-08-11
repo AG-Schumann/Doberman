@@ -70,18 +70,18 @@ class Sensor(threading.Thread):
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info(f'Didn\'t get anything from the device!')
+            self.logger.warning(f'Didn\'t get anything from the device!')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.warning(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
         if value is not None:
             value = self.more_processing(value)
             self.send_downstream(value, pkg['time'])
         else:
-            self.logger.debug(f'Got None')
+            self.logger.warning(f'Got None')
         return
 
     def more_processing(self, value):

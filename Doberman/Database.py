@@ -203,7 +203,7 @@ class Database(object):
     def get_pipelines(self, flavor):
         """
         Generates a list of names of pipelines to start now. Called by
-        PipelineMonitors on startup.
+        PipelineMonitors on startup
         :param flavor: which type of pipelines to select, should be one of "alarm", "control", "convert"
         :yields: string
         """
@@ -230,8 +230,7 @@ class Database(object):
         """
         protocols = self.get_experiment_config('alarm', 'protocols')
         if len(protocols) < level:
-            self.logger.error(f'No message protocols for alarm level {level}! '
-                              'Defaulting to highest level defined')
+            self.logger.error(f'No message protocols for alarm level {level}! Defaulting to highest level defined')
             return protocols[-1]
         return protocols[level]
 
@@ -276,7 +275,7 @@ class Database(object):
                 try:
                     ret[p].append(doc[p])
                 except KeyError:
-                    self.logger.info(f"No {p} contact details for {doc['name']}")
+                    self.logger.warning(f"No {p} contact details for {doc['name']}")
         return ret
 
     def get_heartbeat(self, device=None):
@@ -390,21 +389,6 @@ class Database(object):
             except Exception as e:
                 self.logger.error(f'{type(e)}: {e}')
                 self.logger.error(r.content)
-
-    def send_value_to_pipelines(self, sensor, value, timestamp):
-        """
-        Send a recently recorded value to the pipeline monitors
-        :param sensor: string, the name of the sensor
-        :param value: float/int, the value
-        :param timestamp: float, the timestamp
-        :returns: None
-        """
-        for pl in ['pl_alarm', 'pl_control', 'pl_convert']:
-            self.log_command(
-                f'sensor_value {sensor} {timestamp} {value}',
-                to=pl,
-                issuer=None,
-                bypass_hypervisor=True)
 
     def get_current_status(self):
         """

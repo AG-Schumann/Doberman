@@ -118,7 +118,6 @@ class Hypervisor(Doberman.Monitor):
 
     def hypervise(self) -> None:
         while not self.event.is_set():
-            self.logger.debug('Hypervising')
             self.config = self.db.get_experiment_config('hypervisor')
             managed = self.config['processes']['managed']
             active = self.config['processes']['active']
@@ -126,30 +125,28 @@ class Hypervisor(Doberman.Monitor):
             path = self.config['path']
             for pl in 'alarm control convert'.split():
                 if time.time() - self.last_pong.get(f'pl_{pl}', 100) > 30:
-                    self.logger.debug(f'Failed to ping pl_{pl}, restarting it')
+                    self.logger.warrning(f'Failed to ping pl_{pl}, restarting it')
                     self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
 
             for device in managed:
                 if device not in active:
-                    self.logger.debug(f'{device} is managed but not active. I will start it.')
                     # device isn't running and it's supposed to be
+                    self.logger.debug(f'{device} is managed but not active. I will start it.')
                     if self.start_device(device):
+                        # nonzero return code, probably something didn't work
                         self.logger.error(f'Problem starting {device}, check the debug logs')
-                elif (dt := ((now := dtnow()) - self.db.get_heartbeat(device=device)).total_seconds()) > 2 * \
+                elif (dt := (dtnow() - self.db.get_heartbeat(device=device)).total_seconds()) > 2 * \
                         self.config['period']:
                     # device claims to be active but hasn't heartbeated recently
-                    self.logger.warning(f'{device} hasn\'t heartbeated in {int(dt)} seconds, it\'s getting restarted')
+                    self.logger.warning(f'{device} had no heartbeat for {int(dt)} seconds, it\'s getting restarted')
                     if self.start_device(device):
                         # nonzero return code, probably something didn't work
                         self.logger.error(f'Problem starting {device}, check the debug logs')
                     else:
                         self.logger.debug(f'{device} restarted')
                 elif time.time() - self.last_pong.get(device, 100) > 30:
-                    self.logger.error(f'Failed to ping {device}, restarting it')
+                    self.logger.warning(f'Failed to ping {device}, restarting it')
                     self.start_device(device)
-                else:
-                    # claims to be active and has heartbeated recently
-                    self.logger.debug(f'{device} last heartbeat {int(dt)} seconds ago')
                 time.sleep(0.1)
             self.update_config(heartbeat=dtnow())
             return self.config['period']
@@ -174,13 +171,13 @@ class Hypervisor(Doberman.Monitor):
         Runs a command over ssh, stdout/err will go to the debug logs
         :param address: user@host
         :param command: the command to run. Will be wrapped in double-quotes, a la ssh user@host "command"
+        :param port: the port you use for ssh connections if it isn't the default 22
         :returns: return code of ssh
         """
         cmd = ['ssh', address, f'"{command}"']
         if port != 22:
             cmd.insert(1, '-p')
             cmd.insert(2, f'{port}')
-        self.logger.debug(f'Running "{" ".join(cmd)}"')
         try:
             cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True, timeout=30)
         except subprocess.TimeoutExpired:
@@ -291,16 +288,16 @@ class Hypervisor(Doberman.Monitor):
                         doc = json.loads(msg)
                         heappush(queue, (float(doc['time']), doc['to'], doc['command']))
                     except Exception as e:
-                        self.logger.debug(f'Caught a {type(e)} while processing. {e}')
+                        self.logger.error(f'Caught a {type(e)} while processing. {e}')
                         self.logger.debug(msg)
                 elif msg.startswith('ack'):  # command acknowledgement
                     _, name, cmd_hash = msg.split(' ')
                     try:
                         del cmd_ack[cmd_hash]
                     except KeyError:
-                        self.logger.debug(f'Unknown hash from {name}: {cmd_hash}')
+                        self.logger.error(f'Unknown hash from {name}: {cmd_hash}')
                     except Exception as e:
-                        self.logger.debug(f'Caught a {type(e)}: {e}')
+                        self.logger.error(f'Caught a {type(e)}: {e}')
                         self.logger.debug(msg)
                 else:
                     # Probably an internal command from a pipeline?

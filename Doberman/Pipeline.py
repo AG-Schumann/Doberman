@@ -56,7 +56,7 @@ class Pipeline(threading.Thread):
                     except Exception:
                         pass
         except Exception as e:
-            self.logger.debug(f'Caught a {type(e)} while stopping: {e}')
+            self.logger.warning(f'Caught a {type(e)} while stopping: {e}')
 
     def run(self):
         while not self.event.is_set():
@@ -77,7 +77,6 @@ class Pipeline(threading.Thread):
             # reset
             self.silenced_at_level = -1
         timing = {}
-        self.logger.debug(f'Pipeline {self.name} cycle {self.cycles}')
         drift = 0
         for pl in self.subpipelines:
             for node in pl:
@@ -156,11 +155,11 @@ class Pipeline(threading.Thread):
                     node_kwargs.update(kwargs)
                     try:
                         n = getattr(Doberman, node_type)(**node_kwargs)
-                    except AttributeError as e:
-                        raise ValueError(
-                            f'Node type "{node_type}" not implemented for node {kwargs["name"]}. Maybe you missed suffix "Node".')
+                    except AttributeError:
+                        raise ValueError(f'Node type "{node_type}" not implemented for node {kwargs["name"]}.'
+                                         f' Maybe you missed suffix "Node".')
                     except Exception as e:
-                        self.logger.debug(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
+                        self.logger.error(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
                         self.logger.debug(f'Args: {node_kwargs}')
                         raise
                     setup_kwargs = kwargs
@@ -177,7 +176,6 @@ class Pipeline(threading.Thread):
                             setup_kwargs[field] = doc.get(field)
                     setup_kwargs['influx_cfg'] = influx_cfg
                     setup_kwargs['write_to_influx'] = self.db.write_to_influx
-                    setup_kwargs['send_to_pipelines'] = self.db.send_value_to_pipelines
                     setup_kwargs['log_alarm'] = getattr(self.monitor, 'log_alarm', None)
                     for k in 'escalation_config silence_duration silence_duration_cant_send max_reading_delay'.split():
                         setup_kwargs[k] = alarm_cfg[k]
@@ -186,7 +184,7 @@ class Pipeline(threading.Thread):
                     try:
                         n.setup(**setup_kwargs)
                     except Exception as e:
-                        self.logger.debug(f'Caught a {type(e)} while setting up {n.name}: {e}')
+                        self.logger.error(f'Caught a {type(e)} while setting up {n.name}: {e}')
                         self.logger.debug(f'Args: {setup_kwargs}')
                         raise
                     graph[n.name] = n
@@ -321,7 +319,7 @@ class SyncPipeline(Pipeline):
                     for node in self.listens_for[n]:
                         node.receive_from_upstream({n: v, 'time': t})
                 except Exception as e:
-                    self.logger.debug(f'{type(e)}: {msg}')
+                    self.logger.error(f'{type(e)}: {msg}')
                 else:
                     if has_new >= self.required_inputs:
                         self.process_cycle()
