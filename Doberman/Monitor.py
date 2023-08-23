@@ -16,6 +16,7 @@ def main(client):
     group.add_argument('--device', help='Start the specified device monitor')
     group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
+    parser.add_argument('--debug', action='store_true', help='Set if DEBUG messages should be written to disk')
     args = parser.parse_args()
 
     k = 'DOBERMAN_EXPERIMENT_NAME'
@@ -56,7 +57,7 @@ def main(client):
     else:
         print('No action specified')
         return
-    logger = Doberman.utils.get_logger(kwargs['name'], db=db)
+    logger = Doberman.utils.get_logger(kwargs['name'], db=db, debug=args.debug)
     db.logger = logger
     kwargs['logger'] = logger
     my_logger = Doberman.utils.get_child_logger('monitor', db, logger)

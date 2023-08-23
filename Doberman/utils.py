@@ -40,11 +40,11 @@ def find_plugin(name, path):
         plugin_name = name.rsplit('_', 1)[0]
         spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
     if spec is None:
-        raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
+        raise FileNotFoundError(f'Could not find a device named {name} in {path}')
     try:
         device_ctor = getattr(spec.loader.load_module(), plugin_name)
     except AttributeError:
-        raise AttributeError('Cound not find constructor for %s!' % name)
+        raise AttributeError(f'Could not find constructor for {name}')
     return device_ctor
 
 
@@ -61,7 +61,7 @@ class SignalHandler(object):
 
     def interrupt(self, *args):
         if self.logger is not None:
-            self.logger.info('Received signal %i' % args[0])
+            self.logger.info(f'Received signal {args[0]}')
         self.signal_number = int(args[0])
         self.run = False
         if self.event is not None:
@@ -110,13 +110,14 @@ class OutputHandler(object):
     """
     __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle')
 
-    def __init__(self, name, experiment):
+    def __init__(self, name, experiment, debug=False):
         self.mutex = threading.Lock()
         self.filename = f'{name}.log'
         self.experiment = experiment
         self.f = None
         self.flush_cycle = 0
         self.rotate()
+        self.debug = debug
 
     def rotate(self):
         if self.f is not None:
@@ -132,7 +133,7 @@ class OutputHandler(object):
             # we wrap anything hitting files or stdout with a mutex because logging happens from
             # multiple threads, and files aren't thread-safe
             if date != self.today:
-                # it's a brand new day, and the sun is high...
+                # it's a brand-new day, and the sun is high...
                 self.rotate()
             if message[-1] == '\n':
                 message = message[:-1]
@@ -149,11 +150,12 @@ class OutputHandler(object):
         return f'/global/logs/{self.experiment}/{date.year}/{date.month:02d}.{date.day:02d}'
 
 
-def get_logger(name, db):
-    oh = OutputHandler(name, db.experiment_name)
+def get_logger(name, db, debug=False):
+    oh = OutputHandler(name, db.experiment_name, debug)
     logger = logging.getLogger(name)
     logger.addHandler(DobermanLogger(db, name, oh))
-    logger.setLevel(logging.DEBUG)
+    if debug:
+        logger.setLevel(logging.DEBUG)
     return logger
 
 
@@ -162,7 +164,8 @@ def get_child_logger(name, db, main_logger):
     if logger.hasHandlers():
         logger.handlers.clear()
     logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
-    logger.setLevel(logging.DEBUG)
+    if main_logger.handlers[0].oh.debug:
+        logger.setLevel(logging.DEBUG)
     return logger
 
 
