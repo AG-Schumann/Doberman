@@ -60,6 +60,7 @@ def main(client):
     logger = Doberman.utils.get_logger(kwargs['name'], db=db, debug=args.debug)
     db.logger = logger
     kwargs['logger'] = logger
+    kwargs['debug'] = args.debug
     my_logger = Doberman.utils.get_child_logger('monitor', db, logger)
     try:
         monitor = ctor(**kwargs)
