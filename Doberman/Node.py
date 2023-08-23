@@ -8,7 +8,6 @@ class Node(object):
     """
 
     def __init__(self, pipeline=None, name=None, logger=None, **kwargs):
-        self.logger.debug(f'Constructing node {name}')
         self.pipeline = pipeline
         self.buffer = Doberman.utils.SortedBuffer(1)
         self.name = name
@@ -19,6 +18,8 @@ class Node(object):
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
+        self.logger.debug(f'Constructing node {name}')
+
 
     def __del__(self):
         try:
@@ -39,6 +40,7 @@ class Node(object):
         pass
 
     def _process_base(self, is_silent):
+        self.logger.debug(f'{self.name} processing')
         self.is_silent = is_silent
         package = self.get_package()  # TODO discuss this wrt BufferNodes
         ret = self.process(package)
@@ -176,6 +178,7 @@ class InfluxSourceNode(SourceNode):
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
         timestamp = int(timestamp)
+        self.logger.debug(f'{self.name} time {timestamp} value {val}')
         val = float(val)  # 53 bits of precision and we only ever have small integers
         return timestamp, val
 
@@ -188,6 +191,7 @@ class InfluxSourceNode(SourceNode):
                 # still nothing
                 raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
+        self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp * (10 ** -9), self.output_var: val}
 
 

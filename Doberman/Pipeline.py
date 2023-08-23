@@ -160,7 +160,7 @@ class Pipeline(threading.Thread):
                                          f' Maybe you missed suffix "Node".')
                     except Exception as e:
                         self.logger.error(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
-                        self.logger.debug(f'Args: {node_kwargs}')
+                        self.logger.info(f'Args: {node_kwargs}')
                         raise
                     setup_kwargs = kwargs
                     fields = 'device topic subsystem description units alarm_level'.split()
@@ -185,7 +185,7 @@ class Pipeline(threading.Thread):
                         n.setup(**setup_kwargs)
                     except Exception as e:
                         self.logger.error(f'Caught a {type(e)} while setting up {n.name}: {e}')
-                        self.logger.debug(f'Args: {setup_kwargs}')
+                        self.logger.info(f'Args: {setup_kwargs}')
                         raise
                     graph[n.name] = n
 

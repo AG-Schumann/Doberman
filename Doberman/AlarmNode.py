@@ -75,6 +75,8 @@ class AlarmNode(Doberman.Node):
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
                 self.pipeline.silence_for(self.silence_duration_cant_send, self.config['alarm_level'])
+        else:
+            self.logger.debug(msg)
 
 
 class CheckRemoteHeartbeatNode(Doberman.Node):
@@ -101,6 +103,8 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
             except Exception as e:
                 self.logger.error(f"Exception sending alarm: {type(e)}, {e}.")
                 self.pipeline.silence_for(int(self.config.get('silence_duration', 300)), -1)
+        else:
+            self.logger.debug(msg)
 
     def process(self, package):
         directory = self.config.get('directory', '/scratch')

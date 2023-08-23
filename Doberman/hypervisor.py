@@ -136,7 +136,7 @@ class Hypervisor(Doberman.Monitor):
             for device in managed:
                 if device not in active:
                     # device isn't running and it's supposed to be
-                    self.logger.debug(f'{device} is managed but not active. I will start it.')
+                    self.logger.info(f'{device} is managed but not active. I will start it.')
                     if self.start_device(device):
                         # nonzero return code, probably something didn't work
                         self.logger.error(f'Problem starting {device}, check the debug logs')
@@ -148,10 +148,13 @@ class Hypervisor(Doberman.Monitor):
                         # nonzero return code, probably something didn't work
                         self.logger.error(f'Problem starting {device}, check the debug logs')
                     else:
-                        self.logger.debug(f'{device} restarted')
+                        self.logger.info(f'{device} restarted')
                 elif time.time() - self.last_pong.get(device, 100) > 30:
                     self.logger.warning(f'Failed to ping {device}, restarting it')
                     self.start_device(device)
+                else:
+                    # claims to be active and has heartbeated recently
+                    self.logger.debug(f'{device} last heartbeat {int(dt)} seconds ago')
                 time.sleep(0.1)
             self.update_config(heartbeat=dtnow())
             return self.config['period']
@@ -183,6 +186,7 @@ class Hypervisor(Doberman.Monitor):
         if port != 22:
             cmd.insert(1, '-p')
             cmd.insert(2, f'{port}')
+        self.logger.debug(f'Running "{" ".join(cmd)}"')
         try:
             cp = subprocess.run(' '.join(cmd), shell=True, capture_output=True, timeout=30)
         except subprocess.TimeoutExpired:
@@ -191,7 +195,7 @@ class Hypervisor(Doberman.Monitor):
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
-            self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+            self.logger.info(f'Stderr: {cp.stderr.decode()}')
         time.sleep(1)
         return cp.returncode
 
@@ -203,7 +207,7 @@ class Hypervisor(Doberman.Monitor):
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
-            self.logger.debug(f'Stderr: {cp.stderr.decode()}')
+            self.logger.info(f'Stderr: {cp.stderr.decode()}')
         time.sleep(1)
         return cp.returncode
 
@@ -212,7 +216,6 @@ class Hypervisor(Doberman.Monitor):
         doc = self.db.get_device_setting(device)
         host = doc['host']
         self.update_config(manage=device)
-
         command = f"cd {path} && ./start_process.sh -d {device}"
         if self.debug:
             command += " --debug"
@@ -297,7 +300,7 @@ class Hypervisor(Doberman.Monitor):
                         heappush(queue, (float(doc['time']), doc['to'], doc['command']))
                     except Exception as e:
                         self.logger.error(f'Caught a {type(e)} while processing. {e}')
-                        self.logger.debug(msg)
+                        self.logger.info(msg)
                 elif msg.startswith('ack'):  # command acknowledgement
                     _, name, cmd_hash = msg.split(' ')
                     try:
@@ -306,7 +309,7 @@ class Hypervisor(Doberman.Monitor):
                         self.logger.error(f'Unknown hash from {name}: {cmd_hash}')
                     except Exception as e:
                         self.logger.error(f'Caught a {type(e)}: {e}')
-                        self.logger.debug(msg)
+                        self.logger.info(msg)
                 else:
                     # Probably an internal command from a pipeline?
                     self.process_command(msg)
@@ -326,7 +329,7 @@ class Hypervisor(Doberman.Monitor):
             map(cmd_ack.pop, pop)
 
     def process_command(self, command: str) -> None:
-        self.logger.debug(f'Processing {command}')
+        self.logger.info(f'Processing {command}')
         if command.startswith('start'):
             _, target = command.split(' ', maxsplit=1)
             self.logger.info(f'Hypervisor starting {target}')

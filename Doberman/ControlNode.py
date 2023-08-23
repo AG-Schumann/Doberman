@@ -12,7 +12,7 @@ class ControlNode(Doberman.Node):
         self.control_value = kwargs['control_value']
 
     def set_output(self, value, _force=False):
-        self.logger.debug(f'Setting {self.control_target} {self.control_value} to {value}')  # TODO keep or remove?
+        self.logger.debug(f'Setting {self.control_target} {self.control_value} to {value}')
         if not self.is_silent and not _force:
             self.pipeline.send_command(
                 command=f'set {self.control_value} {value}',

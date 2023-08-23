@@ -21,7 +21,7 @@ class DeviceMonitor(Doberman.Monitor):
                       period=self.db.get_experiment_config(name='hypervisor', field='period'), _no_stop=True)
 
     def start_sensor(self, sensor_name):
-        self.logger.debug(f'Constructing {sensor_name}')
+        self.logger.info(f'Constructing {sensor_name}')
         sensor_doc = self.db.get_sensor_setting(sensor_name)
         kwargs = {'sensor_name': sensor_name, 'db': self.db,
                   'logger': Doberman.utils.get_child_logger(sensor_name, self.db, self.logger),
@@ -32,7 +32,7 @@ class DeviceMonitor(Doberman.Monitor):
                 # the "secondary" multi-sensors store the name of the base
                 sensor = Doberman.MultiSensor(**kwargs)
             else:
-                self.logger.debug(f'Not constructing {sensor_name} because it isn\'t the multi primary')
+                self.logger.info(f'Not constructing {sensor_name} because it isn\'t the multi primary')
                 return
         else:
             sensor = Doberman.Sensor(**kwargs)
@@ -41,19 +41,19 @@ class DeviceMonitor(Doberman.Monitor):
     def shutdown(self):
         if self.device is None:
             return
-        self.logger.debug('Stopping device')
+        self.logger.info('Stopping device')
         self.device.event.set()
         self.device.close()
         self.device = None
         return
 
     def open_device(self, reopen=False):
-        self.logger.debug('Connecting to device')
+        self.logger.info('Connecting to device')
         if self.device is not None and not reopen:
-            self.logger.debug('Already connected!')
+            self.logger.info('Already connected!')
             return
         if reopen:
-            self.logger.debug('Attempting reconnect')
+            self.logger.info('Attempting reconnect')
             self.device.event.set()
             self.device.close()
         try:

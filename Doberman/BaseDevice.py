@@ -1,6 +1,5 @@
 try:
     import serial
-
     has_serial = True
 except ImportError:
     has_serial = False
@@ -71,7 +70,7 @@ class Device(object):
         function that should call send_recv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
-        self.logger.debug('Readout scheduler starting')
+        self.logger.info('Readout scheduler starting')
         while not self.event.is_set():
             try:
                 command = None
@@ -91,7 +90,7 @@ class Device(object):
                             cv.notify()
             except Exception as e:
                 self.logger.error(f'Scheduler caught a {type(e)} while processing {command}: {e}')
-        self.logger.debug('Readout scheduler returning')
+        self.logger.info('Readout scheduler returning')
 
     def add_to_schedule(self, command, ret=None):
         """

@@ -27,7 +27,7 @@ class PipelineMonitor(Doberman.Monitor):
             self.start_pipeline('test_pipeline')
 
     def shutdown(self):
-        self.logger.debug(f'{self.name} shutting down')
+        self.logger.info(f'{self.name} shutting down')
         for p in list(self.pipelines.keys()):
             self.stop_pipeline(p)
 
@@ -38,7 +38,7 @@ class PipelineMonitor(Doberman.Monitor):
         if name in self.pipelines:
             self.logger.warning(f'I already manage a pipeline called {name}')
             return
-        self.logger.debug(f'Starting pipeline {name}')
+        self.logger.info(f'Starting pipeline {name}')
         self.db.set_pipeline_value(name, [('status', 'active')])
         self.db.set_pipeline_value(name, [('silent_until', 0)])
         try:
@@ -56,7 +56,7 @@ class PipelineMonitor(Doberman.Monitor):
         return 0
 
     def stop_pipeline(self, name):
-        self.logger.debug(f'Stopping pipeline {name}')
+        self.logger.info(f'Stopping pipeline {name}')
         self.pipelines[name].stop()
         self.stop_thread(name)
         del self.pipelines[name]
@@ -67,7 +67,7 @@ class PipelineMonitor(Doberman.Monitor):
             self.log_alarm(level, message)
         except Exception as e:
             self.logger.error(f"Couldn't send level {level} alarm")
-            self.logger.debug(f"{type(e)}: {e}")
+            self.logger.info(f"{type(e)}: {e}")
 
     def process_command(self, command):
         try:
@@ -92,23 +92,23 @@ class PipelineMonitor(Doberman.Monitor):
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
-                    self.logger.debug(f'Silencing {name}')
+                    self.logger.info(f'Silencing {name}')
                     self.db.set_pipeline_value(name, [('silent_until', -1)])
             elif command.startswith('pipelinectl_active'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
-                    self.logger.debug(f'Activating {name}')
+                    self.logger.info(f'Activating {name}')
                     self.db.set_pipeline_value(name, [('silent_until', time.time())])
             elif command == 'stop':
                 self.sh.event.set()
             elif command.startswith('testalarm'):
                 _, level = command.split(' ')
-                self.logger.debug(f'Sending level {level} test alarm')
+                self.logger.info(f'Sending level {level} test alarm')
                 self.testalarm(int(level))
             else:
                 self.logger.warning(f'I don\'t understand command "{command}"')
         except Exception as e:
             self.logger.error(f'Received malformed command: {command}')
-            self.logger.debug(f'{type(e)}: {e}')
+            self.logger.info(f'{type(e)}: {e}')

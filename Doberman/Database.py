@@ -202,8 +202,7 @@ class Database(object):
 
     def get_pipelines(self, flavor):
         """
-        Generates a list of names of pipelines to start now. Called by
-        PipelineMonitors on startup
+        Generates a list of names of pipelines to start now. Called by PipelineMonitors on startup.
         :param flavor: which type of pipelines to select, should be one of "alarm", "control", "convert"
         :yields: string
         """

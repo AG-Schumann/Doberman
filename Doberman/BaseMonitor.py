@@ -19,7 +19,7 @@ class Monitor(object):
         self.logger = logger
         self.name = name
         self.debug = debug
-        self.logger.debug(f'Monitor "{name}" constructing')
+        self.logger.info(f'Monitor "{name}" constructing')
         self.event = threading.Event()
         # we use a lock to synchronize access to the thread dictionary
         # we use an RLock because the thread that checks threads sometimes
@@ -30,9 +30,9 @@ class Monitor(object):
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
         self.db.notify_hypervisor(active=self.name)
-        self.logger.debug('Child setup starting')
+        self.logger.info('Child setup starting')
         self.setup()
-        self.logger.debug('Child setup completed')
+        self.logger.info('Child setup completed')
         time.sleep(1)
         self.register(obj=self.check_threads, period=30, name='check_threads', _no_stop=True)
         self.register(obj=self.listen, name='listen', _no_stop=True)
@@ -75,7 +75,7 @@ class Monitor(object):
         :key **kwargs: any kwargs that obj needs to be called
         :returns: None
         """
-        self.logger.debug('Registering ' + name)
+        self.logger.info('Registering ' + name)
         if isinstance(obj, threading.Thread):
             # obj is a thread
             t = obj
@@ -177,7 +177,7 @@ class Monitor(object):
                         _ = outgoing.recv_string()
                     except Exception as e:
                         self.logger.error(f'Caught a {type(e)} while processing command {command}: {e}')
-                        self.logger.debug(msg)
+                        self.logger.info(msg)
 
     def process_command(self, command):
         """
@@ -202,14 +202,15 @@ class FunctionHandler(threading.Thread):
         """
         Spawns a thread to do a function
         """
-        self.logger.debug(f'Starting {self.name}')
+        self.logger.info(f'Starting {self.name}')
         while not self.event.is_set():
             loop_top = time.time()
             try:
+                self.logger.debug(f'Running {self.name}')
                 ret = self.func()
                 if isinstance(ret, (int, float)) and 0. < ret:
                     self.period = ret
             except Exception as e:
                 self.logger.error(f'{self.name} caught a {type(e)}: {e}')
             self.event.wait(loop_top + self.period - time.time())
-        self.logger.debug(f'Returning {self.name}')
+        self.logger.info(f'Returning {self.name}')
