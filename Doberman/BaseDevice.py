@@ -79,6 +79,7 @@ class Device(object):
                     if len(self.cmd_queue) > 0:
                         command, ret = self.cmd_queue.pop(0)
                 if command is not None:
+                    self.logger.debug(f'Executing {command}')
                     t_start = time.time()  # we don't want perf_counter because we care about
                     pkg = self.send_recv(command)
                     t_stop = time.time()  # the clock time when the data came out not cpu time

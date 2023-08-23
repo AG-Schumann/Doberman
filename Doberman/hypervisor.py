@@ -120,6 +120,7 @@ class Hypervisor(Doberman.Monitor):
             self.db.update_db('experiment_config', {'name': 'hypervisor'}, updates)
 
     def hypervise(self) -> None:
+        self.logger.debug('Hypervising')
         while not self.event.is_set():
             self.config = self.db.get_experiment_config('hypervisor')
             managed = self.config['processes']['managed']
