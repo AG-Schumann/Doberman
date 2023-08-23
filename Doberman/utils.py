@@ -156,6 +156,8 @@ def get_logger(name, db, debug=False):
     logger.addHandler(DobermanLogger(db, name, oh))
     if debug:
         logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
     return logger
 
 
@@ -166,6 +168,8 @@ def get_child_logger(name, db, main_logger):
     logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
     if main_logger.handlers[0].oh.debug:
         logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
     return logger
 
 

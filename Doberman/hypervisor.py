@@ -36,7 +36,10 @@ class Hypervisor(Doberman.Monitor):
         # start the three Pipeline monitors
         path = self.config['path']
         for thing in 'alarm control convert'.split():
-            self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
+            if self.debug:
+                self.run_locally(f'cd {path} && ./start_process.sh --{thing} --debug')
+            else:
+                self.run_locally(f'cd {path} && ./start_process.sh --{thing}')
             self.last_pong[f'pl_{thing}'] = time.time()
             time.sleep(0.1)
         # now start the rest of the things
@@ -126,8 +129,10 @@ class Hypervisor(Doberman.Monitor):
             for pl in 'alarm control convert'.split():
                 if time.time() - self.last_pong.get(f'pl_{pl}', 100) > 30:
                     self.logger.warrning(f'Failed to ping pl_{pl}, restarting it')
-                    self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
-
+                    if self.debug:
+                        self.run_locally(f'cd {path} && ./start_process.sh --{pl} --debug')
+                    else:
+                        self.run_locally(f'cd {path} && ./start_process.sh --{pl}')
             for device in managed:
                 if device not in active:
                     # device isn't running and it's supposed to be
@@ -207,7 +212,10 @@ class Hypervisor(Doberman.Monitor):
         doc = self.db.get_device_setting(device)
         host = doc['host']
         self.update_config(manage=device)
+
         command = f"cd {path} && ./start_process.sh -d {device}"
+        if self.debug:
+            command += " --debug"
         if host == self.localhost:
             return self.run_locally(command)
         return self.run_over_ssh(f'{self.username}@{host}', command)

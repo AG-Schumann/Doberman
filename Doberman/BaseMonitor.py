@@ -12,12 +12,13 @@ class Monitor(object):
     A base monitor class
     """
 
-    def __init__(self, db=None, name=None, logger=None):
+    def __init__(self, db=None, name=None, logger=None, debug=False):
         """
         """
         self.db = db
         self.logger = logger
         self.name = name
+        self.debug = debug
         self.logger.debug(f'Monitor "{name}" constructing')
         self.event = threading.Event()
         # we use a lock to synchronize access to the thread dictionary
