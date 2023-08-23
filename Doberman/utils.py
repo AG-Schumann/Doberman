@@ -108,7 +108,7 @@ class OutputHandler(object):
     so this is how I solve this problem.
     Files go to /global/logs/<experiment>/YYYY/MM.DD, folders being created as necessary.
     """
-    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle')
+    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle', 'debug')
 
     def __init__(self, name, experiment, debug=False):
         self.mutex = threading.Lock()
