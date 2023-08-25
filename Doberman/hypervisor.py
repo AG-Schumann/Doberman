@@ -129,7 +129,7 @@ class Hypervisor(Doberman.Monitor):
             path = self.config['path']
             for pl in 'alarm control convert'.split():
                 if time.time() - self.last_pong.get(f'pl_{pl}', 100) > 30:
-                    self.logger.warrning(f'Failed to ping pl_{pl}, restarting it')
+                    self.logger.warning(f'Failed to ping pl_{pl}, restarting it')
                     if self.debug:
                         self.run_locally(f'cd {path} && ./start_process.sh --{pl} --debug')
                     else:
