@@ -18,13 +18,14 @@ class Node(object):
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
-        self.logger.debug(f'{name} constructor')
+        self.logger.debug(f'Constructing node {name}')
+
 
     def __del__(self):
         try:
             self.shutdown()
         except Exception as e:
-            self.logger.debug(f'{type(e)}: {e}')
+            self.logger.error(f'{type(e)}: {e}')
 
     def setup(self, **kwargs):
         """
@@ -177,7 +178,7 @@ class InfluxSourceNode(SourceNode):
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
         timestamp = int(timestamp)
-        self.logger.debug(f'{self.name} got timestamp {timestamp}')
+        self.logger.debug(f'{self.name} time {timestamp} value {val}')
         val = float(val)  # 53 bits of precision and we only ever have small integers
         return timestamp, val
 
