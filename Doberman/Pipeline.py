@@ -45,10 +45,11 @@ class Pipeline(threading.Thread):
                 return SyncPipeline(**kwargs)
         return Pipeline(**kwargs)
 
-    def stop(self):
+    def stop(self, keep_status=False):
         self.event.set()
         try:
-            self.db.set_pipeline_value(self.name, [('status', 'inactive')])
+            if not keep_status:
+                self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
                 for node in pl:
                     try:
