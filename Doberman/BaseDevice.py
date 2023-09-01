@@ -82,6 +82,7 @@ class Device(object):
                     self.logger.debug(f'Executing {command}')
                     t_start = time.time()  # we don't want perf_counter because we care about
                     pkg = self.send_recv(command)
+                    self.logger.debug(f'PKG: {pkg}')
                     t_stop = time.time()  # the clock time when the data came out not cpu time
                     pkg['time'] = 0.5 * (t_start + t_stop)
                     if ret is not None:
@@ -276,7 +277,7 @@ class LANDevice(Device):
 
     def send_recv(self, message):
         ret = {'retcode': 0, 'data': None}
-
+        self.logger.debug('send_recv')
         if not self._connected:
             self.logger.error(f'No device connected, can\'t send message {message}')
             ret['retcode'] = -1
