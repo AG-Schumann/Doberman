@@ -28,20 +28,20 @@ def find_plugin(name, path):
     :param path: a list of paths in which to search for the file
     :returns constructor: the constructor of the requested device
     """
-    strip = False
     if not isinstance(path, (list, tuple)):
         path = [path]
-    spec = importlib.machinery.PathFinder.find_spec(name, path)
+    plugin_name = name
+    spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
     if spec is None:
-        strip = True
-        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
+        plugin_name = name.strip('0123456789')
+        spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
+    if spec is None:
+        plugin_name = name.rsplit('_',1)[0]
+        spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
     if spec is None:
         raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
     try:
-        if strip:
-            device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
-        else:
-            device_ctor = getattr(spec.loader.load_module(), name)
+        device_ctor = getattr(spec.loader.load_module(), plugin_name)
     except AttributeError:
         raise AttributeError('Cound not find constructor for %s!' % name)
     return device_ctor

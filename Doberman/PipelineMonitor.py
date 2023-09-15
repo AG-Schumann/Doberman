@@ -1,3 +1,5 @@
+import time
+
 import Doberman
 import collections
 
@@ -26,7 +28,7 @@ class PipelineMonitor(Doberman.Monitor):
     def shutdown(self):
         self.logger.debug(f'{self.name} shutting down')
         for p in list(self.pipelines.keys()):
-            self.stop_pipeline(p)
+            self.stop_pipeline(p, keep_status=True)
 
     def start_pipeline(self, name):
         if (doc := self.db.get_pipeline(name)) is None:
@@ -37,6 +39,7 @@ class PipelineMonitor(Doberman.Monitor):
             return
         self.logger.debug(f'starting pipeline {name}')
         self.db.set_pipeline_value(name, [('status', 'active')])
+        self.db.set_pipeline_value(name, [('silent_until', 0)])
         try:
             p = Doberman.Pipeline.create(doc, db=self.db,
                     logger=Doberman.utils.get_child_logger(name, self.db, self.logger),
@@ -51,9 +54,9 @@ class PipelineMonitor(Doberman.Monitor):
         self.pipelines[p.name] = p
         return 0
 
-    def stop_pipeline(self, name):
+    def stop_pipeline(self, name, keep_status=False):
         self.logger.debug(f'stopping pipeline {name}')
-        self.pipelines[name].stop()
+        self.pipelines[name].stop(keep_status=keep_status)
         self.stop_thread(name)
         del self.pipelines[name]
 
@@ -89,15 +92,14 @@ class PipelineMonitor(Doberman.Monitor):
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
                     self.logger.debug(f'Silencing {name}')
-                    self.db.set_pipeline_value(name, [('status', 'silent')])
+                    self.db.set_pipeline_value(name, [('silent_until', -1)])
             elif command.startswith('pipelinectl_active'):
                 _, name = command.split(' ')
                 if name not in self.pipelines:
                     self.logger.error(f'I don\'t control the "{name}" pipeline')
                 else:
                     self.logger.debug(f'Activating {name}')
-                    self.db.set_pipeline_value(name, [('status', 'active')])
-                    self.db.update_db('pipelines', {'name': name}, {'$unset': {'silent_until': 1}})
+                    self.db.set_pipeline_value(name, [('silent_until', time.time())])
             elif command == 'stop':
                 self.sh.event.set()
             elif command.startswith('testalarm'):

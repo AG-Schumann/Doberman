@@ -69,7 +69,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 raise RuntimeError(f"Couldn't place call, status"
                                   + f" {response.status_code}: {response.json()['message']}")
 
-    def send_email(self, toaddr, subject, message, cc=None, bcc=None, add_signature=True):
+    def send_email(self, toaddr, subject, message, level, pipeline, cc=None, bcc=None, add_signature=True,):
 
         # Get connection details
         connection_details = self.get_connection_details('email')
@@ -99,13 +99,28 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             msg['Bcc'] = ', '.join(bcc)
             recipients.extend(bcc)
         msg['Subject'] = subject
+        message = f'<b>{message}</b>'
+        if website_url := connection_details.get('website', None):
+            # add links to view sensors of the pipeline
+            message += f'<br><br>Show sensors involved in this pipeline:<ul>'
+            sensors = self.db.get_pipeline(pipeline).get('depends_on', [])
+            for sensor in sensors:
+                message += f'<li><a href="{website_url}?sensor={sensor}">{sensor}</a></li>'
+            message += '</ul>'
+        silence_duration = self.db.get_experiment_config('alarm').get('silence_duration')[level]
+        message += f'This alarm is automatically silenced for <b>{int(silence_duration / 60)} minutes</b>.'
+        if website_url:
+            # add manual silence options
+            message += '<br><br>To silence the pipeline for longer, click one of the following links:<ul>'
+            for silence_for, text in zip((15, 60, 360), ('15 minutes', '1 hour', '6 hours')):
+                if silence_for > int(silence_duration/60):
+                    message += f'<li><a href="{website_url}/pipeline?pipeline={pipeline}&silence={silence_for}">' \
+                               f'{text}</a></li> '
+            message += '</ul>'
         if add_signature:
-            signature = f'\n\n----------\nMessage created on {now} by Doberman slow control.'
-            body = str(message) + signature
-        else:
-            body = str(message)
-        msg.attach(MIMEText(body, 'plain'))
-
+            message += f'<hr>Message created on {now} by Doberman slow control.'
+        body = str(message)
+        msg.attach(MIMEText(body, 'html'))
         # Connect and send
         if server_addr == 'localhost':  # From localhost
             smtp = smtplib.SMTP(server_addr)
@@ -155,20 +170,21 @@ class AlarmMonitor(Doberman.PipelineMonitor):
                 raise RuntimeError(f"Couldn't send message, status {response.status_code}: "
                                   f"{response.content.decode('ascii')}")
 
-    def log_alarm(self, level=None, message=None, pipeline=None, _hash=None):
+    def log_alarm(self, level=None, message=None, pipeline=None, _hash=None, prot_rec_dict=None):
         """
         Sends 'message' to the contacts specified by 'level'.
         """
         exception = None
-        for protocol, recipients in self.db.get_contact_addresses(level).items():
+        if not prot_rec_dict:
+            prot_rec_dict = self.db.get_contact_addresses(level)
+        for protocol, recipients in prot_rec_dict.items():
             try:
                 if protocol == 'sms':
                     message = f'{self.db.experiment_name.upper()} {message}'
                     self.send_sms(recipients, message)
                 elif protocol == 'email':
                     subject = f'{self.db.experiment_name.capitalize()} level {level} alarm'
-                    self.send_email(toaddr=recipients, subject=subject,
-                                    message=message)
+                    self.send_email(toaddr=recipients, subject=subject, message=message, level=level, pipeline=pipeline)
                 elif protocol == 'phone':
                     self.send_phonecall(recipients, message)
                 else:

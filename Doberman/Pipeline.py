@@ -41,14 +41,15 @@ class Pipeline(threading.Thread):
         Creates a pipeline and returns it
         """
         for node in config['pipeline']:
-            if node['type'] == 'SensorSourceNode':
+            if node['type'] in ['SensorSourceNode', 'DeviceRespondingSyncNode']:
                 return SyncPipeline(**kwargs)
         return Pipeline(**kwargs)
 
-    def stop(self):
+    def stop(self, keep_status=False):
         self.event.set()
         try:
-            self.db.set_pipeline_value(self.name, [('status', 'inactive')])
+            if not keep_status:
+                self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
                 for node in pl:
                     try:
@@ -71,8 +72,9 @@ class Pipeline(threading.Thread):
         doc = self.db.get_pipeline(self.name)
         sensor_docs = {n: self.db.get_sensor_setting(n) for n in self.depends_on}
         self.reconfigure(doc['node_config'], sensor_docs)
-        status = 'silent' if self.cycles <= self.startup_cycles else doc['status']
-        if status != 'silent':
+        is_silent = (self.cycles <= self.startup_cycles) or (doc['silent_until'] > time.time()) or \
+                    (doc['silent_until'] == -1)
+        if not is_silent:
             # reset
             self.silenced_at_level = -1
         timing = {}
@@ -82,7 +84,7 @@ class Pipeline(threading.Thread):
             for node in pl:
                 t_start = time.time()
                 try:
-                    node._process_base(status)
+                    node._process_base(is_silent)
                 except Exception as e:
                     self.last_error = self.cycles
                     msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
@@ -156,7 +158,8 @@ class Pipeline(threading.Thread):
                     try:
                         n = getattr(Doberman, node_type)(**node_kwargs)
                     except AttributeError as e:
-                        raise ValueError(f'Node type "{node_type}" not implemented for node {kwargs["name"]}. Maybe you missed suffix "Node".')
+                        raise ValueError(
+                            f'Node type "{node_type}" not implemented for node {kwargs["name"]}. Maybe you missed suffix "Node".')
                     except Exception as e:
                         self.logger.debug(f'Caught a {type(e)} while building {kwargs["name"]}: {e}')
                         self.logger.debug(f'Args: {node_kwargs}')
@@ -168,9 +171,8 @@ class Pipeline(threading.Thread):
                             raise ValueError(f'Invalid input_var for {n.name}: {kwargs["input_var"]}')
                         for field in fields:
                             setup_kwargs[field] = doc.get(field)
-                    elif isinstance(n, (Doberman.InfluxSinkNode)):
-                        if (
-                        doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
+                    elif isinstance(n, Doberman.InfluxSinkNode):
+                        if (doc := self.db.get_sensor_setting(name=kwargs.get('output_var', kwargs['input_var']))) is None:
                             raise ValueError(f'Invalid output_var for {n.name}: {kwargs.get("output_var")}')
                         for field in fields:
                             setup_kwargs[field] = doc.get(field)
@@ -268,15 +270,7 @@ class Pipeline(threading.Thread):
         """
         Silence this pipeline for a set amount of time
         """
-        doc = {
-            'to': self.monitor.name,
-            'from': self.name,
-            'time': time.time() + duration,
-            'command': f'pipelinectl_active {self.name}'
-        }
-        self.db.set_pipeline_value(self.name, [('status', 'silent'), ('silent_until', time.time() + duration)])
-        self.command_socket.send_string(json.dumps(doc))
-        _ = self.command_socket.recv_string()
+        self.db.set_pipeline_value(self.name, [('silent_until', time.time() + duration)])
         self.silenced_at_level = level
 
     def send_command(self, command, to):
@@ -310,6 +304,7 @@ class SyncPipeline(Pipeline):
         host, ports = self.db.get_comms_info('data')
         socket.connect(f'tcp://{host}:{ports["recv"]}')
         for name in self.depends_on:
+            self.logger.debug(f'listening to {name}')
             socket.setsockopt_string(zmq.SUBSCRIBE, name)
         poller = zmq.Poller()
         poller.register(socket, zmq.POLLIN)

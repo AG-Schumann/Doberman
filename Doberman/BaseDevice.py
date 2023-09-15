@@ -153,6 +153,7 @@ class Device(object):
         """
         Implemented by a child class
         """
+        return None
 
     def close(self):
         self.event.set()
@@ -206,14 +207,15 @@ class SerialDevice(Device):
         if not hasattr(self, 'msg_sleep'):
             # so we can more easily change this later
             self.msg_sleep = 1.0
-
-        if self.tty == '0':
-            raise ValueError('No tty port specified!')
+        if hasattr(self, 'id'):
+            self._device.port = f'/dev/serial/by-id/{self.id}'
+        elif self.tty == '0':
+            raise ValueError('No id nor tty port specified!')
+        elif self.tty.startswith('/'):  # Full path to device TTY specified
+            self._device.port = self.tty
+        else:
+            self._device.port = f'/dev/tty{self.tty}'
         try:
-            if self.tty.startswith('/'):  # Full path to device TTY specified
-                self._device.port = self.tty
-            else:
-                self._device.port = f'/dev/tty{self.tty}'
             self._device.open()
         except serial.SerialException as e:
             raise ValueError(f'Problem opening {self._device.port}: {e}')
@@ -289,8 +291,6 @@ class LANDevice(Device):
             self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
             ret['retcode'] = -2
             return ret
-
-        starttime = time.time()
         try:
             # Read until we get the end-of-line character
             data = b''
