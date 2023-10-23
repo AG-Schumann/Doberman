@@ -80,7 +80,7 @@ class AlarmNode(Doberman.Node):
         else:
             self.logger.debug(msg)
 
-    def shutdown(self):
+    def on_error_do_this(self):
         self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
 
 
