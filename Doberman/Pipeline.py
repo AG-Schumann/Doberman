@@ -184,6 +184,8 @@ class Pipeline(threading.Thread):
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
                     setup_kwargs['set_sensor_setting'] = self.db.set_sensor_setting
+                    setup_kwargs['get_sensor_setting'] = self.db.get_sensor_setting
+                    setup_kwargs['distinct'] = self.db.distinct
                     setup_kwargs['cv'] = getattr(self, 'cv', None)
                     try:
                         n.setup(**setup_kwargs)

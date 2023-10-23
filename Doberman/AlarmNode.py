@@ -6,6 +6,7 @@ class AlarmNode(Doberman.Node):
     """
     An empty base class to handle database access
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.set_sensor_setting = kwargs['set_sensor_setting']
@@ -31,13 +32,13 @@ class AlarmNode(Doberman.Node):
         total_level = self.config['alarm_level'] + self.escalation_level
         if self.messages_this_level > self.escalation_config[total_level]:
             self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
-                f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
-            max_total_level = len(self.escalation_config)-1
+                                 f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
+            max_total_level = len(self.escalation_config) - 1
             self.escalation_level = min(max_total_level - self.config['alarm_level'], self.escalation_level + 1)
             self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
             self.logger.info((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
-                    f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} to escalate'))
+                              f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} to escalate'))
 
     def reset_alarm(self):
         """
@@ -79,10 +80,15 @@ class AlarmNode(Doberman.Node):
         else:
             self.logger.debug(msg)
 
+    def shutdown(self):
+        self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
+
+
 class CheckRemoteHeartbeatNode(Doberman.Node):
     """
     A node that checks if a remote heartbeat has been updated recently and otherwise sends alarms.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self._log_alarm = kwargs['log_alarm']
@@ -96,7 +102,7 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
             try:
                 self._log_alarm(message=msg,
                                 pipeline=self.pipeline.name,
-                                prot_rec_dict=prd,)
+                                prot_rec_dict=prd, )
                 # self-silence if the message was successfully sent
                 self.pipeline.silence_for(int(self.config.get('silence_duration', 300)), -1)
             except Exception as e:
@@ -113,19 +119,43 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
             timestamp, numbers_string = f.read().split('\n', maxsplit=1)
             numbers = numbers_string.strip().split(',')
             dt = time.time() - int(timestamp)
-            if dt > int(self.config.get('max_delay_sms', 3*60)): # default 3 minutes for sms
-                msg = f"The hypervisor of {experiment_name} hasn't had a heartbeat for {round(dt/60)} minutes."
+            if dt > int(self.config.get('max_delay_sms', 3 * 60)):  # default 3 minutes for sms
+                msg = f"The hypervisor of {experiment_name} hasn't had a heartbeat for {round(dt / 60)} minutes."
                 prd = {'sms': numbers}
-                if dt > int(self.config.get('max_delay_phone', 10*60)): # and 10 minutes for phone + sms
+                if dt > int(self.config.get('max_delay_phone', 10 * 60)):  # and 10 minutes for phone + sms
                     prd['phone'] = numbers
                 self.log_alarm(msg, prd)
             else:
                 self.logger.debug(f'Last remote heartbeat from {experiment_name} was {int(dt)} seconds ago.')
 
+
+class TriggeredAlarmsNode(Doberman.Node):
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.get_sensor_setting = kwargs['get_sensor_setting']
+        self.distinct = kwargs['distinct']
+
+    def process(self, package):
+        sensors_to_check = self.config.get('sensors_to_check', 'any')
+        if sensors_to_check == 'any':
+            sensor_list = self.distinct('sensors', 'name')
+        elif isinstance(sensors_to_check, list):
+            sensor_list = sensors_to_check
+        else:
+            self.logger.error('invalid option sensors_to_check: must be "any" or a list of sensor names.')
+            return 0
+        for sensor in sensor_list:
+            if self.get_sensor_setting(sensor, 'alarm_is_triggered'):
+                return 1
+        return 0
+
+
 class DeviceRespondingBase(AlarmNode):
     """
     A base class to check if sensors are returning data
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.accept_old = True
@@ -156,6 +186,7 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
     Then endpoints of the interval are assumed to represent acceptable values, only
     values outside are considered 'alarm'.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.strict = True
@@ -195,6 +226,7 @@ class IntegerAlarmNode(AlarmNode):
     Integer status quantities are a fundamentally different thing from physical values.
     It makes sense to process them differently. The thresholds should be stored as [value, message] pairs.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.sensor_config_needed += ['alarm_values', 'alarm_level']
@@ -219,6 +251,7 @@ class BitmaskIntegerAlarmNode(AlarmNode):
     (meaning bit[0]=1 and bit[1]=0). Both bitmask and value are assumed to be in **hex**
     and will be integer-cast before use (mask = int(mask, base=16))
     """
+
     def process(self, package):
         value = int(package[self.input_var])
         alarm_msg = []
@@ -229,4 +262,3 @@ class BitmaskIntegerAlarmNode(AlarmNode):
                 alarm_msg.append(msg)
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
-
