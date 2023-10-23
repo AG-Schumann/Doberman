@@ -147,6 +147,7 @@ class TriggeredAlarmsNode(Doberman.Node):
             return 0
         for sensor in sensor_list:
             if self.get_sensor_setting(sensor, 'alarm_is_triggered'):
+                self.logger.debug(f'{sensor} in alarm state')
                 return 1
         return 0
 
