@@ -8,6 +8,7 @@ class AlarmNode(Doberman.Node):
     """
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        self.set_sensor_setting = kwargs['set_sensor_setting']
         self.description = kwargs['description']
         self.device = kwargs['device']
         self._log_alarm = kwargs['log_alarm']
@@ -42,6 +43,7 @@ class AlarmNode(Doberman.Node):
         """
         Resets the cached alarm state
         """
+        self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
         if self.hash is not None:
             self.logger.info(f'{self.name} resetting alarm {self.hash}')
             self.hash = None
@@ -52,6 +54,7 @@ class AlarmNode(Doberman.Node):
         """
         Let the outside world know that something is going on
         """
+        self.set_sensor_setting(self.input_var, 'alarm_is_triggered', True)
         # Only send message if pipeline is silenced at base_level or above, 
         # or if it is silenced at level -1 (universal)
         if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.config['alarm_level']:

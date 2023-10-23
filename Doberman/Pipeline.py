@@ -183,6 +183,7 @@ class Pipeline(threading.Thread):
                     for k in 'escalation_config silence_duration silence_duration_cant_send max_reading_delay'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
+                    setup_kwargs['set_sensor_setting'] = self.db.set_sensor_setting
                     setup_kwargs['cv'] = getattr(self, 'cv', None)
                     try:
                         n.setup(**setup_kwargs)
