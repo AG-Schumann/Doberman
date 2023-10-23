@@ -146,9 +146,10 @@ class TriggeredAlarmsNode(Doberman.Node):
             self.logger.error('invalid option sensors_to_check: must be "any" or a list of sensor names.')
             return 0
         for sensor in sensor_list:
-            if self.get_sensor_setting(sensor, 'alarm_is_triggered'):
-                self.logger.debug(f'{sensor} in alarm state')
-                return 1
+            if status := self.get_sensor_setting(sensor, 'alarm_is_triggered'):
+                if not isinstance(status, dict):  # get_sensor_setting returns whole doc if field doesn't exist
+                    self.logger.debug(f'{sensor} in alarm state')
+                    return 1
         return 0
 
 
