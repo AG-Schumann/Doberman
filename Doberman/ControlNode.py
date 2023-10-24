@@ -21,6 +21,10 @@ class ControlNode(Doberman.Node):
         if (v := self.config.get('default_output')) is not None:
             self.set_output(v, _force=True)
 
+    def shutdown(self):
+        if (v := self.config.get('default_output')) is not None:
+            self.set_output(v, _force=True)
+
 
 class DigitalControlNode(ControlNode):
     """

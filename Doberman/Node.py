@@ -22,7 +22,7 @@ class Node(object):
 
     def __del__(self):
         try:
-            self.shutdown()
+            self.on_shutdown_do_this()
         except Exception as e:
             self.logger.debug(f'{type(e)}: {e}')
 
