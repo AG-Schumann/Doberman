@@ -53,7 +53,7 @@ class Pipeline(threading.Thread):
             for pl in self.subpipelines:
                 for node in pl:
                     try:
-                        node.on_error_do_this()
+                        node.shutdown()
                     except Exception:
                         pass
         except Exception as e:
