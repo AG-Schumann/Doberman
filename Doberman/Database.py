@@ -274,7 +274,7 @@ class Database(object):
                 try:
                     ret[p].append(doc[p])
                 except KeyError:
-                    self.logger.warning(f"No {p} contact details for {doc['name']}")
+                    self.logger.error(f"No {p} contact details for {doc['name']}")
         return ret
 
     def get_heartbeat(self, device=None):

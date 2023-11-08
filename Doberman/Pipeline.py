@@ -56,7 +56,7 @@ class Pipeline(threading.Thread):
                     except Exception:
                         pass
         except Exception as e:
-            self.logger.warning(f'Caught a {type(e)} while stopping: {e}')
+            self.logger.error(f'Caught a {type(e)} while stopping: {e}')
 
     def run(self):
         while not self.event.is_set():
@@ -93,7 +93,7 @@ class Pipeline(threading.Thread):
                         # we expect errors during startup as buffers get filled
                         self.logger.debug(msg)
                     else:
-                        self.logger.warning(msg)
+                        self.logger.error(msg)
                     for n in pl:
                         try:
                             n.on_error_do_this()
@@ -130,7 +130,7 @@ class Pipeline(threading.Thread):
         and guarantee that everything that this node depends on has already run this loop
         """
         pipeline_config = config['pipeline']
-        self.logger.debug(f'Loading graph config, {len(pipeline_config)} nodes total')
+        self.logger.info(f'Loading graph config, {len(pipeline_config)} nodes total')
         num_buffer_nodes = 0
         longest_buffer = 0
         influx_cfg = self.db.get_experiment_config('influx')
@@ -145,7 +145,7 @@ class Pipeline(threading.Thread):
                 upstream = kwargs.get('upstream', [])
                 existing_upstream = [graph[u] for u in upstream if u in graph]
                 if len(upstream) == 0 or len(upstream) == len(existing_upstream):
-                    self.logger.debug(f'{kwargs["name"]} ready for creation')
+                    self.logger.info(f'{kwargs["name"]} ready for creation')
                     # all this node's requirements are created
                     node_type = kwargs.pop('type')
                     node_kwargs = {
@@ -194,10 +194,10 @@ class Pipeline(threading.Thread):
                 # we didn't make any nodes this loop, we're probably stuck
                 created = list(graph.keys())
                 all_nodes = set(d['name'] for d in pipeline_config)
-                self.logger.debug(f'Created {created}')
-                self.logger.debug(f'Didn\'t create {list(all_nodes - set(created))}')
+                self.logger.info(f'Created {created}')
+                self.logger.info(f'Didn\'t create {list(all_nodes - set(created))}')
                 raise ValueError('Can\'t construct graph! Check config and logs')
-            self.logger.debug(f'Created {nodes_built} nodes this iter, {len(graph)}/{len(pipeline_config)} total')
+            self.logger.info(f'Created {nodes_built} nodes this iter, {len(graph)}/{len(pipeline_config)} total')
         for kwargs in pipeline_config:
             for u in kwargs.get('upstream', []):
                 graph[u].downstream_nodes.append(graph[kwargs['name']])
@@ -214,7 +214,7 @@ class Pipeline(threading.Thread):
                     longest_buffer = max(longest_buffer, n.buffer.length)
 
         self.startup_cycles = num_buffer_nodes + longest_buffer  # I think?
-        self.logger.debug(f'I estimate we will need {self.startup_cycles} cycles to start')
+        self.logger.info(f'I estimate we will need {self.startup_cycles} cycles to start')
 
     def calculate_jointedness(self, graph):
         """
@@ -222,7 +222,7 @@ class Pipeline(threading.Thread):
         disjoint sections it has. These sections get separated out into subpipelines
         """
         while len(graph):
-            self.logger.debug(f'{len(graph)} nodes to check')
+            self.logger.info(f'{len(graph)} nodes to check')
             nodes_to_check = set([list(graph.keys())[0]])
             nodes_checked = set()
             nodes = []
@@ -246,7 +246,7 @@ class Pipeline(threading.Thread):
                         pl[node.name] = nodes.pop(i)
                         break  # break because i is no longer valid
 
-            self.logger.debug(f'Found subpipeline: {set(pl.keys())}')
+            self.logger.info(f'Found subpipeline: {set(pl.keys())}')
             self.subpipelines.append(list(pl.values()))
 
     def reconfigure(self, doc, sensor_docs):
@@ -302,7 +302,7 @@ class SyncPipeline(Pipeline):
         host, ports = self.db.get_comms_info('data')
         socket.connect(f'tcp://{host}:{ports["recv"]}')
         for name in self.depends_on:
-            self.logger.debug(f'listening to {name}')
+            self.logger.info(f'listening to {name}')
             socket.setsockopt_string(zmq.SUBSCRIBE, name)
         poller = zmq.Poller()
         poller.register(socket, zmq.POLLIN)

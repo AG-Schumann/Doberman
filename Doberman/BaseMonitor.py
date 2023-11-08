@@ -113,7 +113,7 @@ class Monitor(object):
         Stops a specific thread. Thread is removed from thread dictionary
         """
         if name in self.no_stop_threads:
-            self.logger.warning(f'Asked to stop thread {name}, but not permitted')
+            self.logger.error(f'Asked to stop thread {name}, but not permitted')
             return
         with self.lock:
             if name in self.threads:
@@ -121,7 +121,7 @@ class Monitor(object):
                 self.threads[name].join()
                 del self.threads[name]
             else:
-                self.logger.warning(f'Asked to stop thread {name}, but it isn\'t in the dict')
+                self.logger.error(f'Asked to stop thread {name}, but it isn\'t in the dict')
 
     def check_threads(self):
         """

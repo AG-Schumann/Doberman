@@ -36,7 +36,7 @@ class PipelineMonitor(Doberman.Monitor):
             self.logger.error(f'No pipeline named {name} found')
             return
         if name in self.pipelines:
-            self.logger.warning(f'I already manage a pipeline called {name}')
+            self.logger.error(f'I already manage a pipeline called {name}')
             return
         self.logger.info(f'Starting pipeline {name}')
         self.db.set_pipeline_value(name, [('status', 'active')])
@@ -66,8 +66,7 @@ class PipelineMonitor(Doberman.Monitor):
         try:
             self.log_alarm(level, message)
         except Exception as e:
-            self.logger.error(f"Couldn't send level {level} alarm")
-            self.logger.info(f"{type(e)}: {e}")
+            self.logger.error(f"Got a {type(e)} while sending level {level} alarm: {e}")
 
     def process_command(self, command):
         try:
@@ -108,7 +107,6 @@ class PipelineMonitor(Doberman.Monitor):
                 self.logger.info(f'Sending level {level} test alarm')
                 self.testalarm(int(level))
             else:
-                self.logger.warning(f'I don\'t understand command "{command}"')
+                self.logger.error(f'I don\'t understand command "{command}"')
         except Exception as e:
-            self.logger.error(f'Received malformed command: {command}')
-            self.logger.info(f'{type(e)}: {e}')
+            self.logger.error(f'Got a {type(e)} while processing command "{command}": {e}')

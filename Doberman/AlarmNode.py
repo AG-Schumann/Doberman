@@ -36,9 +36,9 @@ class AlarmNode(Doberman.Node):
             self.escalation_level = min(max_total_level - self.config['alarm_level'], self.escalation_level + 1)
             self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
-            self.logger.info((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
-                              f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} '
-                              f'to escalate'))
+            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
+                                 f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} '
+                                 f'to escalate'))
 
     def reset_alarm(self):
         """

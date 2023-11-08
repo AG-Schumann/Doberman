@@ -144,14 +144,14 @@ class Hypervisor(Doberman.Monitor):
                 elif (dt := (dtnow() - self.db.get_heartbeat(device=device)).total_seconds()) > 2 * \
                         self.config['period']:
                     # device claims to be active but hasn't heartbeated recently
-                    self.logger.warning(f'{device} had no heartbeat for {int(dt)} seconds, it\'s getting restarted')
+                    self.logger.error(f'{device} had no heartbeat for {int(dt)} seconds, it\'s getting restarted')
                     if self.start_device(device):
                         # nonzero return code, probably something didn't work
                         self.logger.error(f'Problem starting {device}, check the debug logs')
                     else:
                         self.logger.info(f'{device} restarted')
                 elif time.time() - self.last_pong.get(device, 100) > 30:
-                    self.logger.warning(f'Failed to ping {device}, restarting it')
+                    self.logger.error(f'Failed to ping {device}, restarting it')
                     self.start_device(device)
                 else:
                     # claims to be active and has heartbeated recently
@@ -196,7 +196,7 @@ class Hypervisor(Doberman.Monitor):
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
-            self.logger.info(f'Stderr: {cp.stderr.decode()}')
+            self.logger.error(f'Stderr: {cp.stderr.decode()}')
         time.sleep(1)
         return cp.returncode
 
@@ -208,7 +208,7 @@ class Hypervisor(Doberman.Monitor):
         if cp.stdout:
             self.logger.debug(f'Stdout: {cp.stdout.decode()}')
         if cp.stderr:
-            self.logger.info(f'Stderr: {cp.stderr.decode()}')
+            self.logger.error(f'Stderr: {cp.stderr.decode()}')
         time.sleep(1)
         return cp.returncode
 
@@ -300,8 +300,7 @@ class Hypervisor(Doberman.Monitor):
                         doc = json.loads(msg)
                         heappush(queue, (float(doc['time']), doc['to'], doc['command']))
                     except Exception as e:
-                        self.logger.error(f'Caught a {type(e)} while processing. {e}')
-                        self.logger.info(msg)
+                        self.logger.error(f'Caught a {type(e)} while processing "{msg}". {e}')
                 elif msg.startswith('ack'):  # command acknowledgement
                     _, name, cmd_hash = msg.split(' ')
                     try:
@@ -309,8 +308,7 @@ class Hypervisor(Doberman.Monitor):
                     except KeyError:
                         self.logger.error(f'Unknown hash from {name}: {cmd_hash}')
                     except Exception as e:
-                        self.logger.error(f'Caught a {type(e)}: {e}')
-                        self.logger.info(msg)
+                        self.logger.error(f'Caught a {type(e)} while processing "{msg}": {e}')
                 else:
                     # Probably an internal command from a pipeline?
                     self.process_command(msg)
@@ -325,7 +323,7 @@ class Hypervisor(Doberman.Monitor):
             pop = []
             for h, (n, t) in cmd_ack.items():
                 if (waiting := (dtnow() - t).total_seconds()) > 5:
-                    self.logger.warning(f"Command to {n} hasn't been ack'd in {waiting:.1f} sec")
+                    self.logger.error(f"Command to {n} hasn't been ack'd in {waiting:.1f} sec")
                     pop.append(h)
             map(cmd_ack.pop, pop)
 

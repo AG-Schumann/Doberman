@@ -22,7 +22,7 @@ class Device(object):
         """
         opts is the document from the database
         """
-        logger.debug('Device base ctor')
+        logger.info('Device base ctor')
         if 'address' in opts:
             for k, v in opts['address'].items():
                 setattr(self, k, v)

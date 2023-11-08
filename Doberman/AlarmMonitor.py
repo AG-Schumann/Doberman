@@ -52,7 +52,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             message = ' '.join(message[:maxmessagelength + 1].split(' ')[0:-1])
             message = '<p>' + message + '</p>'
             message += '<p>Message shortened.</p>'
-            self.logger.warning(f"Message exceeds {maxmessagelength} characters. Message will be shortened.")
+            self.logger.info(f"Message exceeds {maxmessagelength} characters. Message will be shortened.")
         message = f"This is the {self.db.experiment_name} alarm system. " + message
         if isinstance(phone_numbers, str):
             phone_numbers = [phone_numbers]
@@ -138,7 +138,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
         # Long messages are shortened to avoid excessive fees
         if len(message) > maxmessagelength:
             message = ' '.join(message[:maxmessagelength + 1].split(' ')[0:-1])
-            self.logger.warning(f"Message exceeds {maxmessagelength} characters. Message will be shortened.")
+            self.logger.info(f"Message exceeds {maxmessagelength} characters. Message will be shortened.")
         if isinstance(phone_numbers, str):
             phone_numbers = [phone_numbers]
         self.logger.warning(f'Sending SMS to {len(phone_numbers)} recipient{"s" if len(phone_numbers)>1 else ""}')
