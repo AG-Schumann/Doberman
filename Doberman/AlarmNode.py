@@ -209,8 +209,9 @@ class IntegerAlarmNode(Doberman.BufferNode, AlarmNode):
         super().load_config(doc)
 
     def process(self, packages):
-        values = [p[self.input_var] for p in packages]
-        bad_values = list(self.config['alarm_values'].keys())
+        values = [int(p[self.input_var]) for p in packages]
+        bad_values = [int(bv) for bv in list(self.config['alarm_values'].keys())]
+
         is_ok = [v not in bad_values for v in values]
         if any(is_ok):
             # at least one value is in an acceptable range
