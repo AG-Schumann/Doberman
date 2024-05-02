@@ -254,6 +254,15 @@ class TimeSinceAlarmNode(AlarmNode):
     """
     Checks whether a measurement was at the alarm_value for more than the max_duration.
     Useful to answer questions like 'Has this valve been open for too long?'
+
+    Setup params:
+    None
+
+    Runtime params:
+    :param alarm_value: value that should trigger the alarm
+    :param max_duration: maximal duration for which the value is allowed to be at alarm_value before logging an alarm
+    :param alarm_level: base level of the alarm (note we don't take the one from the sensor since this is reserved for
+                        the IntegerAlarmNode (SimpleAlarmNode)).
     """
 
     def setup(self, **kwargs):
@@ -274,4 +283,5 @@ class TimeSinceAlarmNode(AlarmNode):
             self.last_checked = time.time()
         if self.time_since > tmax:
             self.config['alarm_level'] = int(self.config['alarm_level'])
-            self.log_alarm(f'Alarm for {self.description}: value is at {alarm_value} for more than {tmax} seconds.')
+            self.log_alarm(f'Alarm for {self.description}: value is at {alarm_value} for more than '
+                           f'{int(self.time_since)} seconds.')
