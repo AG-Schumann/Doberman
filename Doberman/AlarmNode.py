@@ -248,3 +248,29 @@ class BitmaskIntegerAlarmNode(AlarmNode):
                 alarm_msg.append(msg)
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
+
+
+class TimeSinceAlarmNode(AlarmNode):
+    """
+    Checks whether a measurement was at the alarm_value for more than the max_duration.
+    Useful to answer questions like 'Has this valve been open for too long?'
+    """
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.time_since = 0
+        self.last_checked = time.time()
+
+    def process(self, package):
+        value = int(package[self.input_var])
+        alarm_value = self.config.get('alarm_value')
+        tmax = self.config.get('max_duration')
+        if value == alarm_value:
+            now = time.time()
+            self.time_since += (now - self.last_checked)
+            self.last_checked = now
+        else:
+            self.time_since = 0
+            self.last_checked = time.time()
+        if self.time_since > tmax:
+            self.log_alarm(f'Alarm for {self.description}: value is at {alarm_value} for more than {tmax} seconds.')
