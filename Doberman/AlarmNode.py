@@ -263,8 +263,8 @@ class TimeSinceAlarmNode(AlarmNode):
 
     def process(self, package):
         value = int(package[self.input_var])
-        alarm_value = self.config.get('alarm_value')
-        tmax = self.config.get('max_duration')
+        alarm_value = int(self.config.get('alarm_value'))
+        tmax = int(self.config.get('max_duration'))
         if value == alarm_value:
             now = time.time()
             self.time_since += (now - self.last_checked)
@@ -273,4 +273,5 @@ class TimeSinceAlarmNode(AlarmNode):
             self.time_since = 0
             self.last_checked = time.time()
         if self.time_since > tmax:
+            self.config['alarm_level'] = int(self.config['alarm_level'])
             self.log_alarm(f'Alarm for {self.description}: value is at {alarm_value} for more than {tmax} seconds.')
