@@ -28,7 +28,7 @@ class Monitor(object):
         self.restart_info = {}
         self.no_stop_threads = set()
         self.sh = Doberman.utils.SignalHandler(self.logger, self.event)
-        self.db.notify_hypervisor(active=self.name)
+
         self.logger.debug('Child setup starting')
         self.setup()
         self.logger.debug('Child setup completed')
