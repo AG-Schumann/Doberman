@@ -8,13 +8,5 @@ setuptools.setup(name='Doberman',
                  description='Doberman slow control',
                  python_requires='>=3.7',
                  packages=setuptools.find_packages(),
-                 #install_requires=[
-                 #    pyserial,
-                 #    pymongo,
-                 #    numpy,
-                 #    influxdb,
-                 #    psutil,
-                 #    requests,
-                 #    python-dateutil,
-                 #    ]
+                 install_requires=requires
                  )
