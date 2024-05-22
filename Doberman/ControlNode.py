@@ -75,14 +75,11 @@ class PipelineControlNode(Doberman.Node):
                for action in actions:
                    self.control_pipeline(*action)
 
-        if package.get('condition_test', False):
-            # this one is mainly for testing
-            self.control_pipeline('stop', self.pipeline.name)
 
     def control_pipeline(self, action, pipeline):
         if self.is_silent:
             return
-        if pipeline.startswith('control'):
+        if pipeline.startswith('control') or pipeline.startswith('test'):
             target = 'pl_control'
         elif pipeline.startswith('alarm'):
             target = 'pl_alarm'

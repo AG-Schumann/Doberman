@@ -83,7 +83,6 @@ class AlarmNode(Doberman.Node):
     def shutdown(self):
         self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
 
-
 class CheckRemoteHeartbeatNode(Doberman.Node):
     """
     A node that checks if a remote heartbeat has been updated recently and otherwise sends alarms.
@@ -129,6 +128,7 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                 self.logger.debug(f'Last remote heartbeat from {experiment_name} was {int(dt)} seconds ago.')
 
 
+
 class TriggeredAlarmsNode(Doberman.Node):
 
     def setup(self, **kwargs):
@@ -151,6 +151,7 @@ class TriggeredAlarmsNode(Doberman.Node):
                     self.logger.debug(f'{sensor} in alarm state')
                     return 1
         return 0
+
 
 
 class DeviceRespondingBase(AlarmNode):
@@ -223,7 +224,7 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
             self.log_alarm(msg, packages[-1]['time'])
 
 
-class IntegerAlarmNode(AlarmNode):
+class IntegerAlarmNode(Doberman.BufferNode, AlarmNode):
     """
     Integer status quantities are a fundamentally different thing from physical values.
     It makes sense to process them differently. The thresholds should be stored as [value, message] pairs.
@@ -231,13 +232,27 @@ class IntegerAlarmNode(AlarmNode):
 
     def setup(self, **kwargs):
         super().setup(**kwargs)
-        self.sensor_config_needed += ['alarm_values', 'alarm_level']
+        self.strict = True
+        self.sensor_config_needed += ['alarm_values', 'alarm_level', 'alarm_recurrence']
 
-    def process(self, package):
-        value = int(package[self.input_var])
-        for v, msg in self.config['alarm_values'].items():
-            if value == int(v):
-                self.log_alarm(f'Alarm for {self.description}: {msg}')
+    def load_config(self, doc):
+        doc.update(length=doc['alarm_recurrence'])
+        super().load_config(doc)
+
+    def process(self, packages):
+        values = [int(p[self.input_var]) for p in packages]
+        bad_values = [int(bv) for bv in list(self.config['alarm_values'].keys())]
+
+        is_ok = [v not in bad_values for v in values]
+        if any(is_ok):
+            # at least one value is in an acceptable range
+            pass
+        elif all(is_ok):
+            # we're no longer in an alarmed state so reset the hash
+            self.reset_alarm()
+        else:
+            for v in set(values):
+                self.log_alarm(f'Alarm for {self.description}: {self.config["alarm_values"][str(v)]}')
                 break
 
 
@@ -264,3 +279,40 @@ class BitmaskIntegerAlarmNode(AlarmNode):
                 alarm_msg.append(msg)
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
+
+            
+class TimeSinceAlarmNode(AlarmNode):
+    """
+    Checks whether a measurement was at the alarm_value for more than the max_duration.
+    Useful to answer questions like 'Has this valve been open for too long?'
+
+    Setup params:
+    None
+
+    Runtime params:
+    :param alarm_value: value that should trigger the alarm
+    :param max_duration: maximal duration for which the value is allowed to be at alarm_value before logging an alarm
+    :param alarm_level: base level of the alarm (note we don't take the one from the sensor since this is reserved for
+                        the IntegerAlarmNode (SimpleAlarmNode)).
+    """
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.time_since = 0
+        self.last_checked = time.time()
+
+    def process(self, package):
+        value = int(package[self.input_var])
+        alarm_value = int(self.config.get('alarm_value'))
+        tmax = int(self.config.get('max_duration'))
+        if value == alarm_value:
+            now = time.time()
+            self.time_since += (now - self.last_checked)
+            self.last_checked = now
+        else:
+            self.time_since = 0
+            self.last_checked = time.time()
+        if self.time_since > tmax:
+            self.config['alarm_level'] = int(self.config['alarm_level'])
+            self.log_alarm(f'Alarm for {self.description}: value is at {alarm_value} for more than '
+                           f'{int(self.time_since)} seconds.')
