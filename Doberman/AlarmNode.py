@@ -83,6 +83,7 @@ class AlarmNode(Doberman.Node):
     def shutdown(self):
         self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
 
+
 class CheckRemoteHeartbeatNode(Doberman.Node):
     """
     A node that checks if a remote heartbeat has been updated recently and otherwise sends alarms.
@@ -128,7 +129,6 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                 self.logger.debug(f'Last remote heartbeat from {experiment_name} was {int(dt)} seconds ago.')
 
 
-
 class TriggeredAlarmsNode(Doberman.Node):
 
     def setup(self, **kwargs):
@@ -151,7 +151,6 @@ class TriggeredAlarmsNode(Doberman.Node):
                     self.logger.debug(f'{sensor} in alarm state')
                     return 1
         return 0
-
 
 
 class DeviceRespondingBase(AlarmNode):
@@ -203,25 +202,26 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
         values = [p[self.input_var] for p in packages]
         low, high = self.config['alarm_thresholds']
         is_ok = [low <= v <= high for v in values]
-        if any(is_ok):
-            # at least one value is in an acceptable range
-            pass
-        elif all(is_ok):
+        if all(is_ok):
             # we're no longer in an alarmed state so reset the hash
             self.reset_alarm()
-        else:
-            msg = f'Alarm for {self.description}. '
-            try:
-                toohigh = values[-1] >= high  # (Or low)
-                msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
-                msgthreshold = Doberman.utils.sensible_sig_figs(high if toohigh else low, low, high)
-                msg += f'{msgval} is {"above" if toohigh else "below"} '
-                msg += f'the threshold {msgthreshold}.'
-            except ValueError:
-                # Sometimes hit a corner case (eg low=high)
-                msg += f'{values[-1]:.3g} is outside allowed range of'
-                msg += f' {low:.3g} to {high:.3g}.'
-            self.log_alarm(msg, packages[-1]['time'])
+            return 0
+        if any(is_ok):
+            # at least one value is in an acceptable range
+            return 0
+        msg = f'Alarm for {self.description}. '
+        try:
+            toohigh = values[-1] >= high  # (Or low)
+            msgval = Doberman.utils.sensible_sig_figs(values[-1], low, high)
+            msgthreshold = Doberman.utils.sensible_sig_figs(high if toohigh else low, low, high)
+            msg += f'{msgval} is {"above" if toohigh else "below"} '
+            msg += f'the threshold {msgthreshold}.'
+        except ValueError:
+            # Sometimes hit a corner case (e.g. low=high)
+            msg += f'{values[-1]:.3g} is outside allowed range of'
+            msg += f' {low:.3g} to {high:.3g}.'
+        self.log_alarm(msg, packages[-1]['time'])
+        return 1
 
 
 class IntegerAlarmNode(Doberman.BufferNode, AlarmNode):
@@ -242,18 +242,18 @@ class IntegerAlarmNode(Doberman.BufferNode, AlarmNode):
     def process(self, packages):
         values = [int(p[self.input_var]) for p in packages]
         bad_values = [int(bv) for bv in list(self.config['alarm_values'].keys())]
-
         is_ok = [v not in bad_values for v in values]
-        if any(is_ok):
-            # at least one value is in an acceptable range
-            pass
-        elif all(is_ok):
+        if all(is_ok):
             # we're no longer in an alarmed state so reset the hash
             self.reset_alarm()
+            return 0
+        if any(is_ok):
+            # at least one value is in an acceptable range
+            return 0
         else:
             for v in set(values):
                 self.log_alarm(f'Alarm for {self.description}: {self.config["alarm_values"][str(v)]}')
-                break
+                return 1
 
 
 class BitmaskIntegerAlarmNode(AlarmNode):
@@ -279,8 +279,10 @@ class BitmaskIntegerAlarmNode(AlarmNode):
                 alarm_msg.append(msg)
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
+            return 1
+        return 0
 
-            
+
 class TimeSinceAlarmNode(AlarmNode):
     """
     Checks whether a measurement was at the alarm_value for more than the max_duration.
