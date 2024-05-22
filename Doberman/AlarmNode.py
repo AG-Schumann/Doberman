@@ -9,6 +9,7 @@ class AlarmNode(Doberman.Node):
 
     def setup(self, **kwargs):
         super().setup(**kwargs)
+        self.set_sensor_setting = kwargs['set_sensor_setting']
         self.description = kwargs['description']
         self.device = kwargs['device']
         self._log_alarm = kwargs['log_alarm']
@@ -43,6 +44,7 @@ class AlarmNode(Doberman.Node):
         """
         Resets the cached alarm state
         """
+        self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
         if self.hash is not None:
             self.logger.info(f'{self.name} resetting alarm {self.hash}')
             self.hash = None
@@ -53,6 +55,7 @@ class AlarmNode(Doberman.Node):
         """
         Let the outside world know that something is going on
         """
+        self.set_sensor_setting(self.input_var, 'alarm_is_triggered', True)
         # Only send message if pipeline is silenced at base_level or above, 
         # or if it is silenced at level -1 (universal)
         if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.config['alarm_level']:
@@ -77,6 +80,8 @@ class AlarmNode(Doberman.Node):
         else:
             self.logger.debug(msg)
 
+    def shutdown(self):
+        self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
 
 class CheckRemoteHeartbeatNode(Doberman.Node):
     """
@@ -121,6 +126,32 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                 self.log_alarm(msg, prd)
             else:
                 self.logger.debug(f'Last remote heartbeat from {experiment_name} was {int(dt)} seconds ago.')
+
+
+
+class TriggeredAlarmsNode(Doberman.Node):
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.get_sensor_setting = kwargs['get_sensor_setting']
+        self.distinct = kwargs['distinct']
+
+    def process(self, package):
+        sensors_to_check = self.config.get('sensors_to_check', 'any')
+        if sensors_to_check == 'any':
+            sensor_list = self.distinct('sensors', 'name')
+        elif isinstance(sensors_to_check, list):
+            sensor_list = sensors_to_check
+        else:
+            self.logger.error('invalid option sensors_to_check: must be "any" or a list of sensor names.')
+            return 0
+        for sensor in sensor_list:
+            if status := self.get_sensor_setting(sensor, 'alarm_is_triggered'):
+                if not isinstance(status, dict):  # get_sensor_setting returns whole doc if field doesn't exist
+                    self.logger.debug(f'{sensor} in alarm state')
+                    return 1
+        return 0
+
 
 
 class DeviceRespondingBase(AlarmNode):
@@ -249,7 +280,7 @@ class BitmaskIntegerAlarmNode(AlarmNode):
         if len(alarm_msg):
             self.log_alarm(f'Alarm for {self.description}: {",".join(alarm_msg)}')
 
-
+            
 class TimeSinceAlarmNode(AlarmNode):
     """
     Checks whether a measurement was at the alarm_value for more than the max_duration.
