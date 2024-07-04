@@ -45,14 +45,15 @@ class Pipeline(threading.Thread):
                 return SyncPipeline(**kwargs)
         return Pipeline(**kwargs)
 
-    def stop(self):
+    def stop(self, keep_status=False):
         self.event.set()
         try:
-            self.db.set_pipeline_value(self.name, [('status', 'inactive')])
+            if not keep_status:
+                self.db.set_pipeline_value(self.name, [('status', 'inactive')])
             for pl in self.subpipelines:
                 for node in pl:
                     try:
-                        node.on_error_do_this()
+                        node.shutdown()
                     except Exception:
                         pass
         except Exception as e:
@@ -181,6 +182,9 @@ class Pipeline(threading.Thread):
                     for k in 'escalation_config silence_duration silence_duration_cant_send max_reading_delay'.split():
                         setup_kwargs[k] = alarm_cfg[k]
                     setup_kwargs['get_pipeline_stats'] = self.db.get_pipeline_stats
+                    setup_kwargs['set_sensor_setting'] = self.db.set_sensor_setting
+                    setup_kwargs['get_sensor_setting'] = self.db.get_sensor_setting
+                    setup_kwargs['distinct'] = self.db.distinct
                     setup_kwargs['cv'] = getattr(self, 'cv', None)
                     try:
                         n.setup(**setup_kwargs)

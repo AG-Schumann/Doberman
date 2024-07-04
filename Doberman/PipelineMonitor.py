@@ -29,7 +29,7 @@ class PipelineMonitor(Doberman.Monitor):
     def shutdown(self):
         self.logger.info(f'{self.name} shutting down')
         for p in list(self.pipelines.keys()):
-            self.stop_pipeline(p)
+            self.stop_pipeline(p, keep_status=True)
 
     def start_pipeline(self, name):
         if (doc := self.db.get_pipeline(name)) is None:
@@ -55,9 +55,9 @@ class PipelineMonitor(Doberman.Monitor):
         self.pipelines[p.name] = p
         return 0
 
-    def stop_pipeline(self, name):
-        self.logger.info(f'Stopping pipeline {name}')
-        self.pipelines[name].stop()
+    def stop_pipeline(self, name, keep_status=False):
+        self.logger.info(f'stopping pipeline {name}')
+        self.pipelines[name].stop(keep_status=keep_status)
         self.stop_thread(name)
         del self.pipelines[name]
 

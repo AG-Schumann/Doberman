@@ -314,6 +314,17 @@ class Database(object):
         self.update_db('devices', cuts={'name': name},
                        updates={'$set': {field: value}})
 
+    def set_sensor_setting(self, name, field, value):
+        """
+        Updates the setting from one sensor
+
+        :param name: the name of the senso
+        :param field: the specific field to update
+        :param value: the new value
+        """
+        self.update_db('sensors', cuts={'name': name},
+                       updates={'$set': {field: value}})
+
     def get_sensor_setting(self, name, field=None):
         """
         Gets a value for one sensor

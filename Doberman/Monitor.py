@@ -64,6 +64,7 @@ def main(client):
     my_logger = Doberman.utils.get_child_logger('monitor', db, logger)
     try:
         monitor = ctor(**kwargs)
+        db.notify_hypervisor(active=kwargs["name"])
     except Exception as e:
         my_logger.critical(f'Caught a {type(e)} while constructing {kwargs["name"]}: {e}')
         return
