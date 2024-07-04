@@ -27,7 +27,7 @@ class AlarmNode(Doberman.Node):
         Do we escalate? This function decides this
         """
         if self.hash is None:
-            self.logger.debug('How are you escalating if there is no active alarm?')
+            self.logger.error('How are you escalating if there is no active alarm?')
             return
         total_level = self.config['alarm_level'] + self.escalation_level
         if self.messages_this_level > self.escalation_config[total_level]:
@@ -37,9 +37,9 @@ class AlarmNode(Doberman.Node):
             self.escalation_level = min(max_total_level - self.config['alarm_level'], self.escalation_level + 1)
             self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
-            self.logger.info((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
-                              f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} to escalate'))
-
+            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
+                                 f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} '
+                                 f'to escalate'))
     def reset_alarm(self):
         """
         Resets the cached alarm state
@@ -59,11 +59,11 @@ class AlarmNode(Doberman.Node):
         # Only send message if pipeline is silenced at base_level or above, 
         # or if it is silenced at level -1 (universal)
         if not self.is_silent or -1 < self.pipeline.silenced_at_level < self.config['alarm_level']:
-            self.logger.error(msg)
+            self.logger.warning(msg)
             if self.hash is None:
                 self.hash = Doberman.utils.make_hash(ts or time.time(), self.pipeline.name)
                 self.alarm_start = ts or time.time()
-                self.logger.warning(f'{self.name} beginning alarm with hash {self.hash}')
+                self.logger.warning(f'{self.pipeline.name} beginning alarm with hash {self.hash}')
             self.escalate()
             level = self.config['alarm_level'] + self.escalation_level
             try:
@@ -79,10 +79,11 @@ class AlarmNode(Doberman.Node):
                 self.pipeline.silence_for(self.silence_duration_cant_send, self.config['alarm_level'])
         else:
             self.logger.debug(msg)
-
+           
     def shutdown(self):
         self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
 
+        
 class CheckRemoteHeartbeatNode(Doberman.Node):
     """
     A node that checks if a remote heartbeat has been updated recently and otherwise sends alarms.
@@ -97,7 +98,7 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
         Let the outside world know that something is going on
         """
         if not self.is_silent:
-            self.logger.error(msg)
+            self.logger.warning(msg)
             try:
                 self._log_alarm(message=msg,
                                 pipeline=self.pipeline.name,
@@ -111,7 +112,6 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
             self.logger.debug(msg)
 
     def process(self, package):
-
         directory = self.config.get('directory', '/scratch')
         experiment_name = self.config.get('experiment_name')
         with open(f'{directory}/remote_hb_{experiment_name}', 'r') as f:
@@ -126,7 +126,6 @@ class CheckRemoteHeartbeatNode(Doberman.Node):
                 self.log_alarm(msg, prd)
             else:
                 self.logger.debug(f'Last remote heartbeat from {experiment_name} was {int(dt)} seconds ago.')
-
 
 
 class TriggeredAlarmsNode(Doberman.Node):
@@ -151,7 +150,6 @@ class TriggeredAlarmsNode(Doberman.Node):
                     self.logger.debug(f'{sensor} in alarm state')
                     return 1
         return 0
-
 
 
 class DeviceRespondingBase(AlarmNode):
