@@ -160,7 +160,7 @@ class DeviceRespondingBase(AlarmNode):
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.accept_old = True
-        self.sensor_config_needed += ['alarm_recurrence']
+        self.sensor_config_needed += ['alarm_level']
 
     def process(self, package):
         if (dt := ((now := time.time()) - package['time'])) > self.config['readout_interval'] + self.max_reading_delay:
