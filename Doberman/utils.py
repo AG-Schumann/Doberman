@@ -182,7 +182,8 @@ def make_hash(*args, hash_length=16):
     :returns: string
     """
     m = hashlib.sha256()
-    map(lambda a: m.update(str(a).encode()), args)
+    for a in args:
+        m.update(str(a).encode())
     return m.hexdigest()[:hash_length]
 
 
