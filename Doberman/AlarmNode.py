@@ -29,15 +29,16 @@ class AlarmNode(Doberman.Node):
         if self.hash is None:
             self.logger.error('How are you escalating if there is no active alarm?')
             return
-        total_level = self.config['alarm_level'] + self.escalation_level
-        if self.messages_this_level > self.escalation_config[total_level]:
-            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
+        base_level = self.config['alarm_level']
+        total_level = base_level + self.escalation_level
+        if self.messages_this_level >= self.escalation_config[total_level]:
+            self.logger.warning((f'{self.name} at level {base_level}+{self.escalation_level} '
                                  f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
             max_total_level = len(self.escalation_config) - 1
-            self.escalation_level = min(max_total_level - self.config['alarm_level'], self.escalation_level + 1)
+            self.escalation_level = min(max_total_level - base_level, self.escalation_level + 1)
             self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
-            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
+            self.logger.warning((f'{self.name} at level {base_level}+{self.escalation_level} '
                                  f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} '
                                  f'to escalate'))
     def reset_alarm(self):
