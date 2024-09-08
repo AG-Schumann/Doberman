@@ -47,7 +47,7 @@ class Monitor(object):
         """
         self.event.set()
         self.shutdown()
-        pop = []
+        threads_to_pop = []
         with self.lock:
             for t in self.threads.values():
                 # set the events all here because join() blocks
@@ -59,8 +59,9 @@ class Monitor(object):
                 except Exception as e:
                     self.logger.error(f'Can\'t close {n}-thread. {e}')
                 else:
-                    pop.append(n)
-        map(self.threads.pop, pop)
+                    threads_to_pop.append(n)
+        for p in threads_to_pop:
+            self.threads.pop(p)
         self.db.notify_hypervisor(inactive=self.name)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):
