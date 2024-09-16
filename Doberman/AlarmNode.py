@@ -29,15 +29,16 @@ class AlarmNode(Doberman.Node):
         if self.hash is None:
             self.logger.error('How are you escalating if there is no active alarm?')
             return
-        total_level = self.config['alarm_level'] + self.escalation_level
-        if self.messages_this_level > self.escalation_config[total_level]:
-            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
+        base_level = self.config['alarm_level']
+        total_level = base_level + self.escalation_level
+        if self.messages_this_level >= self.escalation_config[total_level]:
+            self.logger.warning((f'{self.name} at level {base_level}+{self.escalation_level} '
                                  f'for {self.messages_this_level} messages, time to escalate (hash {self.hash})'))
             max_total_level = len(self.escalation_config) - 1
-            self.escalation_level = min(max_total_level - self.config['alarm_level'], self.escalation_level + 1)
+            self.escalation_level = min(max_total_level - base_level, self.escalation_level + 1)
             self.messages_this_level = 0  # reset count so we don't escalate again immediately
         else:
-            self.logger.warning((f'{self.name} at level {self.config["alarm_level"]}/{self.escalation_level} '
+            self.logger.warning((f'{self.name} at level {base_level}+{self.escalation_level} '
                                  f'for {self.messages_this_level} messages, need {self.escalation_config[total_level]} '
                                  f'to escalate'))
     def reset_alarm(self):
@@ -46,7 +47,7 @@ class AlarmNode(Doberman.Node):
         """
         self.set_sensor_setting(self.input_var, 'alarm_is_triggered', False)
         if self.hash is not None:
-            self.logger.info(f'{self.name} resetting alarm {self.hash}')
+            self.logger.info(f'{self.name} resetting alarm (hash {self.hash})')
             self.hash = None
             self.messages_this_level = 0
         self.escalation_level = 0
@@ -201,12 +202,12 @@ class SimpleAlarmNode(Doberman.BufferNode, AlarmNode):
         values = [p[self.input_var] for p in packages]
         low, high = self.config['alarm_thresholds']
         is_ok = [low <= v <= high for v in values]
-        if any(is_ok):
-            # at least one value is in an acceptable range
-            pass
-        elif all(is_ok):
+        if all(is_ok):
             # we're no longer in an alarmed state so reset the hash
             self.reset_alarm()
+        elif any(is_ok):
+            # at least one value is in an acceptable range
+            pass
         else:
             msg = f'Alarm for {self.description}. '
             try:
@@ -240,14 +241,13 @@ class IntegerAlarmNode(Doberman.BufferNode, AlarmNode):
     def process(self, packages):
         values = [int(p[self.input_var]) for p in packages]
         bad_values = [int(bv) for bv in list(self.config['alarm_values'].keys())]
-
         is_ok = [v not in bad_values for v in values]
-        if any(is_ok):
-            # at least one value is in an acceptable range
-            pass
-        elif all(is_ok):
+        if all(is_ok):
             # we're no longer in an alarmed state so reset the hash
             self.reset_alarm()
+        elif any(is_ok):
+            # at least one value is in an acceptable range
+            pass
         else:
             for v in set(values):
                 self.log_alarm(f'Alarm for {self.description}: {self.config["alarm_values"][str(v)]}')
