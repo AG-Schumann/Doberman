@@ -206,9 +206,6 @@ class SerialDevice(Device):
         self._device.stopbits = serial.STOPBITS_ONE
         self._device.timeout = 0  # nonblocking mode
         self._device.write_timeout = 1
-        if not hasattr(self, 'msg_sleep'):
-            # so we can more easily change this later
-            self.msg_sleep = 0.01
         if hasattr(self, 'id'):
             self._device.port = f'/dev/serial/by-id/{self.id}'
         elif self.tty == '0':
