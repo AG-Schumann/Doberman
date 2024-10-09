@@ -1,5 +1,6 @@
 try:
     import serial
+
     has_serial = True
 except ImportError:
     has_serial = False
@@ -192,6 +193,9 @@ class SerialDevice(Device):
     """
     Serial device class. Implements more direct serial connection specifics
     """
+    msg_wait = 3.0  # Seconds to wait for response
+    recv_interval = 0.05  # Socket polling interval
+    eol = b'\r'
 
     def setup(self):
         if not has_serial:
@@ -204,7 +208,7 @@ class SerialDevice(Device):
         self._device.write_timeout = 1
         if not hasattr(self, 'msg_sleep'):
             # so we can more easily change this later
-            self.msg_sleep = 1.0
+            self.msg_sleep = 0.01
         if hasattr(self, 'id'):
             self._device.port = f'/dev/serial/by-id/{self.id}'
         elif self.tty == '0':
@@ -232,23 +236,35 @@ class SerialDevice(Device):
     def send_recv(self, message, dev=None):
         device = dev if dev else self._device
         ret = {'retcode': 0, 'data': None}
+        message = f'{self._msg_start}{message}{self._msg_end}'
         try:
-            message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(self.msg_sleep)
-            if device.in_waiting:
-                s = device.read(device.in_waiting)
-                ret['data'] = s
         except serial.SerialException as e:
-            self.logger.error(f'Could not send message {message}. Got an {type(e)}: {e}')
+            self.logger.error(f'Could not send message: {message}. Got an {type(e)}: {e}')
             ret['retcode'] = -2
             return ret
-        except serial.SerialTimeoutException as e:
-            self.logger.error(f'Could not send message {message}. Got an {type(e)}: {e}')
+        try:
+            data = self._receive_data(device)
+            ret['data'] = data
+        except serial.SerialException as e:
+            self.logger.error(f'Could not receive data from device. {e}')
             ret['retcode'] = -2
-            return ret
-        time.sleep(0.2)
+
         return ret
+
+    def _receive_data(self, device):
+        """Helper function to receive data until the EOL character is received."""
+        data = b''
+        end_time = time.time() + self.msg_wait
+
+        while time.time() < end_time:
+            if device.in_waiting:
+                data += device.read(device.in_waiting)
+            if data.endswith(self.eol):
+                break
+            time.sleep(self.recv_interval)
+
+        return data if data else None
 
 
 class LANDevice(Device):
@@ -256,11 +272,11 @@ class LANDevice(Device):
     Class for LAN-connected devices
     """
     msg_wait = 1.0  # Seconds to wait for response
-    recv_interval = 0.1  # Socket polling interval
+    recv_interval = 0.01  # Socket polling interval
     eol = b'\r'
 
     def setup(self):
-        self.packet_bytes = 1024
+        self.packet_bytes = 256
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self._device.settimeout(5)  # Longer timeout when connecting as don't repeat
