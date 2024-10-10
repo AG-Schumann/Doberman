@@ -51,7 +51,7 @@ class Sensor(threading.Thread):
 
     def update_config(self, doc):
         """
-        Updates runtime configs. This is called at the start of a measurement cycle.
+        Updates runtime configs. This is called at the start of a measurement cycle
         :param doc: the sensor document from the database
         """
         self.readout_interval = doc['readout_interval']
@@ -64,30 +64,24 @@ class Sensor(threading.Thread):
         pkg = {}
         self.schedule(self.readout_command, ret=(pkg, self.cv))
         with self.cv:
-            if self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
-                failed = False
-            else:
-                # timeout expired
-                failed = len(pkg) == 0
-        if len(pkg) == 0 or failed:
-            self.logger.error(f'Didn\'t get anything from the device!')
+            if not self.cv.wait_for(lambda: (len(pkg) > 0 or self.event.is_set()), self.readout_interval):
+                self.logger.error(f'Didn\'t get anything from the device!')
+                return
+        if 'data' not in pkg:
+            self.logger.error(f'Didn\'t receive valid data package: {pkg}')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.error(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.error(f'Got a {type(e).__name__} while processing \'{pkg["data"]}\': {e}')
             value = None
         if value is not None:
             value = self.more_processing(value)
             self.send_downstream(value, pkg['time'])
-        else:
-            self.logger.error(f'Got None')
-        return
 
     def more_processing(self, value):
         """
         Does something interesting with the value. Should return a value
-
         """
         value = sum(a * value ** i for i, a in enumerate(self.xform))
         value = int(value) if self.is_int else float(value)
@@ -106,12 +100,12 @@ class Sensor(threading.Thread):
 class MultiSensor(Sensor):
     """
     A special class to handle devices that return multiple values for each
-    readout cycle (smartec_uti, caen mainframe, etc). This works this way:
+    readout cycle (smartec_uti, caen mainframe, etc.). This works this way:
     one sensor is designated the "primary" and the others are "secondaries".
     Only the primary is actually read out, but the assumption is that the sensor
     of the primary also brings the values of the secondary with it. The secondaries
     must have entries in the database but the "status" and "readout_interval" of the primary
-    will used over whatever the secondaries have.
+    will be used over whatever the secondaries have.
     The extra database fields should look like this:
     primary:
     { ..., name: name0, multi_sensor: [name0, name1, name2, ...]}
