@@ -91,7 +91,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             message += f'<br><br>Show sensors involved in this pipeline:<ul>'
             sensors = self.db.get_pipeline(pipeline).get('depends_on', [])
             for sensor in sensors:
-                message += f'<li><a href="{website_url}?sensor={sensor}">{sensor}</a></li>'
+                message += f'<li><a href="{website_url}/devices?sensor={sensor}">{sensor}</a></li>'
             message += '</ul>'
         silence_duration = self.db.get_experiment_config('alarm').get('silence_duration')[level]
         message += f'This alarm is automatically silenced for <b>{int(silence_duration / 60)} minutes</b>.'
