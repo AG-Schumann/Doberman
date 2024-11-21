@@ -68,8 +68,7 @@ class Device(object):
         Pulls tasks from the command queue and deals with them. If the queue is empty
         it waits until it isn't. This function returns when the event is set.
         While the device is in normal operation, this is the only
-        function that should call send_recv to avoid issues with simultaneous
-        access (ie, the isThisMe routine avoids this)
+        function that should call send_recv to avoid issues with simultaneous access
         """
         self.logger.info('Readout scheduler starting')
         while not self.event.is_set():
@@ -193,8 +192,8 @@ class SerialDevice(Device):
     """
     Serial device class. Implements more direct serial connection specifics
     """
-    msg_wait = 3.0  # Seconds to wait for response
-    recv_interval = 0.05  # Socket polling interval
+    msg_wait = 0.1  # Seconds to wait for response, override in plugin if device is slow
+    recv_interval = 0.01  # Socket polling interval
     eol = b'\r'
 
     def setup(self):
@@ -204,8 +203,8 @@ class SerialDevice(Device):
         self._device.baudrate = 9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity = serial.PARITY_NONE
         self._device.stopbits = serial.STOPBITS_ONE
-        self._device.timeout = 0  # nonblocking mode
-        self._device.write_timeout = 1
+        self._device.timeout = self.msg_wait
+        self._device.write_timeout = 0
         if hasattr(self, 'id'):
             self._device.port = f'/dev/serial/by-id/{self.id}'
         elif self.tty == '0':
@@ -223,12 +222,6 @@ class SerialDevice(Device):
 
     def shutdown(self):
         self._device.close()
-
-    def is_this_me(self, dev):
-        """
-        Makes sure the specified device is the correct one
-        """
-        raise NotImplementedError()
 
     def send_recv(self, message, dev=None):
         device = dev if dev else self._device
