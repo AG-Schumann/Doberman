@@ -79,6 +79,7 @@ class Sensor(threading.Thread):
             value = self.more_processing(value)
             self.send_downstream(value, pkg['time'])
 
+
     def more_processing(self, value):
         """
         Does something interesting with the value. Should return a value
