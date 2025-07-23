@@ -1,5 +1,6 @@
 try:
     import serial
+
     has_serial = True
 except ImportError:
     has_serial = False
@@ -67,8 +68,7 @@ class Device(object):
         Pulls tasks from the command queue and deals with them. If the queue is empty
         it waits until it isn't. This function returns when the event is set.
         While the device is in normal operation, this is the only
-        function that should call send_recv to avoid issues with simultaneous
-        access (ie, the isThisMe routine avoids this)
+        function that should call send_recv to avoid issues with simultaneous access
         """
         self.logger.info('Readout scheduler starting')
         while not self.event.is_set():
@@ -192,6 +192,9 @@ class SerialDevice(Device):
     """
     Serial device class. Implements more direct serial connection specifics
     """
+    msg_wait = 0.1  # Seconds to wait for response, override in plugin if device is slow
+    recv_interval = 0.01  # Socket polling interval
+    eol = b'\r'
 
     def setup(self):
         if not has_serial:
@@ -200,11 +203,8 @@ class SerialDevice(Device):
         self._device.baudrate = 9600 if not hasattr(self, 'baud') else self.baud
         self._device.parity = serial.PARITY_NONE
         self._device.stopbits = serial.STOPBITS_ONE
-        self._device.timeout = 0  # nonblocking mode
-        self._device.write_timeout = 1
-        if not hasattr(self, 'msg_sleep'):
-            # so we can more easily change this later
-            self.msg_sleep = 1.0
+        self._device.timeout = self.msg_wait
+        self._device.write_timeout = 0
         if hasattr(self, 'id'):
             self._device.port = f'/dev/serial/by-id/{self.id}'
         elif self.tty == '0':
@@ -223,32 +223,38 @@ class SerialDevice(Device):
     def shutdown(self):
         self._device.close()
 
-    def is_this_me(self, dev):
-        """
-        Makes sure the specified device is the correct one
-        """
-        raise NotImplementedError()
-
     def send_recv(self, message, dev=None):
         device = dev if dev else self._device
         ret = {'retcode': 0, 'data': None}
+        message = f'{self._msg_start}{message}{self._msg_end}'
         try:
-            message = self._msg_start + str(message) + self._msg_end
             device.write(message.encode())
-            time.sleep(self.msg_sleep)
-            if device.in_waiting:
-                s = device.read(device.in_waiting)
-                ret['data'] = s
         except serial.SerialException as e:
-            self.logger.error(f'Could not send message {message}. Got an {type(e)}: {e}')
+            self.logger.error(f'Could not send message: {message}. Got an {type(e)}: {e}')
             ret['retcode'] = -2
             return ret
-        except serial.SerialTimeoutException as e:
-            self.logger.error(f'Could not send message {message}. Got an {type(e)}: {e}')
+        try:
+            data = self._receive_data(device)
+            ret['data'] = data
+        except serial.SerialException as e:
+            self.logger.error(f'Could not receive data from device. {e}')
             ret['retcode'] = -2
-            return ret
-        time.sleep(0.2)
+
         return ret
+
+    def _receive_data(self, device):
+        """Helper function to receive data until the EOL character is received."""
+        data = b''
+        end_time = time.time() + self.msg_wait
+
+        while time.time() < end_time:
+            if device.in_waiting:
+                data += device.read(device.in_waiting)
+            if data.endswith(self.eol):
+                break
+            time.sleep(self.recv_interval)
+
+        return data if data else None
 
 
 class LANDevice(Device):
@@ -256,11 +262,11 @@ class LANDevice(Device):
     Class for LAN-connected devices
     """
     msg_wait = 1.0  # Seconds to wait for response
-    recv_interval = 0.1  # Socket polling interval
+    recv_interval = 0.01  # Socket polling interval
     eol = b'\r'
 
     def setup(self):
-        self.packet_bytes = 1024
+        self.packet_bytes = 256
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self._device.settimeout(5)  # Longer timeout when connecting as don't repeat

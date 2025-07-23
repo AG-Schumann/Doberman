@@ -68,20 +68,18 @@ class Sensor(threading.Thread):
                 failed = False
             else:
                 # timeout expired
-                failed = len(pkg) == 0
-        if len(pkg) == 0 or failed:
+                failed = True
+        if failed or 'data' not in pkg or 'time' not in pkg:
             self.logger.error(f'Didn\'t get anything from the device!')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])
-        except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.error(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
-            value = None
+        except Exception as e:
+            self.logger.error(f"Error {type(e).__name__} while processing {pkg.get('data')} from '{self.name}': {e}")
+            return
         if value is not None:
             value = self.more_processing(value)
             self.send_downstream(value, pkg['time'])
-        else:
-            self.logger.error(f'Got None')
         return
 
     def more_processing(self, value):
