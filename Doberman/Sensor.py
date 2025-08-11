@@ -29,7 +29,7 @@ class Sensor(threading.Thread):
         self.socket.connect(f'tcp://{hostname}:{ports["send"]}')
 
     def run(self):
-        self.logger.debug(f'Starting')
+        self.logger.info(f'Starting')
         while not self.event.is_set():
             loop_top = time.time()
             doc = self.db.get_sensor_setting(name=self.name)
@@ -37,7 +37,7 @@ class Sensor(threading.Thread):
             if doc['status'] == 'online':
                 self.do_one_measurement()
             self.event.wait(loop_top + self.readout_interval - time.time())
-        self.logger.debug(f'Returning')
+        self.logger.info(f'Returning')
 
     def setup(self, config_doc):
         """
@@ -70,18 +70,18 @@ class Sensor(threading.Thread):
                 # timeout expired
                 failed = len(pkg) == 0
         if len(pkg) == 0 or failed:
-            self.logger.info(f'Didn\'t get anything from the device!')
+            self.logger.error(f'Didn\'t get anything from the device!')
             return
         try:
             value = self.device_process(name=self.name, data=pkg['data'])
         except (ValueError, TypeError, ZeroDivisionError, UnicodeDecodeError, AttributeError) as e:
-            self.logger.debug(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
+            self.logger.error(f'Got a {type(e)} while processing \'{pkg["data"]}\': {e}')
             value = None
         if value is not None:
             value = self.more_processing(value)
             self.send_downstream(value, pkg['time'])
         else:
-            self.logger.debug(f'Got None')
+            self.logger.error(f'Got None')
         return
 
     def more_processing(self, value):

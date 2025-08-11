@@ -22,6 +22,10 @@ class ControlNode(Doberman.Node):
         if (v := self.config.get('default_output')) is not None:
             self.set_output(v, _force=True)
 
+    def shutdown(self):
+        if (v := self.config.get('default_output')) is not None:
+            self.set_output(v, _force=True)
+
 
 class DigitalControlNode(ControlNode):
     """
@@ -38,10 +42,8 @@ class DigitalControlNode(ControlNode):
             self.set_output(package[self.input_var])
         else:
             if package[self.input_var[0]]:
-                self.logger.info(f'{self.name}: opening')
                 self.set_output(1)
             elif package[self.input_var[1]]:
-                self.logger.info(f'{self.name}: closing')
                 self.set_output(0)
 
 
@@ -75,10 +77,11 @@ class PipelineControlNode(Doberman.Node):
                 for action in actions:
                     self.control_pipeline(*action)
 
+
     def control_pipeline(self, action, pipeline):
         if self.is_silent:
             return
-        if pipeline.startswith('control') or pipeline == 'test_pipeline':
+        if pipeline.startswith('control') or pipeline.startswith('test'):
             target = 'pl_control'
         elif pipeline.startswith('alarm'):
             target = 'pl_alarm'
