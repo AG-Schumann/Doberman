@@ -59,17 +59,16 @@ pl = {
             {
                 'type': 'EvalNode',
                 'operation': 'True',
-                'output_var': 'condition_test',
+                'output_var': 'condition',
                 'input_var': [SENSOR_INPUT],
                 'name': 'eval',
                 'upstream': ['integral']
             },
             {
-                'type': 'PipelineControl',
+                'type': 'PipelineControlNode',
                 'name': 'end',
-                'input_var': '',
-                'control_target': '',
-                'control_value': '',
+                'input_var': 'condition_test',
+                'actions': {'condition': ['stop test_pipeline']}
                 'upstream': ['eval']
             }
         ],

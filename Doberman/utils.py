@@ -1,6 +1,5 @@
 import importlib
 import importlib.machinery
-import time
 import datetime
 import signal
 import os.path
@@ -13,11 +12,12 @@ import hashlib
 from math import floor, log10
 import itertools
 
-
 number_regex = r'[\-+]?[0-9]+(?:\.[0-9]+)?(?:[eE][\-+]?[0-9]+)?'
 
+
 def dtnow():
-    return datetime.datetime.now(tz=utc) # no timezone nonsense, now
+    return datetime.datetime.now(tz=utc)  # no timezone nonsense, now
+
 
 def find_plugin(name, path):
     """
@@ -29,22 +29,22 @@ def find_plugin(name, path):
     :param path: a list of paths in which to search for the file
     :returns constructor: the constructor of the requested device
     """
-    strip = False
     if not isinstance(path, (list, tuple)):
         path = [path]
-    spec = importlib.machinery.PathFinder.find_spec(name, path)
+    plugin_name = name
+    spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
     if spec is None:
-        strip = True
-        spec = importlib.machinery.PathFinder.find_spec(name.strip('0123456789'), path)
+        plugin_name = name.strip('0123456789')
+        spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
     if spec is None:
-        raise FileNotFoundError('Could not find a device named %s in %s' % (name, path))
+        plugin_name = name.rsplit('_', 1)[0]
+        spec = importlib.machinery.PathFinder.find_spec(plugin_name, path)
+    if spec is None:
+        raise FileNotFoundError(f'Could not find a device named {name} in {path}')
     try:
-        if strip:
-            device_ctor = getattr(spec.loader.load_module(), name.strip('0123456789'))
-        else:
-            device_ctor = getattr(spec.loader.load_module(), name)
+        device_ctor = getattr(spec.loader.load_module(), plugin_name)
     except AttributeError:
-        raise AttributeError('Cound not find constructor for %s!' % name)
+        raise AttributeError(f'Could not find constructor for {name}')
     return device_ctor
 
 
@@ -61,7 +61,7 @@ class SignalHandler(object):
 
     def interrupt(self, *args):
         if self.logger is not None:
-            self.logger.info('Received signal %i' % args[0])
+            self.logger.info(f'Received signal {args[0]}')
         self.signal_number = int(args[0])
         self.run = False
         if self.event is not None:
@@ -72,6 +72,7 @@ class DobermanLogger(logging.Handler):
     """
     A custom logging handler.
     """
+
     def __init__(self, db, name, output_handler):
         logging.Handler.__init__(self)
         self.db = db
@@ -92,11 +93,12 @@ class DobermanLogger(logging.Handler):
                 funcname=record.funcName,
                 lineno=record.lineno,
                 date=msg_datetime,
-                )
+            )
             self.db.insert_into_db(self.collection_name, rec)
 
     def format_message(self, when, level, func_name, lineno, msg):
         return f'{when.isoformat(sep=" ")} | {str(level).upper()} | {self.name} | {func_name} | {lineno} | {msg}'
+
 
 class OutputHandler(object):
     """
@@ -106,21 +108,22 @@ class OutputHandler(object):
     so this is how I solve this problem.
     Files go to /global/logs/<experiment>/YYYY/MM.DD, folders being created as necessary.
     """
-    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle')
+    __slots__ = ('mutex', 'filename', 'experiment', 'f', 'today', 'flush_cycle', 'debug')
 
-    def __init__(self, name, experiment):
+    def __init__(self, name, experiment, debug=False):
         self.mutex = threading.Lock()
         self.filename = f'{name}.log'
         self.experiment = experiment
         self.f = None
         self.flush_cycle = 0
         self.rotate()
+        self.debug = debug
 
-    def rotate(self, when):
+    def rotate(self):
         if self.f is not None:
             self.f.close()
         self.today = datetime.date.today()
-        logdir = f'/global/logs/{self.experiment}/{when.year}/{when.month:02d}.{when.day:02d}'
+        logdir = f'/global/logs/{self.experiment}/{self.today.year}/{self.today.month:02d}.{self.today.day:02d}'
         os.makedirs(logdir, exist_ok=True)
         full_path = os.path.join(logdir, self.filename)
         self.f = open(full_path, 'a')
@@ -130,8 +133,8 @@ class OutputHandler(object):
             # we wrap anything hitting files or stdout with a mutex because logging happens from
             # multiple threads, and files aren't thread-safe
             if date != self.today:
-                # it's a brand new day, and the sun is high...
-                self.rotate(date)
+                # it's a brand-new day, and the sun is high...
+                self.rotate()
             if message[-1] == '\n':
                 message = message[:-1]
             print(message)
@@ -143,18 +146,32 @@ class OutputHandler(object):
                 self.f.flush()
                 self.flush_cycle = 0
 
-def get_logger(name, db):
-    oh = OutputHandler(name, db.experiment_name)
+    def get_logdir(self, date):
+        return f'/global/logs/{self.experiment}/{date.year}/{date.month:02d}.{date.day:02d}'
+
+
+def get_logger(name, db, debug=False):
+    oh = OutputHandler(name, db.experiment_name, debug)
     logger = logging.getLogger(name)
     logger.addHandler(DobermanLogger(db, name, oh))
-    logger.setLevel(logging.DEBUG)
+    if debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
     return logger
 
-def get_child_logger(name, main_logger):
+
+def get_child_logger(name, db, main_logger):
     logger = logging.getLogger(name)
+    if logger.hasHandlers():
+        logger.handlers.clear()
     logger.addHandler(DobermanLogger(db, name, main_logger.handlers[0].oh))
-    logger.setLevel(logging.DEBUG)
+    if main_logger.handlers[0].oh.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
     return logger
+
 
 def make_hash(*args, hash_length=16):
     """
@@ -165,8 +182,10 @@ def make_hash(*args, hash_length=16):
     :returns: string
     """
     m = hashlib.sha256()
-    map(lambda a: m.update(str(a).encode()), args)
+    for a in args:
+        m.update(str(a).encode())
     return m.hexdigest()[:hash_length]
+
 
 def sensible_sig_figs(value, lowlim, upplim, defaultsigfigs=3):
     """
@@ -188,6 +207,7 @@ class SortedBuffer(object):
     """
     A custom semi-fixed-width buffer that keeps itself sorted
     """
+
     def __init__(self, length=None):
         self._buf = []
         self.length = length
@@ -208,17 +228,17 @@ class SortedBuffer(object):
             else:
                 self._buf.append(obj)
         else:
-            idx = len(self._buf)//2
+            idx = len(self._buf) // 2
             for i in itertools.count(2):
-                lesser = self._buf[idx-1]['time'] if idx > 0 else -1
+                lesser = self._buf[idx - 1]['time'] if idx > 0 else -1
                 greater = self._buf[idx]['time'] if idx < len(self._buf) else LARGE_NUMBER
                 if lesser <= obj['time'] <= greater:
                     self._buf.insert(idx, obj)
                     break
                 elif obj['time'] > greater:
-                    idx += max(1, len(self._buf)>>i)
+                    idx += max(1, len(self._buf) >> i)
                 elif obj['time'] < lesser:
-                    idx -= max(1, len(self._buf)>>i)
+                    idx -= max(1, len(self._buf) >> i)
         if self.length is not None and len(self._buf) > self.length:
             self._buf = self._buf[-self.length:]
         return
@@ -245,4 +265,3 @@ class SortedBuffer(object):
 
     def __iter__(self):
         return self._buf.__iter__()
-

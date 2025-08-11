@@ -4,10 +4,10 @@ from pymongo import MongoClient
 import argparse
 import os
 import pprint
-from pytz import utc
+from datetime import timezone
 
 
-def main(mongo_client):
+def main(client):
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--alarm', action='store_true', help='Start the alarm monitor')
@@ -16,6 +16,7 @@ def main(mongo_client):
     group.add_argument('--device', help='Start the specified device monitor')
     group.add_argument('--hypervisor', action='store_true', help='Start the hypervisor')
     group.add_argument('--status', action='store_true', help='Current status snapshot')
+    parser.add_argument('--debug', action='store_true', help='Set if DEBUG messages should be written to disk')
     args = parser.parse_args()
 
     k = 'DOBERMAN_EXPERIMENT_NAME'
@@ -23,7 +24,7 @@ def main(mongo_client):
     if not os.environ.get(k):
         print(err_msg)
         return
-    db = Doberman.Database(mongo_client=mongo_client, experiment_name=os.environ[k])
+    db = Doberman.Database(mongo_client=client, experiment_name=os.environ[k])
     kwargs = {'db': db}
     # TODO add checks for running systems
     if args.alarm:
@@ -38,7 +39,8 @@ def main(mongo_client):
     elif args.hypervisor:
         doc = db.get_experiment_config(name='hypervisor')
         if doc['status'] == 'online':
-            if (Doberman.utils.dtnow()-doc['heartbeat'].replace(tzinfo=utc)).total_seconds() < 2*doc['period']:
+            if (Doberman.utils.dtnow() - doc['heartbeat'].replace(tzinfo=timezone.utc)).total_seconds() < \
+                    2 * doc['period']:
                 print('Hypervisor already running')
                 return
             print(f'Hypervisor crashed?')
@@ -55,12 +57,14 @@ def main(mongo_client):
     else:
         print('No action specified')
         return
-    logger = Doberman.utils.get_logger(kwargs['name'], db=db)
+    logger = Doberman.utils.get_logger(kwargs['name'], db=db, debug=args.debug)
     db.logger = logger
     kwargs['logger'] = logger
-    my_logger = Doberman.utils.get_child_logger('monitor', logger)
+    kwargs['debug'] = args.debug
+    my_logger = Doberman.utils.get_child_logger('monitor', db, logger)
     try:
         monitor = ctor(**kwargs)
+        db.notify_hypervisor(active=kwargs["name"])
     except Exception as e:
         my_logger.critical(f'Caught a {type(e)} while constructing {kwargs["name"]}: {e}')
         return

@@ -5,19 +5,24 @@ class ControlNode(Doberman.Node):
     """
     Another empty base class to handle different database access
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.control_target = kwargs['control_target']
         self.control_value = kwargs['control_value']
 
     def set_output(self, value, _force=False):
-        self.logger.debug(f'Setting output to {value}')
+        self.logger.debug(f'Setting {self.control_target} {self.control_value} to {value}')
         if not self.is_silent and not _force:
             self.pipeline.send_command(
-                    command=f'set {self.control_value} {value}',
-                    to=self.control_target)
+                command=f'set {self.control_value} {value}',
+                to=self.control_target)
 
     def on_error_do_this(self):
+        if (v := self.config.get('default_output')) is not None:
+            self.set_output(v, _force=True)
+
+    def shutdown(self):
         if (v := self.config.get('default_output')) is not None:
             self.set_output(v, _force=True)
 
@@ -31,6 +36,7 @@ class DigitalControlNode(ControlNode):
     Otherwise, if condition_b is true, the output is set to 0.
     If neither condition is true, the output is left unchanged.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.one_input = kwargs.get('one_input', False)
@@ -39,12 +45,10 @@ class DigitalControlNode(ControlNode):
         if self.one_input:
             self.set_output(package[self.input_var])
         else:
-            if package['condition_a']:
-                self.logger.info('Condition a met')
-                self.set_output(self.config.get('output_a', 1))
-            elif package['condition_b']:
-                self.logger.info('Condition b met')
-                self.set_output(self.config.get('output_b', 0))
+            if package[self.input_var[0]]:
+                self.set_output(1)
+            elif package[self.input_var[1]]:
+                self.set_output(0)
 
 
 class AnalogControlNode(ControlNode):
@@ -52,6 +56,7 @@ class AnalogControlNode(ControlNode):
     A generalized node to handle analog output. The logic is assumed to be
     upstream
     """
+
     def process(self, package):
         val = package[self.input_var]
         if (min_output := self.config.get('min_output')) is not None:
@@ -61,25 +66,25 @@ class AnalogControlNode(ControlNode):
         self.set_output(val)
 
 
-class PipelineControlNode(ControlNode):
+class PipelineControlNode(Doberman.Node):
     """
     Sometimes you want one pipeline to control another.
     """
+
+    def setup(self, **kwargs):
+        super().setup(**kwargs)
+        self.actions = kwargs['actions']
+
     def process(self, package):
-        for char in map(chr, range(ord('c'), ord('z')+1)):
-            if package.get(f'condition_{char}', False):
-                # do something
-                action, target = self.config.get(f'action_{char}', (None, None))
-                if action and target:
-                    self.control_pipeline(action, target)
-        if package.get('condition_test', False):
-            # this one is mainly for testing
-            self.control_pipeline('stop', self.pipeline.name)
+        for condition, actions in self.actions.items():
+            if package.get(condition, False):
+                for action in actions:
+                    self.control_pipeline(*action)
 
     def control_pipeline(self, action, pipeline):
         if self.is_silent:
             return
-        if pipeline.startswith('control'):
+        if pipeline.startswith('control') or pipeline.startswith('test'):
             target = 'pl_control'
         elif pipeline.startswith('alarm'):
             target = 'pl_alarm'
@@ -87,6 +92,6 @@ class PipelineControlNode(ControlNode):
             target = 'pl_convert'
         else:
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
+        self.logger.debug(f"Sending {action} to {pipeline}")
         self.pipeline.send_command(command=f'pipelinectl_{action} {pipeline}',
-                to=target, issuer=self.pipeline.name)
-
+                                   to=target)

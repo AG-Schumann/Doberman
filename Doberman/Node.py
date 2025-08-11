@@ -6,6 +6,7 @@ class Node(object):
     """
     A generic graph node
     """
+
     def __init__(self, pipeline=None, name=None, logger=None, **kwargs):
         self.pipeline = pipeline
         self.buffer = Doberman.utils.SortedBuffer(1)
@@ -19,13 +20,13 @@ class Node(object):
         self.downstream_nodes = []
         self.config = {}
         self.is_silent = True
-        self.logger.debug(f'{name} constructor')
+        self.logger.info(f'Constructing node {name}')
 
     def __del__(self):
         try:
             self.shutdown()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.error(f'{type(e)}: {e}')
 
     def setup(self, **kwargs):
         """
@@ -39,9 +40,9 @@ class Node(object):
         """
         pass
 
-    def _process_base(self, status):
+    def _process_base(self, is_silent):
         self.logger.debug(f'{self.name} processing')
-        self.is_silent = status == 'silent'
+        self.is_silent = is_silent
         package = self.get_package()  # TODO discuss this wrt BufferNodes
         ret = self.process(package)
         if ret is None:
@@ -51,7 +52,11 @@ class Node(object):
         else:  # ret is a number or something
             if isinstance(self, BufferNode):
                 package = package[-1]
-            package[self.output_var] = ret
+            try:
+                package[self.output_var] = ret
+            except TypeError:
+                # Presumably a cryptic unhashable type error
+                self.logger.error(f"Bad value ({self.output_var}) of output_var for node {self.name}")
         self.send_downstream(package)
         self.post_process()
 
@@ -73,10 +78,7 @@ class Node(object):
         Load whatever runtime values are necessary
         """
         for k, v in doc.items():
-            if k == 'length' and isinstance(self, BufferNode) and not isinstance(self, MergeNode):
-                self.buffer.set_length(int(v))
-            else:
-                self.config[k] = v
+            self.config[k] = v
 
     def process(self, package):
         """
@@ -102,6 +104,7 @@ class SourceNode(Node):
     """
     A node that adds data into a pipeline, probably by querying a db or something
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.accept_old = kwargs.get('accept_old', False)
@@ -131,6 +134,7 @@ class InfluxSourceNode(SourceNode):
     :param password: the password (InfluxDB < 1.8)
     :param database: the database (InfluxDB < 1.8)
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         if self.input_var.startswith('X_SYNC_'):
@@ -142,8 +146,9 @@ class InfluxSourceNode(SourceNode):
             where = ''
         else:
             variable = 'value'
-            # note that the single quotes in the WHERE clause are very important
-            # see https://docs.influxdata.com/influxdb/v1.8/query_language/explore-data/#a-where-clause-query-unexpectedly-returns-no-data
+            # note that the single quotes in the WHERE clause are very important see
+            # https://docs.influxdata.com/influxdb/v1.8/query_language/explore-data/#a-where-clause-query
+            # -unexpectedly-returns-no-data
             where = f"WHERE sensor='{self.input_var}'"
         query = f'SELECT last({variable}) FROM {topic} {where};'
         url = config_doc['url'] + '/query?'
@@ -174,8 +179,8 @@ class InfluxSourceNode(SourceNode):
         except Exception as e:
             raise ValueError(f'Error parsing data: {response.content}')
         timestamp = int(timestamp)
-        self.logger.debug(f'{self.name} got timestamp {timestamp}')
-        val = float(val) # 53 bits of precision and we only ever have small integers
+        self.logger.debug(f'{self.name} time {timestamp} value {val}')
+        val = float(val)  # 53 bits of precision and we only ever have small integers
         return timestamp, val
 
     def get_package(self):
@@ -188,17 +193,19 @@ class InfluxSourceNode(SourceNode):
                 raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
         self.logger.debug(f'{self.name} time {timestamp} value {val}')
-        return {'time': timestamp*(10**-9), self.output_var: val}
+        return {'time': timestamp * (10 ** -9), self.output_var: val}
+
 
 class SensorSourceNode(SourceNode):
     """
     A node to support synchronous pipeline input directly from the sensors
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         if kwargs.get('new_value_required', False) or \
                 self.input_var.startswith('X_SYNC'):
-            self.pipeline.required_inputs.add(self.name)
+            self.pipeline.required_inputs.add(self.input_var)
 
     def receive_from_upstream(self, package):
         """
@@ -206,13 +213,14 @@ class SensorSourceNode(SourceNode):
         """
         package[self.output_var] = package.pop(self.input_var)
         super().receive_from_upstream(package)
-        
-        
+
+
 class PipelineSourceNode(SourceNode):
     """
     A node to source info about another pipeline.
     The input_var is the name of another PL
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.get_from_db = kwargs['get_pipeline_stats']
@@ -221,6 +229,7 @@ class PipelineSourceNode(SourceNode):
         doc = self.get_from_db(self.input_var)
         # TODO discuss renaming fields?
         return doc
+
 
 class BufferNode(Node):
     """
@@ -233,9 +242,15 @@ class BufferNode(Node):
     Runtime params:
     :param length: int, how many values to buffer
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.strict = kwargs.get('strict_length', False)
+
+    def load_config(self, doc):
+        bufferlength = doc.pop('length')
+        self.buffer.set_length(int(bufferlength))
+        super().load_config(doc)
 
     def get_package(self):
         if self.strict and len(self.buffer) != self.buffer.length:
@@ -256,14 +271,15 @@ class MedianFilterNode(BufferNode):
     Runtime params:
     :param length: int, how many values to buffer
     """
+
     def process(self, packages):
         values = sorted([p[self.input_var] for p in packages])
         if (l := len(values)) % 2 == 0:
             # even length, we average the two adjacent to the middle
-            return (values[l//2 - 1] + values[l//2]) / 2
+            return (values[l // 2 - 1] + values[l // 2]) / 2
         else:
             # odd length
-            return values[l//2]
+            return values[l // 2]
 
 
 class MergeNode(BufferNode):
@@ -277,6 +293,7 @@ class MergeNode(BufferNode):
     Runtime params:
     None
     """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.buffer.set_length(len(self.upstream_nodes))
@@ -289,10 +306,15 @@ class MergeNode(BufferNode):
         self.strict = True
         self.method = kwargs.get('merge_how', 'avg')
 
+    def load_config(self, doc):
+        # Special case of BufferNode where we shouldn't set length
+        # Reverse load_config override
+        Node.load_config(self, doc)
+
     def merge_field(self, field, packages):
         how = self.method
         if how == 'avg':
-            return sum(p[field] for p in packages)/len(packages)
+            return sum(p[field] for p in packages) / len(packages)
         if how == 'min':
             return min(p[field] for p in packages)
         if how == 'max':
@@ -317,16 +339,10 @@ class MergeNode(BufferNode):
                 new_package[k] = v
         return new_package
 
-    def load_config(self, doc):
-        """
-        No configurable values for a MergeNode
-        """
-        return
-
 
 class IntegralNode(BufferNode):
     """
-    Calculates the integral-average of the specified value of the specified duration using the trapzoid rule.
+    Calculates the integral-average of the specified value of the specified duration using the trapezoid rule.
     Divides by the time interval at the end. Supports a 't_offset' config value, which is some time offset
     from the end of the buffer.
 
@@ -340,13 +356,14 @@ class IntegralNode(BufferNode):
     :param t_offset: Optional. How many of the most recent values you want to skip.
         The integral is calculated up to t_offset from the end of the buffer
     """
+
     def process(self, packages):
         offset = int(self.config.get('t_offset', 0))
         t = [p['time'] for p in packages]
         v = [p[self.input_var] for p in packages]
-        integral = sum((t[i] - t[i-1]) * (v[i] + v[i-1]) * 0.5 
-                        for i in range(1, len(packages)-offset))
-        integral /= (t[0] - t[-1-offset])
+        integral = sum((t[i] - t[i - 1]) * (v[i] + v[i - 1]) * 0.5
+                       for i in range(1, len(packages) - offset))
+        integral /= (t[0] - t[-1 - offset])
         return integral
 
 
@@ -364,18 +381,19 @@ class DerivativeNode(BufferNode):
     :param length: The number of values over which you want the derivative calculated.
         You'll need to do the conversion to time yourself.
     """
+
     def process(self, packages):
         t_min = packages[0]['time']
         # we subtract t_min to keep the numbers smaller - result doesn't change and we avoid floating-point
         # issues that can show up when we multiply large floats together
-        t = [p['time']-t_min for p in packages]
+        t = [p['time'] - t_min for p in packages]
         y = [p[self.input_var] for p in packages]
-        B = sum(v*v for v in t)
+        B = sum(v * v for v in t)
         C = len(packages)
-        D = sum(tt*vv for (tt, vv) in zip(t, y))
+        D = sum(tt * vv for (tt, vv) in zip(t, y))
         E = sum(y)
         F = sum(t)
-        slope = (D*C-E*F)/(B*C - F*F)
+        slope = (D * C - E * F) / (B * C - F * F)
         return slope
 
 
@@ -392,9 +410,11 @@ class PolynomialNode(Node):
         constant you would specity [value], to leave the input unchanged you would
         specify [0, 1], a quadratic could be [c, b, a], etc
     """
+
     def process(self, package):
         xform = self.config.get('transform', [0, 1])
-        return sum(a*package[self.input_var]**i for i, a in enumerate(xform)
+        return sum(a * package[self.input_var] ** i for i, a in enumerate(xform))
+
 
 class InfluxSinkNode(Node):
     """
@@ -406,6 +426,7 @@ class InfluxSinkNode(Node):
     Runtime params:
     None
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.topic = kwargs['topic']
@@ -442,6 +463,7 @@ class EvalNode(Node):
     Runtime params:
     :param c: dict, optional. Some constant values you want available for the operation.
     """
+
     def setup(self, **kwargs):
         super().setup(**kwargs)
         self.operation = kwargs['operation']
@@ -455,4 +477,3 @@ class EvalNode(Node):
             c[k] = float(v)
         v = {k: package[k] for k in self.input_var}
         return eval(self.operation)
-

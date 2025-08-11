@@ -22,7 +22,7 @@ class Device(object):
         """
         opts is the document from the database
         """
-        logger.debug('Device base ctor')
+        logger.info('Device base ctor')
         if 'address' in opts:
             for k, v in opts['address'].items():
                 setattr(self, k, v)
@@ -40,9 +40,7 @@ class Device(object):
             self.setup()
             time.sleep(0.2)
         except Exception as e:
-            self.logger.error('Something went wrong during initialization...')
-            self.logger.error(type(e))
-            self.logger.error(e)
+            self.logger.critical(f'Something went wrong during initialization. {type(e)}: {e}')
             raise ValueError('Initialization failed')
 
     def shutdown(self):
@@ -72,7 +70,7 @@ class Device(object):
         function that should call send_recv to avoid issues with simultaneous
         access (ie, the isThisMe routine avoids this)
         """
-        self.logger.debug('Readout scheduler starting')
+        self.logger.info('Readout scheduler starting')
         while not self.event.is_set():
             try:
                 command = None
@@ -85,7 +83,7 @@ class Device(object):
                     t_start = time.time()  # we don't want perf_counter because we care about
                     pkg = self.send_recv(command)
                     t_stop = time.time()  # the clock time when the data came out not cpu time
-                    pkg['time'] = 0.5*(t_start + t_stop)
+                    pkg['time'] = 0.5 * (t_start + t_stop)
                     if ret is not None:
                         d, cv = ret
                         with cv:
@@ -93,7 +91,7 @@ class Device(object):
                             cv.notify()
             except Exception as e:
                 self.logger.error(f'Scheduler caught a {type(e)} while processing {command}: {e}')
-        self.logger.debug('Readout scheduler returning')
+        self.logger.info('Readout scheduler returning')
 
     def add_to_schedule(self, command, ret=None):
         """
@@ -105,7 +103,6 @@ class Device(object):
         :param ret: a (dict, Condition) tuple to store the result for asynchronous processing.
         :returns None
         """
-        #self.logger.debug(f'Scheduling {command}')
         with self.cv:
             self.cmd_queue.append((command, ret))
             self.cv.notify()
@@ -145,7 +142,7 @@ class Device(object):
         try:
             cmd = self.execute_command(quantity, value)
         except Exception as e:
-            self.logger.warning(f'Tried to process command "{quantity}" "{value}", got a {type(e)}: {e}')
+            self.logger.error(f'Tried to process command "{quantity}" "{value}", got a {type(e)}: {e}')
             cmd = None
         if cmd is not None:
             self.add_to_schedule(command=cmd)
@@ -154,6 +151,7 @@ class Device(object):
         """
         Implemented by a child class
         """
+        return None
 
     def close(self):
         self.event.set()
@@ -207,14 +205,15 @@ class SerialDevice(Device):
         if not hasattr(self, 'msg_sleep'):
             # so we can more easily change this later
             self.msg_sleep = 1.0
-
-        if self.tty == '0':
-            raise ValueError('No tty port specified!')
+        if hasattr(self, 'id'):
+            self._device.port = f'/dev/serial/by-id/{self.id}'
+        elif self.tty == '0':
+            raise ValueError('No id nor tty port specified!')
+        elif self.tty.startswith('/'):  # Full path to device TTY specified
+            self._device.port = self.tty
+        else:
+            self._device.port = f'/dev/tty{self.tty}'
         try:
-            if self.tty.startswith('/'):  # Full path to device TTY specified
-                self._device.port = self.tty
-            else:
-                self._device.port = f'/dev/tty{self.tty}'
             self._device.open()
         except serial.SerialException as e:
             raise ValueError(f'Problem opening {self._device.port}: {e}')
@@ -241,11 +240,11 @@ class SerialDevice(Device):
                 s = device.read(device.in_waiting)
                 ret['data'] = s
         except serial.SerialException as e:
-            self.logger.error('Could not send message %s. Error %s' % (message, e))
+            self.logger.error(f'Could not send message {message}. Got an {type(e)}: {e}')
             ret['retcode'] = -2
             return ret
         except serial.SerialTimeoutException as e:
-            self.logger.error('Could not send message %s. Error %s' % (message, e))
+            self.logger.error(f'Could not send message {message}. Got an {type(e)}: {e}')
             ret['retcode'] = -2
             return ret
         time.sleep(0.2)
@@ -256,15 +255,17 @@ class LANDevice(Device):
     """
     Class for LAN-connected devices
     """
+    msg_wait = 1.0  # Seconds to wait for response
+    recv_interval = 0.1  # Socket polling interval
+    eol = b'\r'
 
     def setup(self):
-        if not hasattr(self, 'msg_sleep'):
-            self.msg_sleep = 0.01
         self.packet_bytes = 1024
         self._device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self._device.settimeout(1)
+            self._device.settimeout(5)  # Longer timeout when connecting as don't repeat
             self._device.connect((self.ip, int(self.port)))
+            self._device.settimeout(self.recv_interval)
         except socket.error as e:
             raise ValueError(f'Couldn\'t connect to {self.ip}:{self.port}. Got a {type(e)}: {e}')
         self._connected = True
@@ -285,15 +286,22 @@ class LANDevice(Device):
         try:
             self._device.sendall(message.encode())
         except socket.error as e:
-            self.logger.fatal("Could not send message %s. Error: %s" % (message.strip(), e))
+            self.logger.error(f'Could not send message {message}. {e}')
             ret['retcode'] = -2
             return ret
-        time.sleep(self.msg_sleep)
-
         try:
-            ret['data'] = self._device.recv(self.packet_bytes)
+            # Read until we get the end-of-line character
+            data = b''
+            for i in range(int(self.msg_wait / self.recv_interval) + 1):
+                try:
+                    data += self._device.recv(self.packet_bytes)
+                except socket.timeout:
+                    continue
+                if data.endswith(self.eol):
+                    break
+            ret['data'] = data
         except socket.error as e:
-            self.logger.fatal('Could not receive data from device. Error: %s' % e)
+            self.logger.error(f'Could not receive data from device. {e}')
             ret['retcode'] = -2
         return ret
 
@@ -302,6 +310,7 @@ class CheapSocketDevice(LANDevice):
     """
     Some hardware treats sockets as disposable and expects a new one for each connection, so we do that here
     """
+
     def setup(self):
         if not hasattr(self, 'msg_sleep'):
             self.msg_sleep = 0.01
@@ -316,4 +325,3 @@ class CheapSocketDevice(LANDevice):
     def send_recv(self, message):
         with socket.create_connection((self.ip, int(self.port)), timeout=0.1) as self._device:
             return super().send_recv(message)
-

@@ -12,13 +12,14 @@ class Monitor(object):
     A base monitor class
     """
 
-    def __init__(self, db=None, name=None, logger=None):
+    def __init__(self, db=None, name=None, logger=None, debug=False):
         """
         """
         self.db = db
         self.logger = logger
         self.name = name
-        self.logger.debug('Monitor constructing')
+        self.debug = debug
+        self.logger.info(f'Monitor "{name}" constructing')
         self.event = threading.Event()
         # we use a lock to synchronize access to the thread dictionary
         # we use an RLock because the thread that checks threads sometimes
@@ -36,11 +37,13 @@ class Monitor(object):
         l = Listener(port, logger, self.event, lambda cmd: self.process_command(cmd))
         self.register(name='listener', obj=l, _no_stop=True)
         self.db.notify_hypervisor(active=self.name)
-        self.logger.debug('Child setup starting')
+        self.logger.info('Child setup starting')
         self.setup()
-        self.logger.debug('Child setup completed')
+        self.logger.info('Child setup completed')
         time.sleep(1)
-        self.register(obj=self.check_threads, period=30, name='checkthreads', _no_stop=True)
+        self.register(obj=self.check_threads, period=30, name='check_threads', _no_stop=True)
+        self.register(obj=self.listen, name='listen', _no_stop=True)
+
 
     def __del__(self):
         pass
@@ -51,23 +54,22 @@ class Monitor(object):
         """
         self.event.set()
         self.shutdown()
-        pop = []
+        threads_to_pop = []
         with self.lock:
             for t in self.threads.values():
                 # set the events all here because join() blocks
                 t.event.set()
             for n, t in self.threads.items():
                 try:
-                    self.logger.debug(f'Stopping {n}')
                     t.event.set()
                     t.join()
                 except Exception as e:
-                    self.logger.debug(f'Can\'t close {n}-thread. {e}')
+                    self.logger.error(f'Can\'t close {n}-thread. {e}')
                 else:
-                    pop.append(n)
-        map(self.threads.pop, pop)
+                    threads_to_pop.append(n)
+        for p in threads_to_pop:
+            self.threads.pop(p)
         self.db.notify_hypervisor(inactive=self.name)
-        self.db.release_listener_port(self.name)
 
     def register(self, name, obj, period=None, _no_stop=False, **kwargs):
         """
@@ -78,15 +80,15 @@ class Monitor(object):
         :param period: how often (in seconds) you want this thing done. If obj is a
             function and returns a number, this will be used as the period. Default None
         :param _no_stop: bool, should this thread be allowed to stop? Default false
-        :param **kwargs: any kwargs that obj needs to be called
+        :key **kwargs: any kwargs that obj needs to be called
         :returns: None
         """
-        self.logger.debug('Registering ' + name)
+        self.logger.info('Registering ' + name)
         if isinstance(obj, threading.Thread):
             # obj is a thread
             t = obj
             if not hasattr(t, 'event'):
-                raise ValueError('Register received misformed object')
+                raise ValueError('Register received malformed object')
         else:
             # obj is a function, must wrap with FunctionHandler
             if kwargs:
@@ -127,7 +129,7 @@ class Monitor(object):
                 self.threads[name].join()
                 del self.threads[name]
             else:
-                self.logger.info(f'Asked to stop thread {name}, but it isn\'t in the dict')
+                self.logger.error(f'Asked to stop thread {name}, but it isn\'t in the dict')
 
     def check_threads(self):
         """
@@ -175,12 +177,15 @@ class Monitor(object):
                     try:
                         # name, hash, command
                         _, cmd_hash, command = msg.split(' ', maxsplit=2)
+                        if command == 'stop':
+                            # We have to ack this before stopping
+                            outgoing.send_string(f'ack {self.name} {cmd_hash}')
                         self.process_command(command)
                         outgoing.send_string(f'ack {self.name} {cmd_hash}')
                         _ = outgoing.recv_string()
                     except Exception as e:
-                        self.logger.warning(f'Caught a {type(e)} while processing command: {e}')
-                        self.logger.debug(msg)
+                        self.logger.error(f'Caught a {type(e)} while processing command {command}: {e}')
+                        self.logger.info(msg)
 
     def process_command(self, command):
         """
@@ -205,7 +210,7 @@ class FunctionHandler(threading.Thread):
         """
         Spawns a thread to do a function
         """
-        self.logger.debug(f'Starting {self.name}')
+        self.logger.info(f'Starting {self.name}')
         while not self.event.is_set():
             loop_top = time.time()
             try:
@@ -216,4 +221,4 @@ class FunctionHandler(threading.Thread):
             except Exception as e:
                 self.logger.error(f'{self.name} caught a {type(e)}: {e}')
             self.event.wait(loop_top + self.period - time.time())
-        self.logger.debug(f'Returning {self.name}')
+        self.logger.info(f'Returning {self.name}')
