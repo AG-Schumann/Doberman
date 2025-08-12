@@ -100,7 +100,7 @@ class AlarmMonitor(Doberman.PipelineMonitor):
             message += '<br><br>To silence the pipeline for longer, click one of the following links:<ul>'
             for silence_for, text in zip((15, 60, 360), ('15 minutes', '1 hour', '6 hours')):
                 if silence_for > int(silence_duration / 60):
-                    message += f'<li><a href="{website_url}/pipeline?pipeline={pipeline}&silence={silence_for}">' \
+                    message += f'<li><a href="{website_url}/pipelines?pipeline={pipeline}&silence={silence_for}">' \
                                f'{text}</a></li> '
             message += '</ul>'
         message += f'<hr>Message created on {now} by Doberman slow control.'
