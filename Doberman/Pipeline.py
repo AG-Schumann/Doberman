@@ -22,6 +22,7 @@ class Pipeline(threading.Thread):
         self.monitor = kwargs['monitor']
         self.cycles = 0
         self.last_error = -1
+        self.startup_cycles = 0
         self.event = threading.Event()
         self.subpipelines = []
         self.silenced_at_level = 0  # to support disjoint alarm pipelines
@@ -72,7 +73,7 @@ class Pipeline(threading.Thread):
         doc = self.db.get_pipeline(self.name)
         sensor_docs = {n: self.db.get_sensor_setting(n) for n in self.depends_on}
         self.reconfigure(doc['node_config'], sensor_docs)
-        is_silent = (self.cycles <= self.startup_cycles) or (doc['silent_until'] > time.time()) or \
+        is_silent = (self.cycles < self.startup_cycles) or (doc['silent_until'] > time.time()) or \
                     (doc['silent_until'] == -1)
         if not is_silent:
             # reset
@@ -90,7 +91,7 @@ class Pipeline(threading.Thread):
                     msg = f'Pipeline {self.name} node {node.name} threw {type(e)}: {e}'
                     if isinstance(node, Doberman.SourceNode):
                         drift = 0.1  # extra few ms to help with misalignment
-                    if self.cycles <= self.startup_cycles:
+                    if self.cycles < self.startup_cycles:
                         # we expect errors during startup as buffers get filled
                         self.logger.debug(msg)
                     else:
@@ -132,7 +133,6 @@ class Pipeline(threading.Thread):
         """
         pipeline_config = config['pipeline']
         self.logger.info(f'Loading graph config, {len(pipeline_config)} nodes total')
-        num_buffer_nodes = 0
         longest_buffer = 0
         influx_cfg = self.db.get_experiment_config('influx')
         alarm_cfg = self.db.get_experiment_config('alarm')
@@ -213,11 +213,9 @@ class Pipeline(threading.Thread):
                          {n: self.db.get_sensor_setting(n) for n in self.depends_on})
         for pl in self.subpipelines:
             for node in pl:
-                if isinstance(node, Doberman.BufferNode) and not isinstance(node, Doberman.MergeNode):
-                    num_buffer_nodes += 1
-                    longest_buffer = max(longest_buffer, n.buffer.length)
-
-        self.startup_cycles = num_buffer_nodes + longest_buffer  # I think?
+                if isinstance(node, Doberman.BufferNode) and node.strict:
+                    self.startup_cycles = max(longest_buffer, node.buffer.length)
+        self.db.set_pipeline_value(self.name, [('startup_cycles', self.startup_cycles)])
         self.logger.info(f'I estimate we will need {self.startup_cycles} cycles to start')
 
     def calculate_jointedness(self, graph):
