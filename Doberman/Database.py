@@ -38,6 +38,7 @@ class Database(object):
         precision = {'s': 1, 'ms': 1000, 'us': 1_000_000, 'ns': 1_000_000_000}
         self.influx_cfg = (url, headers, precision[influx_cfg.get('precision', 'ms')])
         self.address_cache = {}
+        self.influx_session = requests.Session()
 
     def close(self):
         print('DB shutting down')
@@ -390,7 +391,7 @@ class Database(object):
         ])
         timestamp = timestamp or time.time()
         data += f' {int(timestamp * precision)}'
-        r = requests.post(url, headers=headers, data=data)
+        r = self.influx_session.post(url, headers=headers, data=data)
         if r.status_code not in [200, 204]:
             # something went wrong
             self.logger.error(f'Got status code {r.status_code} instead of 200/204')
