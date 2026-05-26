@@ -89,6 +89,5 @@ class PipelineControlNode(Doberman.Node):
             target = 'pl_convert'
         else:
             raise ValueError(f'Don\'t know what to do with pipeline {pipeline}')
-        self.logger.debug(f"Sending {action} to {pipeline}")
         self.pipeline.send_command(command=f'pipelinectl_{action} {pipeline}',
                                    to=target)

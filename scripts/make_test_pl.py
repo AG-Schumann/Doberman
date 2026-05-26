@@ -2,7 +2,6 @@ from pymongo import MongoClient
 import os
 
 SENSOR_INPUT = 'V_LB_01'
-
 pl = {
         'name': 'test_pipeline',
         'status': 'inactive',
@@ -25,14 +24,8 @@ pl = {
                 'input_var': SENSOR_INPUT,
             },
             {
-                'name': 'input_sync_5',
-                'type': 'SensorSourceNode',
-                'input_var': 'X_SYNC_5',
-                'new_value_required': True
-            },
-            {
                 'name': 'filter',
-                'type': 'MedianFilter',
+                'type': 'MedianFilterNode',
                 'input_var': SENSOR_INPUT,
                 'upstream': ['input_sync'],
             },

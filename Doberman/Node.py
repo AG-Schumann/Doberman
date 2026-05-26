@@ -40,7 +40,6 @@ class Node(object):
         pass
 
     def _process_base(self, is_silent):
-        self.logger.debug(f'{self.name} processing')
         self.is_silent = is_silent
         package = self.get_package()  # TODO discuss this wrt BufferNodes
         ret = self.process(package)
@@ -191,7 +190,6 @@ class InfluxSourceNode(SourceNode):
                 # still nothing
                 raise ValueError(f'{self.name} didn\'t get a new value for {self.input_var}!')
         self.last_time = timestamp
-        self.logger.debug(f'{self.name} time {timestamp} value {val}')
         return {'time': timestamp * (10 ** -9), self.output_var: val}
 
 
